@@ -90,14 +90,14 @@ The pipeline integrates:
   - Dashboard includes:
 
     1. Pathway-level views:
-      * perturbed genes
-        * network structure
-        * DEG vs propagated genes
+        * perturbed genes
+           * network structure
+           * DEG vs propagated genes
     2. Cluster-level summaries:
         * shared pathways/genes
         * candidate drugs and MOA
     3. LLM-generated summaries using [TAHOE](https://www.tahoebio.ai/) perturbed datasets
-        * [TAHOE LLMs](https://huggingface.co/tahoebio)
+        * [Tahoe Bio LLMs](https://huggingface.co/tahoebio) a gigascale single cell perturbational atlas (May 2025)
            * biological interpretation
            * therapeutic hypotheses
 
