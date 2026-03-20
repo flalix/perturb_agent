@@ -2,31 +2,27 @@
 #!python
 # -*- coding: utf-8 -*-
 # Created on 2026/03/19
-# Udated  on 2026/03/19
+# Udated  on 2026/03/20
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
 import os, requests, json
 import pandas as pd
 
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from libs.Basic import *
 
-
 class GDC(object):
-	def __init__(self, case:str="Breast Cancer", root_data:str='../data/'):
+	def __init__(self, root_data:str='../data/'):
 		
+		self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
+		self.url_projects  = "https://api.gdc.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
 		self.url_gdc_files = "https://api.gdc.cancer.gov/files"
 		self.url_gdc_data  = f"https://api.gdc.cancer.gov/data/%s"
 
-
-		self.case = case
-
-		self.dir_case = case.lower().replace(' ', '_')
-		self.root_case = os.path.join(root_data, self.dir_case)
-		os.makedirs(self.root_case, exist_ok=True)
+		self.root_data = root_data
 
 		self.clean_gdc_files()
 
@@ -35,14 +31,84 @@ class GDC(object):
 		self.gdc_file_id = ''
 		self.gdc_data_type = ''
 
+		self.fname_programs = 'programs'
+		self.fname_cancers = 'cancers.tsv'
+
 		self.gdc_fname = ''
 		self.gdc_filename = ''
 		self.gdc_ouptut_fname = ''
 		self.gdc_ouptut_filename = ''
 
 		self.exp_unit = ""
-		self.value_col = ""		
+		self.value_col = ""
 
+	def set_cancer_type(self, case:str="Breast Cancer"):
+		self.case = case
+
+		self.root_case = os.path.join(self.root_data, self.dir_case)
+		os.makedirs(self.root_case, exist_ok=True)
+
+		self.dir_case = case.lower().replace(' ', '_')
+
+		self.clean_gdc_files()
+
+	def list_gdc_progams(self, force:bool=False, verbose:bool=False) -> List:
+
+		filename = os.path.join(self.root_data, self.fname_programs)
+
+		if os.path.exists(filename) and not force:
+			txt = read_txt(filename, verbose=verbose)
+			prog_list = eval(txt)
+			return prog_list
+
+		params = {
+			"facets": "program.name",
+			"size": 0
+		}
+
+		try:
+			res = requests.get(self.url_gdc_project, params=params)
+			buckets = res.json()["data"]["aggregations"]["program.name"]["buckets"]
+
+			prog_list = [b["key"] for b in buckets]
+
+			write_txt(str(prog_list), filename, verbose=verbose)
+
+		except Exception as e:
+			print(f"No programs found. Error: {e}")
+			return []
+
+		return prog_list
+
+
+	def get_project_cancers(self, program:str='TCGA') -> pd.DataFrame:
+
+		params = {
+			"filters": """{
+				"op": "in",
+				"content": {
+					"field": "program.name",
+					"value": [""" + program + """]
+				}
+			}""",
+			"fields": "project_id,name,primary_site,disease_type",
+			"format": "JSON",
+			"size": 100
+		}
+
+		try:
+			res = requests.get(self.url_projects, params=params)
+			projects = res.json()["data"]["hits"]
+
+			df = pd.DataFrame(projects)
+			cols = ["project_id", "primary_site", "disease_type"]
+			df = df[cols]
+			df = df.sort_values("project_id")
+		except Exception as e:
+			print(f"No data found for {program}. error: {e}")
+			return pd.DataFrame()
+	
+		return df
 
 	def get_case_uuid(self, barcode:str) -> str:
 
