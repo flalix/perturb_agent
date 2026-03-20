@@ -237,3 +237,11 @@ class GDC(object):
 			return pd.DataFrame()
 		
 		return df2
+	
+	def show_fnames(self):
+		print(f"fname       '{self.gdc_file_name}'")
+		print(f"fname id    '{self.gdc_file_id}'")
+		print(f"data type   '{self.gdc_data_type}'")
+		print(f"downloaded  '{self.gdc_fname}'")
+		print(f"final fname '{self.gdc_ouptut_fname}'")
+

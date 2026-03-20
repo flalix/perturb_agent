@@ -16,9 +16,9 @@ import shutil
 import pickle
 import pandas as pd
 from collections import OrderedDict
-from typing import Optional, Iterable, Set, Tuple, Any, List
+from typing import List # Optional, Iterable, Set, Tuple, Any,
 
-import zipfile, zlib
+import zipfile # , zlib
 
 class Basic(object):
 	def __init__(self):
