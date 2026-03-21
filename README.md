@@ -107,8 +107,8 @@ The pipeline integrates:
 6. Possible **'new'** questions:
 
     1. Given a cancer and type (stage)
-        * - are all samples similar?
-        * - what kind of info returns a clusterization?
+        * are all samples similar?
+        * what kind of info returns a clusterization?
     1. Given a cancer and type (stage) which are the difference to:
         * EXCEPTIONAL_RESPONDERS?
         * Organoids?

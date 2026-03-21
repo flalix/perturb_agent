@@ -17,7 +17,6 @@ class GDC(object):
 	def __init__(self, root_data:str='../data/'):
 		
 		self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
-		self.url_projects  = "https://api.gdc.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
 		self.url_gdc_files = "https://api.gdc.cancer.gov/files"
 		self.url_gdc_data  = f"https://api.gdc.cancer.gov/data/%s"
@@ -32,7 +31,11 @@ class GDC(object):
 		self.gdc_data_type = ''
 
 		self.fname_programs = 'programs'
-		self.fname_cancers = 'cancers.tsv'
+
+		# primary_site
+		self.fname_primary_site = 'primary_site_program_%s.tsv'
+		self.fname_subtype      = 'subtype_for_PS_%s.tsv'
+		self.fname_stage        = 'stage_for_PS_%s_Subtype_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -41,6 +44,9 @@ class GDC(object):
 
 		self.exp_unit = ""
 		self.value_col = ""
+
+		# primary site, subtype
+		self.df_ps, self.df_subt, self.df_stage = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 	def set_cancer_type(self, case:str="Breast Cancer"):
 		self.case = case
@@ -81,34 +87,234 @@ class GDC(object):
 		return prog_list
 
 
-	def get_project_cancers(self, program:str='TCGA') -> pd.DataFrame:
+	def get_primary_sites(self, program:str='TCGA', force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
-		params = {
-			"filters": """{
+		fname = self.fname_primary_site%(program)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_ps = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_ps = df_ps
+
+			return df_ps
+
+		filters = """{
 				"op": "in",
 				"content": {
 					"field": "program.name",
-					"value": [""" + program + """]
+					"value": ["%s"]
 				}
-			}""",
+			}"""
+
+		params = {
+			"filters": filters%(program),
 			"fields": "project_id,name,primary_site,disease_type",
 			"format": "JSON",
 			"size": 100
 		}
 
 		try:
-			res = requests.get(self.url_projects, params=params)
+			res = requests.get(self.url_gdc_project, params=params)
 			projects = res.json()["data"]["hits"]
 
-			df = pd.DataFrame(projects)
+			df_ps = pd.DataFrame(projects)
 			cols = ["project_id", "primary_site", "disease_type"]
-			df = df[cols]
-			df = df.sort_values("project_id")
+			df_ps = df_ps[cols]
+			df_ps = df_ps.sort_values("project_id")
+
+			_ = pdwritecsv(df_ps, fname, self.root_data, verbose=verbose)
+
 		except Exception as e:
-			print(f"No data found for {program}. error: {e}")
-			return pd.DataFrame()
+			print(f"No data found for '{program}'. error: {e}")
+			df_ps = pd.DataFrame()
+
+		self.df_ps = df_ps
 	
-		return df
+		return df_ps
+	
+	def list_disease_types(self, pid = 'TCGA-BLCA') -> List:
+	
+		try:
+			row = self.df_ps[self.df_ps.project_id == pid].iloc[0]
+			dtypes = row.disease_type
+
+			if isinstance(dtypes, str):
+				dtypes = eval(dtypes)
+		except:
+			print("No disease types were found.")
+			dtypes = []
+
+		return dtypes
+
+
+	def build_subtypes(self, pid:str, do_filter:bool=True, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+		'''
+		calc all subtypes, given and pid
+
+		filter: NOS (Not Otherwise Specified) → the pathologist could not (or did not) assign a more specific subtype.
+		e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
+
+		input: pid = primary site ID
+		output: dataframe
+		'''
+
+		fname = self.fname_subtype%(pid)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_subt = pdreadcsv(fname, self.root_data, verbose=verbose)
+
+			if do_filter:
+				df_subt = df_subt[df_subt.is_valid == True].copy()
+				df_subt.reset_index(drop=True, inplace=True)
+
+			self.df_subt = df_subt
+
+			return df_subt
+				
+
+		filters = {
+			"op": "in",
+			"content": {
+				"field": "cases.project.project_id",
+				"value": [pid]
+			}
+		}
+
+		params = {
+			"filters": json.dumps(filters),
+			"facets": "diagnoses.primary_diagnosis", 
+			"size": 0
+		}
+
+		try:
+			res = requests.get(self.url_gdc_cases, params=params)
+			data = res.json()
+
+			buckets = data["data"]["aggregations"]["diagnoses.primary_diagnosis"]["buckets"]
+
+			subtype_list  = [b["key"] for b in buckets]
+			subtype_count = [b["doc_count"] for b in buckets]
+
+			df_subt = pd.DataFrame({'subtype': subtype_list, 'n':subtype_count})
+
+			df_subt["subtype"] = (df_subt["subtype"].str.lower().str.strip())
+			df_subt["subtype_raw"] = df_subt["subtype"]  # exact GDC value
+
+			invalid_terms = ["not reported", "unknown", "nos"]
+			df_subt["is_valid"] = ~df_subt["subtype"].apply( lambda x: any(term in x for term in invalid_terms)
+)
+			df_subt["frac"] = df_subt["n"] / df_subt["n"].sum()
+
+			df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
+			df_subt.reset_index(drop=True, inplace=True)
+			
+			# 🔹 Metadata 
+			df_subt["project_id"] = pid 
+
+			cols = list(df_subt.columns)
+			cols = ["project_id"] + cols[:-1]
+			df_subt = df_subt[cols]
+
+			_ = pdwritecsv(df_subt, fname, self.root_data, verbose=verbose)
+
+		except Exception as e:
+			print(f"No data found for '{pid}'. error: {e}")
+			df_subt = pd.DataFrame()
+
+		if do_filter:
+			df_subt = df_subt[df_subt.is_valid == True].copy()
+			df_subt.reset_index(drop=True, inplace=True)
+
+		self.df_subt = df_subt
+
+		return df_subt
+	
+
+	def build_stages(self, pid:str, subtype:str, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+		'''
+		calc all stages, given and pid and a subtype
+
+		input: pid = primary site ID and subtype 
+		output: dataframe
+		'''
+
+		fname = self.fname_stage%(pid, subtype)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_subt = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_subt = df_subt
+
+			return df_subt
+				
+
+		filters = { "op": "and", 
+			 		"content": [ 
+						 { "op": "in", 
+						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
+						 { "op": "in", 
+						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } } 
+					]
+				   }
+
+		params = {
+			"filters": json.dumps(filters), 
+			"facets": "diagnoses.tumor_stage", 
+			"size": 0 
+			}
+
+		try:
+			res = requests.get(self.url_gdc_cases, params=params)
+			data = res.json()
+
+			aggs = data.get("data", {}).get("aggregations", {}) 
+			
+			buckets = aggs.get("diagnoses.tumor_stage", {}).get("buckets", []) 
+			
+			if not buckets: 
+				if verbose: print(f"No stages found for {pid} / {subtype}") 
+				return pd.DataFrame() 
+			
+			stage_list = [b["key"] for b in buckets] 
+			stage_count = [b["doc_count"] for b in buckets] 
+			
+			df_stage = pd.DataFrame({"stage": stage_list, "n": stage_count })
+
+
+			# 🔹 Normalize 
+			df_stage["stage"] = df_stage["stage"].str.lower().str.strip()
+			df_stage["stage_raw"] = df_stage["stage"]
+
+			# 🔹 Validity flag 
+			invalid_terms = ["not reported", "unknown"]
+			pattern = "|".join(invalid_terms) 
+			
+			df_stage["is_valid"] = ~df_stage["stage"].str.contains(pattern, case=False, regex=True) 
+			
+			# 🔹 Fraction 
+			df_stage["frac"] = df_stage["n"] / df_stage["n"].sum() 
+			
+			# 🔹 Metadata 
+			df_stage["project_id"] = pid 
+			df_stage["subtype"] = subtype 
+
+			cols = list(df_stage.columns)
+			cols = ["project_id", "subtype"] + cols[:-2]
+			df_stage = df_stage[cols]
+			
+			df_stage = df_stage.sort_values("n", ascending=False).reset_index(drop=True)
+			
+			_ = pdwritecsv(df_stage, fname, self.root_data, verbose=verbose)
+
+		except Exception as e:
+			print(f"No data found for '{pid}' and '{subtype}'. error: {e}")
+			df_stage = pd.DataFrame()
+
+		self.df_stage = df_stage
+
+		return df_stage
+	
 
 	def get_case_uuid(self, barcode:str) -> str:
 
