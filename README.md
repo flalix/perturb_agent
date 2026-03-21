@@ -117,11 +117,11 @@ The pipeline integrates:
 
 ### 💡 GDC flow
 
-> project → project_id  
-> primary_sites → pid and disease_type  
-> subtypes → subtype_id  
-> stages →  stage_id  
-> case_id → case_ids or UUIDs  
+> project → project_id - gdc.list_gdc_progams()  
+> primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
+> subtypes → subtype_id - gdc.build_subtypes(pid=pid, do_filter=True)  
+> stages →  stage_id - gdc.build_stages(pid=pid, subtype=subtype, do_filter=True)  
+> case_id → case_ids or UUIDs - gdc.build_cases(pid=pid, subtype=subtype, stage=stage)  
 > samples → sample_id [tumor, normal]  
 > aliquots → aliquot_id  
 > files → file_id  
