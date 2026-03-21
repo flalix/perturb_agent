@@ -115,6 +115,19 @@ The pipeline integrates:
 
 ---
 
+### 💡 GDC flow
+
+> project → project_id  
+> primary_sites → pid and disease_type  
+> subtypes → subtype_id  
+> stages →  stage_id  
+> case_id → case_ids or UUIDs  
+> samples → sample_id [tumor, normal]  
+> aliquots → aliquot_id  
+> files → file_id  
+
+---
+
 ## ⚙️  Under development
 
 > PhD Flavio Lichtenstein  
