@@ -37,7 +37,8 @@ class GDC(object):
 		self.fname_subtype      = 'subtype_for_PS_%s.tsv'
 		self.fname_stage        = 'stage_for_PS_%s_Subtype_%s.tsv'
 		self.fname_cases        = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
-		self.fname_samples      = 'samples_for_PS_%s_Subtype_%s_Stage_%s_case_%s.tsv'
+		self.fname_samples      = 'samples_for_PS_%s_Subtype_%s_Stage_%s.tsv'
+		self.fname_rnaseq_exp_files = 'rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -47,8 +48,9 @@ class GDC(object):
 		self.exp_unit = ""
 		self.value_col = ""
 
-		# primary site, subtype
-		self.df_ps, self.df_subt, self.df_stage, self.df_case = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+		# primary site, subtype, stage, case_id, samples
+		self.df_ps, self.df_subt, self.df_stage = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+		self.df_case, self.df_sample, self.df_files = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 	def set_cancer_type(self, case:str="Breast Cancer"):
 		self.case = case
@@ -408,7 +410,7 @@ class GDC(object):
 	
 
 
-	def get_camples(self, pid:str, subtype:str, stage:str, case_id:str,
+	def get_samples(self, pid:str, subtype:str, stage:str, 
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all cases, given and pid, subtype, stage, and case_id
@@ -417,7 +419,7 @@ class GDC(object):
 		output: dataframe
 		'''
 
-		fname = self.fname_cases%(pid, subtype, stage, case_id)
+		fname = self.fname_samples%(pid, subtype, stage)
 		filename = os.path.join(self.root_data, fname)
 
 		if os.path.exists(filename) and not force:
@@ -429,20 +431,29 @@ class GDC(object):
 
 		filters = { "op": "and", 
 			 		"content": [ 
-						 { "op": "in", 
-						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
-						 { "op": "in", 
-						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
-						 { "op": "in", 
-						   "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } }
+						{ "op": "in", 
+						  "content": { "field": "cases.project.project_id", "value": [pid] } 
+						}, 
+						{ "op": "in", 
+						  "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } 
+						},
+						{ "op": "in", 
+						  "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } 
+						},
 					]
 				   }
 
 		params = {
-			"filters": json.dumps(filters), 
-			"fields": "case_id",
-    		"size": 1000
-			}
+			"filters": json.dumps(filters),
+			"fields": ",".join([
+				"case_id",
+				"submitter_id",
+				"samples.sample_id",
+				"samples.submitter_id",
+				"samples.sample_type"
+			]),
+			"size": 1
+		}
 
 		try:
 			res = requests.get(self.url_gdc_cases, params=params)
@@ -451,38 +462,135 @@ class GDC(object):
 			hits = data.get("data", {}).get("hits", [])
 
 			if not hits:
-				print(f"No cases found for {pid} / {subtype} / {stage}")
+				print(f"No cases found for {pid} / {subtype} / {stage} / {case_id}")
 				return pd.DataFrame()
 
-			case_list = [h["case_id"] for h in hits]
+			samples = hits[0].get("samples", [])
 
-			df_case = pd.DataFrame({"case_id": case_list, "n":1})
+			df_sample = pd.DataFrame([{
+				"case_id": hits[0]["case_id"],
+				"case_submitter_id": hits[0]["submitter_id"],
+				"sample_id": s.get("sample_id"),
+				"sample_submitter_id": s.get("submitter_id"),
+				"sample_type": s.get("sample_type")
+				} for s in samples])
 
-			# 🔹 Fraction 
-			df_case["frac"] = df_case["n"] / df_case["n"].sum() 
-			
 			# 🔹 Metadata 
-			df_case["project_id"] = pid 
-			df_case["subtype"] = subtype 
-			df_case["stage"] = stage 
+			df_sample["project_id"] = pid 
+			df_sample["subtype"] = subtype 
+			df_sample["stage"] = stage 
 
-			cols = list(df_case.columns)
+			cols = list(df_sample.columns)
 			cols = ["project_id", "subtype", "stage"] + cols[:-3]
-			df_case = df_case[cols]
+			df_sample = df_sample[cols]
 			
-			df_case = df_case.sort_values("n", ascending=False).reset_index(drop=True)
+			df_sample = df_sample.sort_values("sample_id", ascending=False).reset_index(drop=True)
 			
-			_ = pdwritecsv(df_case, fname, self.root_data, verbose=verbose)
+			_ = pdwritecsv(df_sample, fname, self.root_data, verbose=verbose)
+			if verbose: print(f"Found {len(df_sample)} samples in many cases.")
 
 		except Exception as e:
 			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
-			df_case = pd.DataFrame()
+			df_sample = pd.DataFrame()
 
-		self.df_case = df_case
+		self.df_sample = df_sample
 
-		return df_case
+		return df_sample
 
+	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str,
+										   sample_ids: List, workflow:str="HTSeq - TPM", 
+										   force:bool=False, verbose:bool=False) -> pd.DataFrame:
+		"""
+		Retrieve RNA-seq expression files for given sample_ids
+		input: sample_ids
+		output: dataframe
+		"""
 
+		fname = self.fname_rnaseq_exp_files%(pid, subtype, stage)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_files = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_files = df_files
+
+			return df_files
+
+		if not sample_ids:
+			print(f"No samples ids")
+			return pd.DataFrame()
+
+		filters = {"op": "and",
+				  "content": [
+						{ "op": "in",
+						  "content": {"field": "cases.samples.sample_id", "value": sample_ids}
+						},
+						{ "op": "in",
+						  "content": {"field": "data_type", "value": ["Gene Expression Quantification"]}
+						},
+						{ "op": "in",
+						  "content": {"field": "analysis.workflow_type", "value": [workflow]}
+						},
+						{ "op": "in",
+						  "content": {"field": "access", "value": ["open"] }
+						}
+					]
+				}
+
+		params = {
+			"filters": json.dumps(filters),
+			"fields": ",".join([
+				"file_id", 	"file_name", "cases.case_id", "cases.submitter_id",
+				"cases.samples.sample_id", 	"cases.samples.submitter_id", "analysis.workflow_type"
+			]),
+			"size": 1000
+		}
+
+		try:
+			res = requests.get(self.url_gdc_files, params=params)
+			data = res.json()
+
+			hits = data.get("data", {}).get("hits", [])
+
+			if not hits:
+				print(f"No expression files found for sample_ids = {sample_ids}")
+				return pd.DataFrame()
+
+			rows = []
+
+			for h in hits:
+				for case in h.get("cases", []):
+					for sample in case.get("samples", []):
+						rows.append({
+							"case_id": case.get("case_id"),
+							"file_id": h.get("file_id"),
+							"file_name": h.get("file_name"),
+							"case_submitter_id": case.get("submitter_id"),
+							"sample_id": sample.get("sample_id"),
+							"sample_submitter_id": sample.get("submitter_id"),
+							"workflow": h.get("analysis", {}).get("workflow_type")
+						})
+			df_files = pd.DataFrame(rows)
+			cols = list(df_files.columns)
+
+			# 🔹 Metadata 
+			df_files["project_id"] = pid 
+			df_files["subtype"] = subtype 
+			df_files["stage"] = stage 
+
+			cols = ["project_id", "subtype", "stage"] + cols
+			df_files = df_files[cols]
+
+			_ = pdwritecsv(df_files, fname, self.root_data, verbose=verbose)
+			if verbose: print(f"Found {len(df_files)} files.")
+			
+		except Exception as e:
+			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
+			self.df_files = pd.DataFrame()
+			return self.df_files
+
+		self.df_files = df_files
+
+		return df_files
 
 	def get_case_uuid(self, barcode:str) -> str:
 
@@ -521,7 +629,12 @@ class GDC(object):
 
 		return hits[0]["case_id"]
 
+
 	def get_files(self, case_uuid:str, data_type:str="Gene Expression Quantification") -> List:
+		lista = self.get_expression_files_by_uuid(case_uuid, data_type="Gene Expression Quantification")
+		return lista
+
+	def get_expression_files_by_uuid(self, case_uuid:str, data_type:str="Gene Expression Quantification") -> List:
 
 		self.clean_gdc_files()
 
