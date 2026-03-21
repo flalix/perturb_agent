@@ -30,13 +30,14 @@ class GDC(object):
 		self.gdc_file_id = ''
 		self.gdc_data_type = ''
 
-		self.fname_programs = 'programs'
+		self.fname_programs = 'programs.txt'
 
 		# primary_site
 		self.fname_primary_site = 'primary_site_program_%s.tsv'
 		self.fname_subtype      = 'subtype_for_PS_%s.tsv'
 		self.fname_stage        = 'stage_for_PS_%s_Subtype_%s.tsv'
-		self.fname_cases        = 'stage_for_PS_%s_Subtype_%s_Stage_%s.tsv'
+		self.fname_cases        = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
+		self.fname_samples      = 'samples_for_PS_%s_Subtype_%s_Stage_%s_case_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -405,6 +406,83 @@ class GDC(object):
 
 		return df_case
 	
+
+
+	def get_camples(self, pid:str, subtype:str, stage:str, case_id:str,
+				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
+		'''
+		calc all cases, given and pid, subtype, stage, and case_id
+
+		input: pid = primary site ID, subtype, stage, and case_id
+		output: dataframe
+		'''
+
+		fname = self.fname_cases%(pid, subtype, stage, case_id)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_case = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_case = df_case
+
+			return df_case
+				
+
+		filters = { "op": "and", 
+			 		"content": [ 
+						 { "op": "in", 
+						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
+						 { "op": "in", 
+						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
+						 { "op": "in", 
+						   "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } }
+					]
+				   }
+
+		params = {
+			"filters": json.dumps(filters), 
+			"fields": "case_id",
+    		"size": 1000
+			}
+
+		try:
+			res = requests.get(self.url_gdc_cases, params=params)
+			data = res.json()
+
+			hits = data.get("data", {}).get("hits", [])
+
+			if not hits:
+				print(f"No cases found for {pid} / {subtype} / {stage}")
+				return pd.DataFrame()
+
+			case_list = [h["case_id"] for h in hits]
+
+			df_case = pd.DataFrame({"case_id": case_list, "n":1})
+
+			# 🔹 Fraction 
+			df_case["frac"] = df_case["n"] / df_case["n"].sum() 
+			
+			# 🔹 Metadata 
+			df_case["project_id"] = pid 
+			df_case["subtype"] = subtype 
+			df_case["stage"] = stage 
+
+			cols = list(df_case.columns)
+			cols = ["project_id", "subtype", "stage"] + cols[:-3]
+			df_case = df_case[cols]
+			
+			df_case = df_case.sort_values("n", ascending=False).reset_index(drop=True)
+			
+			_ = pdwritecsv(df_case, fname, self.root_data, verbose=verbose)
+
+		except Exception as e:
+			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
+			df_case = pd.DataFrame()
+
+		self.df_case = df_case
+
+		return df_case
+
+
 
 	def get_case_uuid(self, barcode:str) -> str:
 
