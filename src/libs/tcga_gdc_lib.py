@@ -36,6 +36,7 @@ class GDC(object):
 		self.fname_primary_site = 'primary_site_program_%s.tsv'
 		self.fname_subtype      = 'subtype_for_PS_%s.tsv'
 		self.fname_stage        = 'stage_for_PS_%s_Subtype_%s.tsv'
+		self.fname_cases        = 'stage_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -46,7 +47,7 @@ class GDC(object):
 		self.value_col = ""
 
 		# primary site, subtype
-		self.df_ps, self.df_subt, self.df_stage = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+		self.df_ps, self.df_subt, self.df_stage, self.df_case = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 	def set_cancer_type(self, case:str="Breast Cancer"):
 		self.case = case
@@ -167,6 +168,7 @@ class GDC(object):
 			if do_filter:
 				df_subt = df_subt[df_subt.is_valid == True].copy()
 				df_subt.reset_index(drop=True, inplace=True)
+				df_subt["frac"] = df_subt["n"] / df_subt["n"].sum()
 
 			self.df_subt = df_subt
 
@@ -225,13 +227,15 @@ class GDC(object):
 		if do_filter:
 			df_subt = df_subt[df_subt.is_valid == True].copy()
 			df_subt.reset_index(drop=True, inplace=True)
+			df_subt["frac"] = df_subt["n"] / df_subt["n"].sum()
 
 		self.df_subt = df_subt
 
 		return df_subt
 	
 
-	def build_stages(self, pid:str, subtype:str, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def build_stages(self, pid:str, subtype:str, do_filter:bool=True, 
+				     force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all stages, given and pid and a subtype
 
@@ -243,10 +247,16 @@ class GDC(object):
 		filename = os.path.join(self.root_data, fname)
 
 		if os.path.exists(filename) and not force:
-			df_subt = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_subt = df_subt
+			df_stage = pdreadcsv(fname, self.root_data, verbose=verbose)
 
-			return df_subt
+			if do_filter:
+				df_stage = df_stage[df_stage.is_valid == True].copy()
+				df_stage.reset_index(drop=True, inplace=True)
+				df_stage["frac"] = df_stage["n"] / df_stage["n"].sum()	
+
+			self.df_stage = df_stage
+
+			return df_stage
 				
 
 		filters = { "op": "and", 
@@ -260,7 +270,7 @@ class GDC(object):
 
 		params = {
 			"filters": json.dumps(filters), 
-			"facets": "diagnoses.tumor_stage", 
+			"facets": "diagnoses.ajcc_pathologic_stage", 
 			"size": 0 
 			}
 
@@ -270,7 +280,7 @@ class GDC(object):
 
 			aggs = data.get("data", {}).get("aggregations", {}) 
 			
-			buckets = aggs.get("diagnoses.tumor_stage", {}).get("buckets", []) 
+			buckets = aggs.get("diagnoses.ajcc_pathologic_stage", {}).get("buckets", []) 
 			
 			if not buckets: 
 				if verbose: print(f"No stages found for {pid} / {subtype}") 
@@ -287,7 +297,7 @@ class GDC(object):
 			df_stage["stage_raw"] = df_stage["stage"]
 
 			# 🔹 Validity flag 
-			invalid_terms = ["not reported", "unknown"]
+			invalid_terms = ["not reported", "unknown", "_missing"]
 			pattern = "|".join(invalid_terms) 
 			
 			df_stage["is_valid"] = ~df_stage["stage"].str.contains(pattern, case=False, regex=True) 
@@ -311,9 +321,89 @@ class GDC(object):
 			print(f"No data found for '{pid}' and '{subtype}'. error: {e}")
 			df_stage = pd.DataFrame()
 
+		if do_filter:
+			df_stage = df_stage[df_stage.is_valid == True].copy()
+			df_stage.reset_index(drop=True, inplace=True)
+			df_stage["frac"] = df_stage["n"] / df_stage["n"].sum()
+
 		self.df_stage = df_stage
 
 		return df_stage
+	
+
+	def build_cases(self, pid:str, subtype:str, stage:str,
+				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
+		'''
+		calc all cases, given and pid, subtype, and stage
+
+		input: pid = primary site ID, subtype, and stage
+		output: dataframe
+		'''
+
+		fname = self.fname_cases%(pid, subtype, stage)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_case = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_case = df_case
+
+			return df_case
+				
+
+		filters = { "op": "and", 
+			 		"content": [ 
+						 { "op": "in", 
+						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
+						 { "op": "in", 
+						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
+						 { "op": "in", 
+						   "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } }
+					]
+				   }
+
+		params = {
+			"filters": json.dumps(filters), 
+			"fields": "case_id",
+    		"size": 1000
+			}
+
+		try:
+			res = requests.get(self.url_gdc_cases, params=params)
+			data = res.json()
+
+			hits = data.get("data", {}).get("hits", [])
+
+			if not hits:
+				print(f"No cases found for {pid} / {subtype} / {stage}")
+				return pd.DataFrame()
+
+			case_list = [h["case_id"] for h in hits]
+
+			df_case = pd.DataFrame({"case_id": case_list, "n":1})
+
+			# 🔹 Fraction 
+			df_case["frac"] = df_case["n"] / df_case["n"].sum() 
+			
+			# 🔹 Metadata 
+			df_case["project_id"] = pid 
+			df_case["subtype"] = subtype 
+			df_case["stage"] = stage 
+
+			cols = list(df_case.columns)
+			cols = ["project_id", "subtype", "stage"] + cols[:-3]
+			df_case = df_case[cols]
+			
+			df_case = df_case.sort_values("n", ascending=False).reset_index(drop=True)
+			
+			_ = pdwritecsv(df_case, fname, self.root_data, verbose=verbose)
+
+		except Exception as e:
+			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
+			df_case = pd.DataFrame()
+
+		self.df_case = df_case
+
+		return df_case
 	
 
 	def get_case_uuid(self, barcode:str) -> str:
@@ -346,6 +436,7 @@ class GDC(object):
 			hits = data.get("data", {}).get("hits", [])
 			if not hits:
 				raise ValueError(f"No case found for barcode {barcode}")
+			
 		except Exception as e:
 			print(f"No data found for {barcode}. error: {e}")
 			return ''
