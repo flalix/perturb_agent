@@ -497,8 +497,7 @@ class GDC(object):
 
 		return df_sample
 
-	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str,
-										   sample_ids: List, workflow:str="HTSeq - TPM", 
+	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str, sample_ids: List,
 										   force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		"""
 		Retrieve RNA-seq expression files for given sample_ids
@@ -520,18 +519,24 @@ class GDC(object):
 			return pd.DataFrame()
 
 		filters = {"op": "and",
-				  "content": [
+					"content": [
 						{ "op": "in",
-						  "content": {"field": "cases.samples.sample_id", "value": sample_ids}
+							"content": {"field": "cases.samples.sample_id", "value": sample_ids}
 						},
 						{ "op": "in",
-						  "content": {"field": "data_type", "value": ["Gene Expression Quantification"]}
+							"content": {"field": "data_type", "value": ["Gene Expression Quantification"]}
 						},
 						{ "op": "in",
-						  "content": {"field": "analysis.workflow_type", "value": [workflow]}
+							"content": {"field": "experimental_strategy", "value": ["RNA-Seq"]}
 						},
 						{ "op": "in",
-						  "content": {"field": "access", "value": ["open"] }
+							"content": {"field": "analysis.workflow_type", "value": ["STAR - Counts"]}
+						},
+						{ "op": "in",
+							"content": {"field": "data_format", "value": ["TSV"]}
+						},
+						{ "op": "in",
+							"content": {"field": "access", "value": ["open"] }
 						}
 					]
 				}
@@ -551,15 +556,17 @@ class GDC(object):
 
 			hits = data.get("data", {}).get("hits", [])
 
-			if not hits:
-				print(f"No expression files found for sample_ids = {sample_ids}")
-				return pd.DataFrame()
-
 			rows = []
 
 			for h in hits:
+				workflow = h.get("analysis", {}).get("workflow_type")
+
 				for case in h.get("cases", []):
 					for sample in case.get("samples", []):
+
+						if sample.get("sample_id") not in sample_ids:
+							continue  # 🔥 critical fix
+
 						rows.append({
 							"case_id": case.get("case_id"),
 							"file_id": h.get("file_id"),
@@ -567,8 +574,9 @@ class GDC(object):
 							"case_submitter_id": case.get("submitter_id"),
 							"sample_id": sample.get("sample_id"),
 							"sample_submitter_id": sample.get("submitter_id"),
-							"workflow": h.get("analysis", {}).get("workflow_type")
+							"workflow": workflow
 						})
+					
 			df_files = pd.DataFrame(rows)
 			cols = list(df_files.columns)
 
