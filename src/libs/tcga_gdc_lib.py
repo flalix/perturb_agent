@@ -334,7 +334,7 @@ class GDC(object):
 		return df_stage
 	
 
-	def build_cases(self, pid:str, subtype:str, stage:str,
+	def build_cases(self, pid:str, subtype:str, stage:str, size_:int=10000,
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all cases, given and pid, subtype, and stage
@@ -367,7 +367,7 @@ class GDC(object):
 		params = {
 			"filters": json.dumps(filters), 
 			"fields": "case_id",
-    		"size": 1000
+    		"size": size_
 			}
 
 		try:
@@ -410,7 +410,7 @@ class GDC(object):
 	
 
 
-	def get_samples(self, pid:str, subtype:str, stage:str, 
+	def get_samples(self, pid:str, subtype:str, stage:str, batch_size:int=200,
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all cases, given and pid, subtype, stage, and case_id
@@ -443,51 +443,85 @@ class GDC(object):
 					]
 				   }
 
-		params = {
-			"filters": json.dumps(filters),
-			"fields": ",".join([
-				"case_id",
-				"submitter_id",
-				"samples.sample_id",
-				"samples.submitter_id",
-				"samples.sample_type"
-			]),
-			"size": 1
-		}
+		#------------- batch search 
+		all_hits = []
+		from_ = 0
+		size_ = batch_size
+		total = None
 
+		print("Searching: ", end='')
 		try:
-			res = requests.get(self.url_gdc_cases, params=params)
-			data = res.json()
+			while True:
+				print(".", end='')
+				params = {
+					"filters": json.dumps(filters),
+					"fields": ",".join([
+						"case_id",
+						"submitter_id",
+						"samples.sample_id",
+						"samples.submitter_id",
+						"samples.sample_type"
+					]),
+					"from": from_,
+					"size": size_,
+				}
 
-			hits = data.get("data", {}).get("hits", [])
+				res = requests.get(self.url_gdc_cases, params=params)
+				data = res.json()
 
-			if not hits:
-				print(f"No cases found for {pid} / {subtype} / {stage} / {case_id}")
+				hits = data.get("data", {}).get("hits", [])
+
+				if total is None:
+					total = data["data"]["pagination"]["total"]
+				
+				if not hits:
+					break
+
+				all_hits.extend(hits)
+				from_ += size_
+
+			print("\n")
+
+			if all_hits == []:
+				print(f"No cases found for {pid} / {subtype} / {stage} ")
 				return pd.DataFrame()
+			
+			#------------ lost data? ------------------
+			N = len(all_hits)
 
-			samples = hits[0].get("samples", [])
+			if N < total:
+				print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
+			else:
+				print(f"👉 Returned {N} / Total paginated {total}")
 
-			df_sample = pd.DataFrame([{
-				"case_id": hits[0]["case_id"],
-				"case_submitter_id": hits[0]["submitter_id"],
-				"sample_id": s.get("sample_id"),
-				"sample_submitter_id": s.get("submitter_id"),
-				"sample_type": s.get("sample_type")
-				} for s in samples])
+			#------------ having all hits -------------
+			rows = []
+
+			for hit in all_hits:
+				for s in hit.get("samples", []):
+					rows.append({
+						"case_id": hit["case_id"],
+						"case_submitter_id": hit["submitter_id"],
+						"sample_id": s.get("sample_id"),
+						"sample_submitter_id": s.get("submitter_id"),
+						"sample_type": s.get("sample_type")
+					})
+
+			df_sample = pd.DataFrame(rows)
+			cols = list(df_sample.columns)
 
 			# 🔹 Metadata 
 			df_sample["project_id"] = pid 
 			df_sample["subtype"] = subtype 
 			df_sample["stage"] = stage 
 
-			cols = list(df_sample.columns)
-			cols = ["project_id", "subtype", "stage"] + cols[:-3]
+			cols = ["project_id", "subtype", "stage"] + cols
 			df_sample = df_sample[cols]
 			
 			df_sample = df_sample.sort_values("sample_id", ascending=False).reset_index(drop=True)
 			
 			_ = pdwritecsv(df_sample, fname, self.root_data, verbose=verbose)
-			if verbose: print(f"Found {len(df_sample)} samples in many cases.")
+			if verbose: print(f"Found {len(df_sample)} samples for many cases.")
 
 		except Exception as e:
 			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
@@ -497,11 +531,12 @@ class GDC(object):
 
 		return df_sample
 
-	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str, sample_ids: List,
+	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str,
+										   case_ids: List, batch_size:int=20,
 										   force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		"""
-		Retrieve RNA-seq expression files for given sample_ids
-		input: sample_ids
+		Retrieve RNA-seq expression files for given case_ids
+		input: case_ids
 		output: dataframe
 		"""
 
@@ -514,14 +549,14 @@ class GDC(object):
 
 			return df_files
 
-		if not sample_ids:
+		if not case_ids:
 			print(f"No samples ids")
 			return pd.DataFrame()
 
 		filters = {"op": "and",
 					"content": [
 						{ "op": "in",
-							"content": {"field": "cases.samples.sample_id", "value": sample_ids}
+							"content": {"field": "cases.case_id", "value": case_ids}
 						},
 						{ "op": "in",
 							"content": {"field": "data_type", "value": ["Gene Expression Quantification"]}
@@ -533,6 +568,9 @@ class GDC(object):
 							"content": {"field": "analysis.workflow_type", "value": ["STAR - Counts"]}
 						},
 						{ "op": "in",
+						  "content": { "field": "cases.samples.sample_type", "value": ["Primary Tumor", "Solid Tissue Normal"]	}
+						},		
+						{ "op": "in",
 							"content": {"field": "data_format", "value": ["TSV"]}
 						},
 						{ "op": "in",
@@ -540,43 +578,86 @@ class GDC(object):
 						}
 					]
 				}
+		
+		"""
+		"""
 
-		params = {
-			"filters": json.dumps(filters),
-			"fields": ",".join([
-				"file_id", 	"file_name", "cases.case_id", "cases.submitter_id",
-				"cases.samples.sample_id", 	"cases.samples.submitter_id", "analysis.workflow_type"
-			]),
-			"size": 1000
-		}
+		#------------- batch search 
+		all_hits = []
+		from_ = 0
+		size_ = batch_size
+		total = None
 
+		print("Searching: ", end='')
 		try:
-			res = requests.get(self.url_gdc_files, params=params)
-			data = res.json()
+			while True:
+				print(".", end='')
 
-			hits = data.get("data", {}).get("hits", [])
+				params = {
+					"filters": json.dumps(filters),
+					"fields": ",".join([
+						"file_id", 	"file_name", "file_size", "md5sum",
+						"cases.case_id", "cases.submitter_id",
+						"cases.samples.sample_id", 	"cases.samples.submitter_id", 
+						"analysis.workflow_type"
+					]),
+					"expand": "cases,cases.samples",
+					"format": "JSON",
+					"from": from_,
+					"size": size_,
+				}
 
+				res = requests.get(self.url_gdc_files, params=params)
+				data = res.json()
+	
+				hits = data.get("data", {}).get("hits", [])
+
+				if total is None:
+					total = data["data"]["pagination"]["total"]
+
+				if not hits:
+					break
+
+				all_hits.extend(hits)
+				from_ += size_
+
+			print("\n")
+
+			if all_hits == []:
+				print(f"No cases found for {pid} / {subtype} / {stage} / samples {len(case_ids)} ")
+				return pd.DataFrame()
+			
+			#------------ lost data? ------------------
+			N = len(all_hits)
+
+			if N < total:
+				print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
+			else:
+				print(f"👉 Returned {N} / Total paginated {total}")
+
+			#------------ having all hits -------------
 			rows = []
 
-			for h in hits:
-				workflow = h.get("analysis", {}).get("workflow_type")
+			for hit in all_hits:
 
-				for case in h.get("cases", []):
+				workflow = hit.get("analysis", {}).get("workflow_type")
+
+				for case in hit.get("cases", []):
 					for sample in case.get("samples", []):
 
-						if sample.get("sample_id") not in sample_ids:
+						if case.get("case_id") not in case_ids:
 							continue  # 🔥 critical fix
 
 						rows.append({
 							"case_id": case.get("case_id"),
-							"file_id": h.get("file_id"),
-							"file_name": h.get("file_name"),
-							"case_submitter_id": case.get("submitter_id"),
 							"sample_id": sample.get("sample_id"),
+							"file_id": hit.get("file_id"),
+							"file_name": hit.get("file_name"),
+							"case_submitter_id": case.get("submitter_id"),
 							"sample_submitter_id": sample.get("submitter_id"),
 							"workflow": workflow
 						})
-					
+
 			df_files = pd.DataFrame(rows)
 			cols = list(df_files.columns)
 
@@ -588,11 +669,14 @@ class GDC(object):
 			cols = ["project_id", "subtype", "stage"] + cols
 			df_files = df_files[cols]
 
-			_ = pdwritecsv(df_files, fname, self.root_data, verbose=verbose)
-			if verbose: print(f"Found {len(df_files)} files.")
+			df_files = df_files.drop_duplicates(subset="file_id")
+			df_files = df_files.sort_values("sample_id", ascending=False).reset_index(drop=True)
 			
+			_ = pdwritecsv(df_files, fname, self.root_data, verbose=verbose)
+			if verbose: print(f"Found {len(df_files)} files in selected samples.")
+
 		except Exception as e:
-			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
+			print(f"Error for '{pid}', '{subtype}', and {stage}: {e}")
 			self.df_files = pd.DataFrame()
 			return self.df_files
 
