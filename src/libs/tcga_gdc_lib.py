@@ -48,7 +48,7 @@ class GDC(object):
 		self.exp_unit = ""
 		self.value_col = ""
 
-		# primary site, subtype, stage, case_id, samples
+		# program, primary site, subtype, stage, case_id, samples
 		self.df_ps, self.df_subt, self.df_stage = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 		self.df_case, self.df_sample, self.df_files = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -62,7 +62,7 @@ class GDC(object):
 
 		self.clean_gdc_files()
 
-	def list_gdc_progams(self, force:bool=False, verbose:bool=False) -> List:
+	def get_gdc_progams(self, force:bool=False, verbose:bool=False) -> List:
 
 		filename = os.path.join(self.root_data, self.fname_programs)
 
@@ -102,19 +102,17 @@ class GDC(object):
 
 			return df_ps
 
-		filters = """{
-				"op": "in",
-				"content": {
-					"field": "program.name",
-					"value": ["%s"]
+		filters = {
+					"op": "in",
+					"content": { "field": "program.name", "value": [program]
+					}
 				}
-			}"""
 
 		params = {
-			"filters": filters%(program),
+			"filters": filters,
 			"fields": "project_id,name,primary_site,disease_type",
 			"format": "JSON",
-			"size": 100
+			"size": 1000
 		}
 
 		try:
@@ -124,7 +122,8 @@ class GDC(object):
 			df_ps = pd.DataFrame(projects)
 			cols = ["project_id", "primary_site", "disease_type"]
 			df_ps = df_ps[cols]
-			df_ps = df_ps.sort_values("project_id")
+
+			df_ps = df_ps.sort_values(["primary_site", "disease_type"])
 
 			_ = pdwritecsv(df_ps, fname, self.root_data, verbose=verbose)
 
@@ -140,18 +139,18 @@ class GDC(object):
 	
 		try:
 			row = self.df_ps[self.df_ps.project_id == pid].iloc[0]
-			dtypes = row.disease_type
+			deas_type_list = row.disease_type
 
-			if isinstance(dtypes, str):
-				dtypes = eval(dtypes)
+			if isinstance(deas_type_list, str):
+				deas_type_list = eval(deas_type_list)
 		except:
 			print("No disease types were found.")
-			dtypes = []
+			deas_type_list = []
 
-		return dtypes
+		return deas_type_list
 
 
-	def build_subtypes(self, pid:str, do_filter:bool=True, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def get_subtypes(self, pid:str, do_filter:bool=True, force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all subtypes, given and pid
 
@@ -237,7 +236,7 @@ class GDC(object):
 		return df_subt
 	
 
-	def build_stages(self, pid:str, subtype:str, do_filter:bool=True, 
+	def get_stages(self, pid:str, subtype:str, do_filter:bool=True, 
 				     force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all stages, given and pid and a subtype
@@ -294,10 +293,10 @@ class GDC(object):
 			
 			df_stage = pd.DataFrame({"stage": stage_list, "n": stage_count })
 
-
-			# 🔹 Normalize 
-			df_stage["stage"] = df_stage["stage"].str.lower().str.strip()
 			df_stage["stage_raw"] = df_stage["stage"]
+			df_stage["stage_clean"] = df_stage["stage"].str.strip().str.upper()
+			# 🔹 Normalize 
+			df_stage["stage"] = df_stage["stage"].str.strip().str.lower()
 
 			# 🔹 Validity flag 
 			invalid_terms = ["not reported", "unknown", "_missing"]
@@ -334,7 +333,7 @@ class GDC(object):
 		return df_stage
 	
 
-	def build_cases(self, pid:str, subtype:str, stage:str, size_:int=10000,
+	def get_cases(self, pid:str, subtype:str, stage:str, size_:int=10000,
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all cases, given and pid, subtype, and stage
@@ -351,16 +350,29 @@ class GDC(object):
 			self.df_case = df_case
 
 			return df_case
-				
+		
 
+		stage_clean = stage.lower().replace("stage", "").strip()
+		stage1 = f"stage {stage_clean.upper()}"
+		stage2 = f"Stage {stage_clean.upper()}"
+		
+		# Stage III, or Stage IIIa and Stage IIIb //  stage IIIa and stage IIIb
 		filters = { "op": "and", 
 			 		"content": [ 
-						 { "op": "in", 
-						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
-						 { "op": "in", 
-						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
-						 { "op": "in", 
-						   "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } }
+						{ "op": "in", 
+						  "content": { "field": "cases.project.project_id", "value": [pid] } }, 
+						{ "op": "in", 
+						  "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
+						{ "op": "or",
+						  "content": [
+								{ "op": "like",
+									"content": { "field": "diagnoses.ajcc_pathologic_stage", "value": stage1 + "%" }
+								},
+								{ "op": "like",
+								"content": { "field": "diagnoses.ajcc_pathologic_stage", "value": stage2 + "%" }
+								},
+							]
+						}
 					]
 				   }
 
