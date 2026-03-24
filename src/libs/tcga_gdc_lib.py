@@ -8,7 +8,7 @@
 
 import os, requests, json, re
 import pandas as pd
-
+from collections import Counter
 from typing import List, Tuple  # , Any
 
 from libs.Basic import *
@@ -54,6 +54,54 @@ class GDC(object):
 		self.df_ps, self.df_subt, self.df_cases = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 		self.df_stage, self.df_sample, self.df_files = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+		'''
+		primary_diagnosis
+			↓
+		tumor_class        ← NEW (ACC lives here)
+			↓
+		subtype_global     ← histology (may be "other")
+			↓
+		subtype_tissue
+
+		'''
+
+		self.TUMOR_CLASS = {
+			# epithelial cancers
+			"adenocarcinoma": ["adenocarcinoma"],
+			"squamous_cell_carcinoma": ["squamous"],
+			"urothelial_carcinoma": ["urothelial"],
+			"hepatocellular_carcinoma": ["hepatocellular"],
+			"renal_cell_carcinoma": ["renal cell"],
+			"thyroid_carcinoma": ["thyroid carcinoma"],
+			
+			# organ-specific epithelial entities
+			"adrenal_cortical_carcinoma": ["adrenal cortical carcinoma"],
+			"glioma": ["glioma", "astrocytoma", "glioblastoma"],
+			
+			# mesenchymal
+			"sarcoma": ["sarcoma"],
+			"osteosarcoma": ["osteosarcoma"],
+			
+			# hematologic
+			"leukemia": ["leukemia"],
+			"lymphoma": ["lymphoma"],
+			"myeloma": ["myeloma"],
+			
+			# neuroendocrine
+			"neuroendocrine_tumor": ["neuroendocrine"],
+			
+			# melanoma
+			"melanoma": ["melanoma"],
+			
+			# germ cell
+			"germ_cell_tumor": ["germ cell"],
+			
+			# CNS specific
+			"meningioma": ["meningioma"],
+			
+			# fallback
+			"other": []
+		}
 
 		self.GLOBAL_SUBTYPE = {
 			"endometrioid": ["endometrioid"],
@@ -111,6 +159,13 @@ class GDC(object):
 			if any(p in text for p in patterns):
 				return k
 		return "other"
+	
+	def map_tumor_class(self, text:str) -> str:
+		for k, patterns in self.TUMOR_CLASS.items():
+			if any(p in text for p in patterns):
+				return k
+		return "other"
+	
 	
 	def map_histology(self, subtype:str) -> str:
 		for h, patterns in self.HISTOLOGY.items():
@@ -244,11 +299,12 @@ class GDC(object):
 
 		return deas_type_list
 
-	def get_cases_and_subtypes(self, pid:str, batch_size:int=200, do_filter:bool=True, 
-				    		   force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+	def get_cases_and_subtypes(self, pid:str, batch_size:int=200, 
+							   do_filter:bool=True, debug:bool=False, 
+				    		   force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		'''
 		calc all subtypes, given and pid --> df_cases
-		group by ["subtype_global", "subtype_tissue"] --> df_subt
+		group by ["subtype_global", "subtype_tissue", "stage"] --> df_subt
 
 		filter: NOS (Not Otherwise Specified) → the pathologist could not (or did not) assign a more specific subtype.
 		e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
@@ -279,40 +335,44 @@ class GDC(object):
 
 		if os.path.exists(filename_cases) and os.path.exists(filename_subt) and not force:
 			df_cases = pdreadcsv(fname_cases, self.root_data, verbose=verbose)
+			self.df_cases = df_cases
 
 			if do_filter:
 				df_cases = apply_filter(df_cases)
 
-			df_subt = df_cases.groupby(["subtype_global", "subtype_tissue"]).size().reset_index(name="n")
+			df_subt, df_prof = self.build_profile(df_cases)
 
-			self.df_cases = df_cases
-			self.df_subt  = df_subt
-
-			return df_cases, df_subt
+			return df_cases, df_subt, df_prof
 				
 
 		def build_tcga_ontology(df):
 
 			# ['id', 'primary_site', 'disease_type', 'case_id', 'pid', 'primary_diagnosis', 'tumor_grade', 'stage']
 
-			print("> build_tcga_ontology")
-			print("---------------------------")
-			print(df_cases.columns)
+			print("-------- build -------------")
+			print(df.columns)
 			print("---------------------------")
 
 			df["primary_site_norm"] = df["primary_site"].apply(self.text_normalization)
 			df["disease_type_norm"] = df["disease_type"].apply(self.text_normalization)
 			df["diagnosis_norm"]    = df["primary_diagnosis"].apply(self.text_normalization)
 
-			# global subtype
+			df["tumor_class"]    = df["diagnosis_norm"].apply(self.map_tumor_class)
 			df["subtype_global"] = df["diagnosis_norm"].apply(self.map_global_subtype)
+
+			"""
+			for pid=='TCGA-ACC' if subtype_global = other --> change to adrenal_cortical_carcinoma
+			"""
+			df["subtype_global"] = [df.iloc[i]["tumor_class"] 
+						            if  (df.iloc[i]["pid"] =='TCGA-ACC' and df.iloc[i]["subtype_global"] =='other')
+						            else df.iloc[i]["subtype_global"] for i in range(len(df))]
 
 			# histology
 			df["histology"] = df["subtype_global"].apply(self.map_histology)
 
 			# tissue-specific subtype
 			df["subtype_tissue"] = df.apply(
-				lambda r: self.map_tissue_subtype(r["subtype_global"], r["project_id"]),
+				lambda r: self.map_tissue_subtype(r["subtype_global"], r["pid"]),
 				axis=1
 			)
 
@@ -325,11 +385,12 @@ class GDC(object):
 			return df
 
 		# nos -> removes valid dominant classes, like "Endometrioid adenocarcinoma, NOS"
-		def classify_validity(row) -> str:
+		def classify_validity(row, debug:bool=False) -> str:
 
-			print("---------------------")
-			print(row)
-			print("---------------------")
+			if debug:
+				print("---------------------")
+				print(row)
+				print("---------------------")
 
 			diag = row["diagnosis_norm"]
 
@@ -341,11 +402,82 @@ class GDC(object):
 
 			return "valid"
 
-		def extract_diag(x, key):
-			if isinstance(x, dict):
+		def extract_any(x, key, debug:bool=False):
+			if debug: print("#", x)
+
+			if isinstance(x, list):
+				for d in x:
+					if isinstance(d, dict) and key in d and d[key] is not None:
+						return d[key]
+			elif isinstance(x, dict):
 				return x.get(key)
 			return None
+		
+		def extract_all(x, key, main_diag):
+			print(">>> main_diag", main_diag, key)
+			dicf = {"diagnosis": 'unknown',
+					"ajcc": 'unknown'
+					}
+			
+			if isinstance(x, list):
+				print(">>> list", x)
+				for d in x:
+					if isinstance(d, dict):
+						print(">>> found1111?", d)
 
+						if d.get("primary_diagnosis") == main_diag and key in d.keys():
+							print(">>> found2222?", d)
+							dicf = {"diagnosis": main_diag,
+									"ajcc": d.get(key)
+									}
+							break
+
+			elif isinstance(x, dict):
+				print(">>> dict", x)
+				dicf = {"diagnosis": x.get("primary_diagnosis"),
+						"ajcc": x.get(key)
+						}
+
+			return dicf		
+
+		def unpack_diagnoses(df):
+
+			#------------------- main_diag -------------------------------------------------------
+			diag_list = df["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
+			diag_list = [x for x in diag_list if isinstance(x, str) and x.strip()]
+			dic = Counter(diag_list)
+
+			dfa = pd.DataFrame({
+				'diag': list(dic.keys()),
+				'n': list(dic.values())
+			})
+
+			dfa = dfa.sort_values('n', ascending=False)
+			main_diag = dfa.iloc[0].diag
+
+			#------------------- main_diag end ---------------------------------------------------
+
+			dicf = df["diagnoses"].map(lambda x: extract_all(x, "ajcc_clinical_stage", main_diag))
+
+			df["subtype_global"] = dicf["diagnosis"]
+			df["stage_ajcc"]     = dicf["ajcc"]
+
+			df["tumor_grade"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_grade"))
+			df["stage_clin"]  = df["diagnoses"].map(lambda x: extract_any(x, "ajcc_clinical_stage"))
+			df["figo_stage"]  = df["diagnoses"].map(lambda x: extract_any(x, "figo_stage"))
+			df["tumor_stage"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_stage"))
+
+			df["stage"] = df["stage_ajcc"] \
+							.fillna(df["stage_clin"]) \
+							.fillna(df["figo_stage"]) \
+							.fillna(df["tumor_stage"])
+
+			df["stage"] = df["stage"].fillna('unknown')
+
+			# df_cases = df_cases.drop('diagnoses', axis=1)
+			return df
+
+		#-------------------------- batch loop ---------------------------
 		filters = {
 			"op": "in",
 			"content": {
@@ -354,11 +486,11 @@ class GDC(object):
 			}
 		}
 
-		#------------- batch search --------------------------------------
 		all_hits = []
 		from_ = 0
 		size_ = batch_size
 		total = None
+		df_cases = pd.DataFrame()
 
 		print("Searching: ", end='')
 		try:
@@ -374,7 +506,10 @@ class GDC(object):
 						"disease_type",
 						"diagnoses.primary_diagnosis",
 						"diagnoses.tumor_grade",
-						"diagnoses.ajcc_pathologic_stage"
+						"diagnoses.ajcc_pathologic_stage",
+						"diagnoses.ajcc_clinical_stage"
+						"diagnoses.figo_stage",
+						"diagnoses.tumor_stage",
 					]),
 					"format": "JSON",
 					"size": size_,
@@ -387,10 +522,11 @@ class GDC(object):
 				if 'data' not in response.keys():
 					print(f"No data found while searching for '{pid}'")
 					print(">>> response", response)
-					self.df_cases = pd.DataFrame()
+					self.df_cases = response
 					self.df_subt  = pd.DataFrame()
-					return self.df_cases, self.df_subt
-					
+					self.df_prof  = pd.DataFrame()
+					return self.df_cases, self.df_subt, self.df_prof
+			
 
 				hits = response.get("data", {}).get("hits", [])
 
@@ -407,10 +543,11 @@ class GDC(object):
 
 			if all_hits == []:
 				print(f"No subtypes found for {pid} ")
-				self.df_cases = pd.DataFrame()
+				self.df_cases = response
 				self.df_subt  = pd.DataFrame()
-				return self.df_cases, self.df_subt
-			
+				self.df_prof  = pd.DataFrame()
+				return self.df_cases, self.df_subt, self.df_prof
+	
 			#------------ lost data? ------------------
 			N = len(all_hits)
 
@@ -425,6 +562,9 @@ class GDC(object):
 			self.df_cases = df_cases
 
 			print("> 1")
+			print("----------- 1 ---------------")
+			print('rows', len(df_cases), '\ncolumns', df_cases.columns)
+			print("---------------------------")
 
 			'''
 			# flatten lists
@@ -446,68 +586,139 @@ class GDC(object):
 					"disease_type",
 					"diagnoses.primary_diagnosis",
 					"diagnoses.tumor_grade",
-					"diagnoses.ajcc_pathologic_stage"
+					"diagnoses.ajcc_pathologic_stage",
+					"diagnoses.ajcc_clinical_stage"
+					"diagnoses.figo_stage",
+					"diagnoses.tumor_stage",
 				]),
 
-				"Index(['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses',  'project.project_id'],
+				['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses', 'project.project_id']
 			"""
 
-			print("> 2")
+			df_cases = unpack_diagnoses(df_cases)
 
-			df_cases["primary_diagnosis"] = df_cases["diagnoses"].apply(lambda x: extract_diag(x, "primary_diagnosis"))
-			df_cases["tumor_grade"]       = df_cases["diagnoses"].apply(lambda x: extract_diag(x, "tumor_grade"))
-			df_cases["stage"]             = df_cases["diagnoses"].apply(lambda x: extract_diag(x, "ajcc_pathologic_stage"))
+			if debug:
+				print("> 2")
+				print("----------- 2 ---------------")
+				print(df_cases.head(3).T)
+				print("---------------------------")
+
 			self.df_cases2 = df_cases
-
-			df_cases = df_cases.drop('diagnoses', axis=1)
-
-			self.df_cases3 = df_cases
 
 			# rename for sanity
 			df_cases = df_cases.rename(columns={
 				"project.project_id": "pid",
 			})
 
-			print("> 3")
-			print("---------------------------")
-			print(df_cases)
-			print("---------------------------")
-
-			self.df_cases = df_cases
+			if debug:
+				print("> 3")
+				print("----------- 3 ---------------")
+				print(df_cases.head(3).T)
+				print("---------------------------")
 
 			df_cases = build_tcga_ontology(df_cases)
 
-			print("> 4")
-
 			df_cases["validity"] = df_cases.apply(classify_validity, axis=1)
 
+			df_cases["n"] = 1
 			df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
 			df_cases = df_cases.sort_values("n", ascending=False).reset_index(drop=True)
 			df_cases.reset_index(drop=True, inplace=True)
 
-			print("> 5")
-
 			_ = pdwritecsv(df_cases, fname_cases, self.root_data, verbose=verbose)
-			df_subt = df_cases.groupby(["subtype_global", "subtype_tissue"]).size().reset_index(name="n")
+			df_subt = df_cases.groupby(["subtype_global", "tumor_class", "subtype_tissue", "stage"]).size().reset_index(name="n")
 			_ = pdwritecsv(df_subt,  fname_subt, self.root_data, verbose=verbose)
 
 
 		except Exception as e:
 			print(f"Error for searching cases for '{pid}'. error: {e}")
-			# self.df_cases = pd.DataFrame()
+			self.df_cases = df_cases
 			self.df_subt  = pd.DataFrame()
-			return self.df_cases, self.df_subt
+			self.df_prof  = pd.DataFrame()
+			return self.df_cases, self.df_subt, self.df_prof
 
 		if do_filter:
 			df_cases = apply_filter(df_cases)
 
-		df_subt = df_cases.groupby(["subtype_global", "subtype_tissue"]).size().reset_index(name="n")
-
 		self.df_cases = df_cases
 		self.df_subt  = df_subt
+		
+		df_subt, df_prof = self.build_profile(df_cases)
 
-		return df_cases, df_subt
+		return df_cases, df_subt, df_prof
 	
+
+	def build_profile(self, df_cases: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+		def clean_case_profile(diagnoses) -> dict:
+
+			result = {
+				"primary_diagnosis": None,
+				"stage": None,
+				"tumor_grade": None,
+				"diagnosis_conflict": False,
+				"n_diagnoses": 0
+			}
+
+			# ---------- validate ----------
+			if not isinstance(diagnoses, list) or len(diagnoses) == 0:
+				return result
+
+			result["n_diagnoses"] = len(diagnoses)
+
+			# ---------- extract diagnoses ----------
+			diag_list = [
+				d.get("primary_diagnosis")
+				for d in diagnoses
+				if isinstance(d, dict) and d.get("primary_diagnosis") is not None
+			]
+
+			if not diag_list:
+				return result
+
+			# ---------- main diagnosis (mode) ----------
+			main_diag = Counter(diag_list).most_common(1)[0][0]
+			result["primary_diagnosis"] = main_diag
+
+			# ---------- conflict detection ----------
+			unique_diags = set(diag_list)
+			if len(unique_diags) > 1:
+				result["diagnosis_conflict"] = True
+
+			# ---------- extract attributes ONLY for main diagnosis ----------
+			for d in diagnoses:
+				if not isinstance(d, dict):
+					continue
+
+				if d.get("primary_diagnosis") == main_diag:
+
+					# stage (pathologic > clinical fallback)
+					stage = (
+						d.get("ajcc_pathologic_stage") or
+						d.get("ajcc_clinical_stage") or
+						d.get("figo_stage") or
+						d.get("tumor_stage")
+					)
+
+					if stage and result["stage"] is None:
+						result["stage"] = stage
+
+					# tumor grade
+					grade = d.get("tumor_grade")
+					if grade and result["tumor_grade"] is None:
+						result["tumor_grade"] = grade
+
+			return result
+
+		df_subt = df_cases.groupby(["subtype_global", "tumor_class", "subtype_tissue", "stage"]).size().reset_index(name="n")
+		self.df_subt  = df_subt
+
+		profiles = df_cases["diagnoses"].apply(clean_case_profile)
+		df_prof = pd.DataFrame(profiles.tolist())
+		self.df_prof = df_prof
+
+		return df_subt, df_prof
+
 
 	def get_stages(self, pid:str, subtype:str, do_filter:bool=True, 
 				     force:bool=False, verbose:bool=False) -> pd.DataFrame:
