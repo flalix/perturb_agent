@@ -412,38 +412,45 @@ class GDC(object):
 			elif isinstance(x, dict):
 				return x.get(key)
 			return None
-		
+
 		def extract_all(x, key, main_diag):
-			print(">>> main_diag", main_diag, key)
+			print(f">>> main_diag '{main_diag}' - key '{key}'")
+			print(">>> x", x)
+			print(">>>", type(x), x)
+
 			dicf = {"diagnosis": 'unknown',
 					"ajcc": 'unknown'
 					}
 			
-			if isinstance(x, list):
-				print(">>> list", x)
-				for d in x:
-					if isinstance(d, dict):
-						print(">>> found1111?", d)
 
-						if d.get("primary_diagnosis") == main_diag and key in d.keys():
-							print(">>> found2222?", d)
+			if isinstance(x, list):
+				for d in x:
+					print(">>> type", type(d), d)
+					if isinstance(d, dict):
+						diag_aux = d.get("primary_diagnosis")
+
+						print(">>> found", diag_aux)
+
+						if diag_aux == main_diag:
 							dicf = {"diagnosis": main_diag,
-									"ajcc": d.get(key)
+									"ajcc": 'unknown'
 									}
-							break
+							if key in d.keys():
+								dicf = {"diagnosis": main_diag,
+										"ajcc": d.get(key)
+										}
+								break
 
 			elif isinstance(x, dict):
-				print(">>> dict", x)
 				dicf = {"diagnosis": x.get("primary_diagnosis"),
 						"ajcc": x.get(key)
 						}
 
-			return dicf		
-
-		def unpack_diagnoses(df):
-
-			#------------------- main_diag -------------------------------------------------------
-			diag_list = df["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
+			print(">> exit:", dicf, '\n')
+			return dicf
+		
+		def calc_main_diagnosis(df_cases: pd.DataFrame) -> str:
+			diag_list = df_cases["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
 			diag_list = [x for x in diag_list if isinstance(x, str) and x.strip()]
 			dic = Counter(diag_list)
 
@@ -453,14 +460,25 @@ class GDC(object):
 			})
 
 			dfa = dfa.sort_values('n', ascending=False)
-			main_diag = dfa.iloc[0].diag
+			
+			return dfa.iloc[0].diag
 
-			#------------------- main_diag end ---------------------------------------------------
+		def unpack_diagnoses(df, main_diag):
 
-			dicf = df["diagnoses"].map(lambda x: extract_all(x, "ajcc_clinical_stage", main_diag))
+			print(">>> unpack_diagnoses")
+			# series = df["diagnoses"].map(lambda x: extract_all(x, "ajcc_pathologic_stage", main_diag))
 
-			df["subtype_global"] = dicf["diagnosis"]
-			df["stage_ajcc"]     = dicf["ajcc"]
+			print(">>> a ---------------------------------------------------", len(df["diagnoses"]))
+			for diags in df["diagnoses"]:
+				print(diags)
+
+			print(">>> b ---------------------------------------------------")
+			series = [extract_all(diags, "ajcc_pathologic_stage", main_diag) for diags in df["diagnoses"] ]
+			print(">>> c", series, "\n---------------------------------------------------")
+
+			df["subtype_global"] = [dic["diagnosis"] for dic in series]
+			df["stage_ajcc"]     = [dic["ajcc"]      for dic in series]
+			print(">>> c")
 
 			df["tumor_grade"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_grade"))
 			df["stage_clin"]  = df["diagnoses"].map(lambda x: extract_any(x, "ajcc_clinical_stage"))
@@ -473,6 +491,7 @@ class GDC(object):
 							.fillna(df["tumor_stage"])
 
 			df["stage"] = df["stage"].fillna('unknown')
+			print(">>> d")
 
 			# df_cases = df_cases.drop('diagnoses', axis=1)
 			return df
@@ -595,7 +614,17 @@ class GDC(object):
 				['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses', 'project.project_id']
 			"""
 
-			df_cases = unpack_diagnoses(df_cases)
+			# rename for sanity
+			self.df_cases = df_cases
+
+			#------------------- main_diag -------------------------------------------------------
+			main_diag = calc_main_diagnosis(df_cases)
+			self.main_diag = main_diag
+
+			df_cases = unpack_diagnoses(df_cases, main_diag)
+			print("> 2")
+
+			# df_cases = df_cases.rename(columns={"project.project_id": "pid"})
 
 			if debug:
 				print("> 2")
@@ -605,11 +634,6 @@ class GDC(object):
 
 			self.df_cases2 = df_cases
 
-			# rename for sanity
-			df_cases = df_cases.rename(columns={
-				"project.project_id": "pid",
-			})
-
 			if debug:
 				print("> 3")
 				print("----------- 3 ---------------")
@@ -617,21 +641,24 @@ class GDC(object):
 				print("---------------------------")
 
 			df_cases = build_tcga_ontology(df_cases)
-
+			print("> 3")
+			
 			df_cases["validity"] = df_cases.apply(classify_validity, axis=1)
 
 			df_cases["n"] = 1
 			df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
 			df_cases = df_cases.sort_values("n", ascending=False).reset_index(drop=True)
 			df_cases.reset_index(drop=True, inplace=True)
+			print("> 4")
 
 			_ = pdwritecsv(df_cases, fname_cases, self.root_data, verbose=verbose)
 			df_subt = df_cases.groupby(["subtype_global", "tumor_class", "subtype_tissue", "stage"]).size().reset_index(name="n")
 			_ = pdwritecsv(df_subt,  fname_subt, self.root_data, verbose=verbose)
+			print("> 5")
 
 
 		except Exception as e:
-			print(f"Error for searching cases for '{pid}'. error: {e}")
+			print(f"Error for searching diags for '{pid}'. error: {e}")
 			self.df_cases = df_cases
 			self.df_subt  = pd.DataFrame()
 			self.df_prof  = pd.DataFrame()
