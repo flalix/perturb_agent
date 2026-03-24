@@ -9,7 +9,7 @@
 import os, requests, json, re
 import pandas as pd
 from collections import Counter
-from typing import List, Tuple  # , Any
+from typing import List, Tuple, Any
 
 from libs.Basic import *
 
@@ -187,6 +187,26 @@ class GDC(object):
 
 		return "ok"
 
+	def simplify_stage(self, stage:str) -> Any:
+		if not isinstance(stage, str):
+			return None
+		
+		stage = stage.strip().upper()
+		
+		if stage.startswith("STAGE X"):
+			return "missing"
+		elif stage.startswith("STAGE IV"):
+			return "IV"
+		elif stage.startswith("STAGE III"):
+			return "III"
+		elif stage.startswith("STAGE II"):
+			return "II"
+		elif stage.startswith("STAGE I"):
+			return "I"
+		elif stage.startswith("UNKNOWN"):
+			return "missing"
+		
+		return None
 
 	def set_cancer_type(self, case:str="Breast Cancer"):
 		self.case = case
@@ -340,18 +360,24 @@ class GDC(object):
 			if do_filter:
 				df_cases = apply_filter(df_cases)
 
-			df_subt, df_prof = self.build_profile(df_cases)
+			df_subt = self.groupby_state(df_cases)
+			df_prof = self.build_profile(df_cases)
 
 			return df_cases, df_subt, df_prof
 				
 
 		def build_tcga_ontology(df):
 
-			# ['id', 'primary_site', 'disease_type', 'case_id', 'pid', 'primary_diagnosis', 'tumor_grade', 'stage']
+			"""
+			'id', 'primary_site', 'disease_type', 'case_id', 'diagnoses',
+			'project.project_id', 'subtype_global', 'stage_ajcc', 'tumor_grade',
+			'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
+
 
 			print("-------- build -------------")
 			print(df.columns)
 			print("---------------------------")
+			"""
 
 			df["primary_site_norm"] = df["primary_site"].apply(self.text_normalization)
 			df["disease_type_norm"] = df["disease_type"].apply(self.text_normalization)
@@ -414,41 +440,41 @@ class GDC(object):
 			return None
 
 		def extract_all(x, key, main_diag):
-			print(f">>> main_diag '{main_diag}' - key '{key}'")
-			print(">>> x", x)
-			print(">>>", type(x), x)
+			# print(">>> extract_all")
+			# print(f">>> main_diag '{main_diag}' - key '{key}' - '{x}'")
 
 			dicf = {"diagnosis": 'unknown',
 					"ajcc": 'unknown'
 					}
 			
-
+			i=0
 			if isinstance(x, list):
 				for d in x:
-					print(">>> type", type(d), d)
+					# print("int loop", i)
 					if isinstance(d, dict):
 						diag_aux = d.get("primary_diagnosis")
 
-						print(">>> found", diag_aux)
-
 						if diag_aux == main_diag:
-							dicf = {"diagnosis": main_diag,
-									"ajcc": 'unknown'
-									}
 							if key in d.keys():
 								dicf = {"diagnosis": main_diag,
 										"ajcc": d.get(key)
 										}
-								break
+								# print(">> exit1:", i, dicf, '\n\n')
+								return dicf
+							else:
+								dicf = {"diagnosis": main_diag,
+										"ajcc": 'unknown'
+										}                        
+					i+=1
 
 			elif isinstance(x, dict):
 				dicf = {"diagnosis": x.get("primary_diagnosis"),
 						"ajcc": x.get(key)
 						}
 
-			print(">> exit:", dicf, '\n')
+			# print(">> exit2:", i, dicf, '\n\n')
 			return dicf
-		
+				
 		def calc_main_diagnosis(df_cases: pd.DataFrame) -> str:
 			diag_list = df_cases["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
 			diag_list = [x for x in diag_list if isinstance(x, str) and x.strip()]
@@ -465,35 +491,24 @@ class GDC(object):
 
 		def unpack_diagnoses(df, main_diag):
 
-			print(">>> unpack_diagnoses")
 			# series = df["diagnoses"].map(lambda x: extract_all(x, "ajcc_pathologic_stage", main_diag))
-
-			print(">>> a ---------------------------------------------------", len(df["diagnoses"]))
-			for diags in df["diagnoses"]:
-				print(diags)
-
-			print(">>> b ---------------------------------------------------")
-			series = [extract_all(diags, "ajcc_pathologic_stage", main_diag) for diags in df["diagnoses"] ]
-			print(">>> c", series, "\n---------------------------------------------------")
+			series = [extract_all(diags, "ajcc_pathologic_stage", main_diag) for diags in df_cases["diagnoses"] ]
 
 			df["subtype_global"] = [dic["diagnosis"] for dic in series]
 			df["stage_ajcc"]     = [dic["ajcc"]      for dic in series]
-			print(">>> c")
 
-			df["tumor_grade"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_grade"))
-			df["stage_clin"]  = df["diagnoses"].map(lambda x: extract_any(x, "ajcc_clinical_stage"))
-			df["figo_stage"]  = df["diagnoses"].map(lambda x: extract_any(x, "figo_stage"))
-			df["tumor_stage"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_stage"))
+			df["primary_diagnosis"] = df["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
+			df["tumor_grade"]       = df["diagnoses"].map(lambda x: extract_any(x, "tumor_grade"))
+			df["stage_clin"]        = df["diagnoses"].map(lambda x: extract_any(x, "ajcc_clinical_stage"))
+			df["figo_stage"]        = df["diagnoses"].map(lambda x: extract_any(x, "figo_stage"))
+			df["tumor_stage"]       = df["diagnoses"].map(lambda x: extract_any(x, "tumor_stage"))
 
 			df["stage"] = df["stage_ajcc"] \
 							.fillna(df["stage_clin"]) \
 							.fillna(df["figo_stage"]) \
 							.fillna(df["tumor_stage"])
 
-			df["stage"] = df["stage"].fillna('unknown')
-			print(">>> d")
-
-			# df_cases = df_cases.drop('diagnoses', axis=1)
+			# df["stage"] = df["stage"].fillna('unknown')
 			return df
 
 		#-------------------------- batch loop ---------------------------
@@ -511,7 +526,7 @@ class GDC(object):
 		total = None
 		df_cases = pd.DataFrame()
 
-		print("Searching: ", end='')
+		# print("Searching: ", end='')
 		try:
 			while True:
 				print(".", end='')
@@ -580,38 +595,27 @@ class GDC(object):
 			df_cases = pd.json_normalize(all_hits)
 			self.df_cases = df_cases
 
+			"""
 			print("> 1")
 			print("----------- 1 ---------------")
 			print('rows', len(df_cases), '\ncolumns', df_cases.columns)
 			print("---------------------------")
 
-			'''
-			# flatten lists
-			for col in df_cases.columns:
-				df_cases[col] = df_cases[col].apply(lambda x: x[0] if isinstance(x, list) and len(x) > 0 else x)
 
+			"fields": ",".join([
+				"case_id",
+				"project.project_id",
+				"primary_site",
+				"disease_type",
+				"diagnoses.primary_diagnosis",
+				"diagnoses.tumor_grade",
+				"diagnoses.ajcc_pathologic_stage",
+				"diagnoses.ajcc_clinical_stage"
+				"diagnoses.figo_stage",
+				"diagnoses.tumor_stage",
+			]),
 
-			print("> 2")
-			print("---------------------------")
-			print(df_cases)
-			print("---------------------------")
-			'''
-
-			"""
-				"fields": ",".join([
-					"case_id",
-					"project.project_id",
-					"primary_site",
-					"disease_type",
-					"diagnoses.primary_diagnosis",
-					"diagnoses.tumor_grade",
-					"diagnoses.ajcc_pathologic_stage",
-					"diagnoses.ajcc_clinical_stage"
-					"diagnoses.figo_stage",
-					"diagnoses.tumor_stage",
-				]),
-
-				['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses', 'project.project_id']
+			['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses', 'project.project_id']
 			"""
 
 			# rename for sanity
@@ -622,12 +626,15 @@ class GDC(object):
 			self.main_diag = main_diag
 
 			df_cases = unpack_diagnoses(df_cases, main_diag)
-			print("> 2")
+			"""
+			'id', 'primary_site', 'disease_type', 'case_id', 'diagnoses',
+			'project.project_id', 'subtype_global', 'stage_ajcc', 'tumor_grade',
+			'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
+			"""
 
-			# df_cases = df_cases.rename(columns={"project.project_id": "pid"})
+			df_cases = df_cases.rename(columns={"project.project_id": "pid"})
 
 			if debug:
-				print("> 2")
 				print("----------- 2 ---------------")
 				print(df_cases.head(3).T)
 				print("---------------------------")
@@ -635,13 +642,11 @@ class GDC(object):
 			self.df_cases2 = df_cases
 
 			if debug:
-				print("> 3")
 				print("----------- 3 ---------------")
 				print(df_cases.head(3).T)
 				print("---------------------------")
 
 			df_cases = build_tcga_ontology(df_cases)
-			print("> 3")
 			
 			df_cases["validity"] = df_cases.apply(classify_validity, axis=1)
 
@@ -649,12 +654,12 @@ class GDC(object):
 			df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
 			df_cases = df_cases.sort_values("n", ascending=False).reset_index(drop=True)
 			df_cases.reset_index(drop=True, inplace=True)
-			print("> 4")
+
+			df_cases = df_cases.drop(columns=['id'])
+			df_subt = self.groupby_state(df_cases)
 
 			_ = pdwritecsv(df_cases, fname_cases, self.root_data, verbose=verbose)
-			df_subt = df_cases.groupby(["subtype_global", "tumor_class", "subtype_tissue", "stage"]).size().reset_index(name="n")
 			_ = pdwritecsv(df_subt,  fname_subt, self.root_data, verbose=verbose)
-			print("> 5")
 
 
 		except Exception as e:
@@ -670,12 +675,23 @@ class GDC(object):
 		self.df_cases = df_cases
 		self.df_subt  = df_subt
 		
-		df_subt, df_prof = self.build_profile(df_cases)
+		df_prof = self.build_profile(df_cases)
 
 		return df_cases, df_subt, df_prof
 	
 
-	def build_profile(self, df_cases: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+	def groupby_state(self, df_cases:pd.DataFrame):
+
+		df_cases["sstage"] = df_cases["stage"].map(lambda x: self.simplify_stage(x))
+		df_subt = df_cases.groupby(["pid", "subtype_global", "tumor_class", "subtype_tissue", "sstage"], dropna=False).size().reset_index(name="n")
+		df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
+
+		self.df_subt = df_subt
+
+		return df_subt
+
+
+	def build_profile(self, df_cases: pd.DataFrame) -> pd.DataFrame:
 
 		def clean_case_profile(diagnoses) -> dict:
 
@@ -727,8 +743,7 @@ class GDC(object):
 						d.get("tumor_stage")
 					)
 
-					if stage and result["stage"] is None:
-						result["stage"] = stage
+					result["stage"] = stage
 
 					# tumor grade
 					grade = d.get("tumor_grade")
@@ -737,119 +752,12 @@ class GDC(object):
 
 			return result
 
-		df_subt = df_cases.groupby(["subtype_global", "tumor_class", "subtype_tissue", "stage"]).size().reset_index(name="n")
-		self.df_subt  = df_subt
-
 		profiles = df_cases["diagnoses"].apply(clean_case_profile)
 		df_prof = pd.DataFrame(profiles.tolist())
 		self.df_prof = df_prof
 
-		return df_subt, df_prof
+		return df_prof
 
-
-	def get_stages(self, pid:str, subtype:str, do_filter:bool=True, 
-				     force:bool=False, verbose:bool=False) -> pd.DataFrame:
-		'''
-		calc all stages, given and pid and a subtype
-
-		input: pid = primary site ID and subtype 
-		output: dataframe
-		'''
-
-		fname = self.fname_stage%(pid, subtype)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_stage = pdreadcsv(fname, self.root_data, verbose=verbose)
-
-			if do_filter:
-				df_stage = df_stage[df_stage.is_valid == True].copy()
-				df_stage.reset_index(drop=True, inplace=True)
-				df_stage["frac"] = df_stage["n"] / df_stage["n"].sum()	
-
-			self.df_stage = df_stage
-
-			return df_stage
-				
-
-		filters = { "op": "and", 
-			 		"content": [ 
-						 { "op": "in", 
-						   "content": { "field": "cases.project.project_id", "value": [pid] } }, 
-						 { "op": "in",
-						   "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } } 
-					]
-				   }
-
-		params = {
-			"filters": json.dumps(filters), 
-			"facets": "diagnoses.ajcc_pathologic_stage", 
-			"size": 0 
-			}
-
-		try:
-			res = requests.get(self.url_gdc_cases, params=params)
-			response = res.json()
-
-			if 'data' not in response.keys():
-				print(f"No data found for '{pid}' and '{subtype}'")
-				print(">>> response", response)
-				self.df_stage = pd.DataFrame()
-				return self.df_stage
-			
-
-			aggs = response.get("data", {}).get("aggregations", {}) 
-			
-			buckets = aggs.get("diagnoses.ajcc_pathologic_stage", {}).get("buckets", []) 
-			
-			if not buckets: 
-				if verbose: print(f"No stages found for {pid} / {subtype}") 
-				return pd.DataFrame() 
-			
-			stage_list = [b["key"] for b in buckets] 
-			stage_count = [b["doc_count"] for b in buckets] 
-			
-			df_stage = pd.DataFrame({"stage": stage_list, "n": stage_count })
-
-			df_stage["stage_raw"] = df_stage["stage"]
-			df_stage["stage_clean"] = df_stage["stage"].str.strip().str.upper()
-			# 🔹 Normalize 
-			df_stage["stage"] = df_stage["stage"].str.strip().str.lower()
-
-			# 🔹 Validity flag 
-			invalid_terms = ["not reported", "unknown", "_missing"]
-			pattern = "|".join(invalid_terms) 
-			
-			df_stage["is_valid"] = ~df_stage["stage"].str.contains(pattern, case=False, regex=True) 
-			
-			# 🔹 Fraction 
-			df_stage["frac"] = df_stage["n"] / df_stage["n"].sum() 
-			
-			# 🔹 Metadata 
-			df_stage["project_id"] = pid 
-			df_stage["subtype"] = subtype 
-
-			cols = list(df_stage.columns)
-			cols = ["project_id", "subtype"] + cols[:-2]
-			df_stage = df_stage[cols]
-			
-			df_stage = df_stage.sort_values("n", ascending=False).reset_index(drop=True)
-			
-			_ = pdwritecsv(df_stage, fname, self.root_data, verbose=verbose)
-
-		except Exception as e:
-			print(f"Error searching stages for '{pid}' and '{subtype}': {e}")
-			df_stage = pd.DataFrame()
-
-		if do_filter:
-			df_stage = df_stage[df_stage.is_valid == True].copy()
-			df_stage.reset_index(drop=True, inplace=True)
-			df_stage["frac"] = df_stage["n"] / df_stage["n"].sum()
-
-		self.df_stage = df_stage
-
-		return df_stage
-	
 
 	def get_samples(self, pid:str, subtype:str, stage:str, batch_size:int=200,
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
