@@ -1043,11 +1043,12 @@ class GDC(object):
 		return df
 
 
-	def get_table_searching_for_fileID(self, pid:str, data_type:str, file_id:str,  verbose:bool=False) -> pd.DataFrame:
+	def get_table_searching_for_fileID(self, pid:str, data_type:str, sample_type:str, file_id:str,  verbose:bool=False) -> pd.DataFrame:
 			
 		data_type2 = title_replace(data_type)
+		sample_type2 = title_replace(sample_type)
 
-		files = [x for x in os.listdir(self.root_data) if file_id in x and data_type2 in x ]
+		files = [x for x in os.listdir(self.root_data) if file_id in x and data_type2 in x and sample_type2 in x]
 
 		if len(files) == 0:
 			print(f"No files found for {file_id}.")
@@ -1058,13 +1059,106 @@ class GDC(object):
 			print(f"Multiple files found for {file_id}. Using the first one.")
 
 		fname = files[0]
-		print(fname)
-
 		df_table = pdreadcsv(fname, self.root_data, verbose=verbose)
 		self.df_table = df_table
 
 		return df_table
 
+	def get_tumor_normal_tables(self, df_sample:pd.DataFrame, case_id:str, data_type:str, 
+							    verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+		'''
+		Retrieve tumor and normal tables for a given case ID and data type.
+
+		input:
+			df_sample: DataFrame containing sample information
+			case_id: str, case ID to filter
+			data_type: str, data type to filter
+			verbose: bool, whether to print verbose messages
+		output:
+			Tuple[pd.DataFrame, pd.DataFrame]: normal and tumor tables
+
+		'''
+
+		self.df_sample = df_sample
+
+		df2 = df_sample[df_sample.data_type == data_type]
+		case_id_list = df2.case_id.unique()
+		
+		if verbose: print(f"There are {len(case_id_list)} unique case IDs")
+
+		df_normal = df2[ [True if isinstance(x,str) and 'normal' in x.lower() else False for x in df2.sample_type] ]
+
+		if df_normal.empty:
+			print(f"No normal samples found for case ID {case_id} and data type {data_type}.")
+			self.df_normal = pd.DataFrame()
+			self.df_tumor = pd.DataFrame()
+			return self.df_normal, self.df_tumor
+
+		self.df_normal = df_normal
+
+		df_tumor  = df2[ [True if isinstance(x,str) and 'tumor' in x.lower() else False for x in df2.sample_type] ]
+
+		if df_tumor.empty:
+			print(f"No tumor samples found for case ID {case_id} and data type {data_type}.")
+			self.df_tumor = pd.DataFrame()
+			return self.df_normal, self.df_tumor
+
+		cols = ['file_id', 'data_type', 'sample_type']
+		self.df_tumor  = df_tumor[cols].copy().reset_index(drop=True)
+		self.df_normal = df_normal[cols].copy().reset_index(drop=True)
+
+		return self.df_normal, self.df_tumor
+
+	def merge_normal_tumor_tables(self, pid:str, df_normal:pd.DataFrame, df_tumor:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+		cols = ["gene_id", "symbol", "gene_type", "counts"]
+		common_cols = ["gene_id", "symbol", "gene_type"]
+
+
+		dfa_normal = pd.DataFrame()
+
+		for i, row in df_normal.iterrows():
+			data_type = row.data_type
+			sample_type = row.sample_type
+			file_id = row.file_id
+			
+			dft = self.get_table_searching_for_fileID(pid=pid, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
+
+			if dft.empty:
+				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
+				continue
+
+			dft = dft[cols]
+			dft = dft.rename(columns={"counts": f"counts_{i+1}"})
+
+			if dfa_normal.empty:
+				dfa_normal = dft
+			else:
+				dfa_normal = dfa_normal.merge(dft, on=common_cols, how="outer") 
+
+
+		dfa_tumor = pd.DataFrame()
+
+		for i, row in df_tumor.iterrows():
+			data_type = row.data_type
+			sample_type = row.sample_type
+			file_id = row.file_id
+			
+			dft = self.get_table_searching_for_fileID(pid=pid, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
+
+			if dft.empty:
+				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
+				continue
+
+			dft = dft[cols]
+			dft = dft.rename(columns={"counts": f"counts_{i+1}"})
+
+			if dfa_tumor.empty:
+				dfa_tumor = dft
+			else:
+				dfa_tumor = dfa_tumor.merge(dft, on=common_cols, how="outer") 
+
+		return dfa_normal, dfa_tumor
 
 
 	def get_case_uuid(self, barcode:str) -> str:
