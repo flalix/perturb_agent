@@ -38,7 +38,6 @@ class GDC(object):
 		self.fname_subtype      = 'subtype_for_PS_%s.tsv'
 		self.fname_stage        = 'stage_for_PS_%s_Subtype_%s.tsv'
 		self.fname_samples      = 'samples_for_PS_%s_Subtype_%s_Stage_%s.tsv'
-		self.fname_pid_samples  = 'samples_for_%s.tsv'
 		self.fname_rnaseq_exp_files = 'rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
@@ -331,7 +330,7 @@ class GDC(object):
 		e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
 
 		input: pid = primary site ID
-		output: df_cases, df_subt, df_prof
+		output: df_cases, df_subt
 		'''
 
 		def apply_filter(df_cases: pd.DataFrame) -> pd.DataFrame:
@@ -557,7 +556,7 @@ class GDC(object):
 				if 'data' not in response.keys():
 					print(f"No data found while searching for '{pid}'")
 					print(">>> response", response)
-					self.df_cases = pd.DataFrame()
+					self.df_cases = response
 					self.df_subt  = pd.DataFrame()
 					self.df_prof  = pd.DataFrame()
 					return self.df_cases, self.df_subt, self.df_prof
@@ -758,203 +757,6 @@ class GDC(object):
 		self.df_prof = df_prof
 
 		return df_prof
-
-	def get_samples_from_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
-									  subtype_tissue:str, sstage:str, 
-									  batch_cases:int=5, batch_size:int=200, 
-									  force:bool=False, verbose:bool=False) -> pd.DataFrame:
-		'''
-		return all samples given a list of cases
-		for pid, subtype_global, tumor_class, subtype_tissue, and stage
-
-		input: pid, subtype_global, tumor_class, subtype_tissue, and stage
-		output: df_sample
-		'''
-		self.df_sample = pd.DataFrame()
-
-		df_cases, _, _ = self.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, 
-											         force=False, verbose=verbose)
-	
-		self.df_cases = df_cases
-
-		s_case = f'{pid} subtype {subtype_global} tumor {tumor_class} subtype_tissue {subtype_tissue} sstage {sstage}'
-
-		if df_cases is None or df_cases.empty:
-			print(f"No cases found while searching for '{s_case}'")
-			return self.df_sample
-		
-
-		stage = sstage
-		if isinstance(sstage, str) and sstage.startswith('I'):
-				stage = 'Stage ' + sstage
-
-		df_cases = df_cases[(df_cases.subtype_global == subtype_global) & 
-							(df_cases.tumor_class == tumor_class) &
-							(df_cases.subtype_tissue == subtype_tissue) &
-							(df_cases.stage == stage)]
-		
-		self.df_cases = df_cases
-
-		if df_cases.empty:
-			print(f"No cases found for {s_case}")
-			return self.df_sample
-
-		s_case = f"{pid} {subtype_global} {tumor_class} {subtype_tissue} {stage}"
-
-		fname = self.fname_pid_samples%(s_case)
-		fname = title_replace(fname)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_sample = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_sample = df_sample
-
-			return df_sample
-
-
-		case_id_list = list(df_cases.case_id)
-		case_id_list.sort()
-
-
-		s_case_id_list3 = f"[{','.join(case_id_list[:3])}]"
-
-		N_cases = len(case_id_list)
-		print(f">>> {N_cases} cases", s_case_id_list3, ".....")
-
-
-		#-------------------------- batch loop ---------------------------
-		all_hits = []
-		from_ = 0
-		size_ = batch_size
-		total = None
-		df_sample = pd.DataFrame()
-
-		print("Searching: ", end='')
-
-		ini = -batch_cases
-		end = 0
-
-		while(True):
-			ini += batch_cases
-			end += batch_cases
-
-			if ini >= N_cases:
-				break
-			
-			if end > N_cases:
-				end = N_cases
-
-			print(f"{ini}-{end} ", end='')
-
-			lista = case_id_list[ini: end]
-			print("\n>>>", len(lista), lista)
-
-			filters = {
-				"op": "in",
-				"content": {
-					"field": "cases.case_id",
-					"value": lista
-				}
-			}			
-
-			try:
-				while True:
-					print(".", end='')
-
-					params = {
-						"filters": json.dumps(filters),
-						"fields": ",".join([
-							"file_id",
-							"file_name",
-							"data_type",
-							"data_format",
-							"experimental_strategy",
-							"cases.case_id",
-							"cases.samples.sample_id",
-							"cases.samples.sample_type"
-						]),
-						"format": "JSON",
-						"size": size_,
-						"from": from_
-					}
-					
-					res = requests.get(self.url_gdc_files, params=params)
-					response = res.json()
-
-					if 'data' not in response.keys():
-						print(f"No data found while searching for '{pid}' cases {case_id_list}")
-						print(">>> response", response)
-						self.df_sample = pd.DataFrame()
-						return self.df_sample
-				
-
-					hits = response.get("data", {}).get("hits", [])
-
-					if total is None:
-						total = response["data"]["pagination"]["total"]
-					
-					if not hits:
-						break
-
-					all_hits.extend(hits)
-					from_ += size_
-
-				print("\n")
-
-				if all_hits == []:
-					print(f"No files were found for {pid} cases {case_id_list}")
-					self.df_sample = pd.DataFrame()
-					return self.df_sample
-		
-				#------------ lost data? ------------------
-				N = len(all_hits)
-
-				if N < total:
-					print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
-				else:
-					print(f"👉 Returned {N} / Total paginated {total}")
-
-				#------------ having all hits -------------
-				records = []
-
-				for hit in all_hits:
-					for case in hit.get("cases", []):
-						for sample in case.get("samples", []):
-							records.append({
-								"case_id": case["case_id"],
-								"sample_id": sample["sample_id"],
-								"sample_type": sample["sample_type"],
-								"file_id": hit["file_id"],
-								"file_name": hit["file_name"],
-								"data_type": hit["data_type"]
-							})
-
-				df_sample = pd.DataFrame(records)
-				self.df_sample = df_sample
-				cols = list(df_sample.columns)
-
-				# 🔹 Metadata 
-				df_sample['pid'] = pid
-				df_sample['subtype_global'] = subtype_global
-				df_sample['tumor_class'] = tumor_class
-				df_sample['subtype_tissue'] = subtype_tissue
-				df_sample['stage'] = stage
-
-				cols = ["pid", "subtype_global", "tumor_class", "subtype_tissue", "stage"] + cols
-
-				df_sample = df_sample.sort_values(["case_id", "sample_type"], ascending=[False,False]).reset_index(drop=True)
-				df_sample.reset_index(drop=True, inplace=True)
-
-				_ = pdwritecsv(df_sample, fname, self.root_data, verbose=verbose)
-
-			except Exception as e:
-				print(f"Error for searching files for {s_case}'. error: {e}")
-				self.df_sample = df_sample
-				return df_sample
-
-		self.df_sample = df_sample
-
-		return df_sample
 
 
 	def get_samples(self, pid:str, subtype:str, stage:str, batch_size:int=200,
@@ -1509,16 +1311,17 @@ class GDC(object):
 			case_list = [h["case_id"] for h in hits]
 
 			df_case = pd.DataFrame({"case_id": case_list, "n":1})
+
 			# 🔹 Fraction 
 			df_case["frac"] = df_case["n"] / df_case["n"].sum() 
-			cols = list(df_case.columns)
 			
 			# 🔹 Metadata 
 			df_case["project_id"] = pid 
 			df_case["subtype"] = subtype 
 			df_case["stage"] = stage 
 
-			cols = ["project_id", "subtype", "stage"] + cols
+			cols = list(df_case.columns)
+			cols = ["project_id", "subtype", "stage"] + cols[:-3]
 			df_case = df_case[cols]
 			
 			df_case = df_case.sort_values("n", ascending=False).reset_index(drop=True)
