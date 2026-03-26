@@ -6,9 +6,12 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
+import glob
 import os, requests, json, re
 import pandas as pd
 from collections import Counter
+
+from setuptools import glob
 from typing import List, Tuple, Any
 
 from libs.Basic import *
@@ -1038,6 +1041,30 @@ class GDC(object):
 		df = df.rename(columns={"gene_name": "symbol", 'stranded_first': 'counts'})
 
 		return df
+
+
+	def get_table_searching_for_fileID(self, pid:str, data_type:str, file_id:str,  verbose:bool=False) -> pd.DataFrame:
+			
+		data_type2 = title_replace(data_type)
+
+		files = [x for x in os.listdir(self.root_data) if file_id in x and data_type2 in x ]
+
+		if len(files) == 0:
+			print(f"No files found for {file_id}.")
+			self.df_table = pd.DataFrame()
+			return self.df_table
+
+		if len(files) > 1:
+			print(f"Multiple files found for {file_id}. Using the first one.")
+
+		fname = files[0]
+		print(fname)
+
+		df_table = pdreadcsv(fname, self.root_data, verbose=verbose)
+		self.df_table = df_table
+
+		return df_table
+
 
 
 	def get_case_uuid(self, barcode:str) -> str:
