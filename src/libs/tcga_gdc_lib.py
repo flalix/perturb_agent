@@ -759,10 +759,10 @@ class GDC(object):
 
 		return df_prof
 
-	def get_samples_from_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
-									  subtype_tissue:str, sstage:str, 
-									  batch_cases:int=5, batch_size:int=200, 
-									  force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def get_samples_for_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
+									 subtype_tissue:str, sstage:str, 
+									 batch_cases:int=5, batch_size:int=200, 
+									 force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		return all samples given a list of cases
 		for pid, subtype_global, tumor_class, subtype_tissue, and stage
@@ -957,7 +957,7 @@ class GDC(object):
 		return df_sample
 
 
-	def get_samples(self, pid:str, subtype:str, stage:str, batch_size:int=200,
+	def get_samples_deprecated(self, pid:str, subtype:str, stage:str, batch_size:int=200,
 				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		calc all cases, given and pid, subtype, stage, and case_id
