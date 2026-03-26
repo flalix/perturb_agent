@@ -682,6 +682,12 @@ class GDC(object):
 		return df_cases, df_subt, df_prof
 	
 
+	def group_file_types(self, df_sample:pd.DataFrame) -> pd.DataFrame:
+		dic =  Counter(df_sample.data_type)
+		dfu = pd.DataFrame(dic.items(), columns=["data_type", "n"])
+		dfu = dfu.sort_values('n', ascending=False).reset_index(drop=True)
+		return dfu
+
 	def groupby_state(self, df_cases:pd.DataFrame):
 
 		df_cases["sstage"] = df_cases["stage"].map(lambda x: self.simplify_stage(x))

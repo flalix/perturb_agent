@@ -23,18 +23,19 @@ dependencies = [
     "python-dotenv",
     "pypdf",
     "langchain-text-splitters",
-#    "mcp",
-#    "langchain-mcp-adapters",
+    #    "mcp",
+    #    "langchain-mcp-adapters",
     "langgraph",
     "langgraph-cli",
     "langgraph-api",
     "ipywidgets",
     "sounddevice",
     "scipy",
-#    "langchain-google-vertexai",
+    #    "langchain-google-vertexai",
     "langchain-google-genai",
     "langsmith",
     "jupyterlab",
+    "databricks>=0.2",
 ]
 
 [build-system]
