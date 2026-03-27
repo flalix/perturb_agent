@@ -38,14 +38,15 @@ verbose = True
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 1.0rem !important;
-        padding-bottom: 1rem;
+        max-width: 95% !important;
+        padding-top: .5rem !important;
+        padding-bottom: .5rem;
     }
     .app-title {
         font-size: .85rem;
         font-weight: 500;
         line-height: 1.1;
-        margin-top: 10px;
+        margin-top: 20px;
         margin-bottom: 0px;
         color: #666;
     }
@@ -259,14 +260,34 @@ def main() -> None:
                 except Exception as e:
                     st.error(f"Error loading cases/subtypes: {e}")
 
-    if not st.session_state.df_subt.empty:
-        st.subheader("df_subt — subtype summary")
-        st.dataframe(st.session_state.df_subt, use_container_width=True, height=260)
+    tab1, tab2 = st.tabs(["Subtype + Cases", "DEGs"])
 
-    if not st.session_state.df_cases2.empty:
-        st.subheader("df_cases2 — cases")
-        st.dataframe(st.session_state.df_cases2, use_container_width=True, height=320)
+    with tab1:
 
+        if not st.session_state.df_subt.empty:
+            st.subheader("Subtype summary")
+            st.dataframe(st.session_state.df_subt, use_container_width=True, height=260)
+        else:
+            st.info("No subtype summary loaded.")
+        
+        if not st.session_state.df_cases2.empty:
+            st.subheader("Cases")
+            st.dataframe(st.session_state.df_cases2, use_container_width=True, height=320)
+        else:
+            st.info("No cases loaded.")
+
+    with tab2:
+        if "df_degs" not in st.session_state:
+            st.session_state.df_degs = pd.DataFrame(
+                columns=["gene_id", "gene_name", "log2FC", "padj"]
+            )
+
+        st.subheader("DEGs")
+        st.dataframe(
+            st.session_state.df_degs,
+            use_container_width=True,
+            height=320
+        )
 
 if __name__ == "__main__":
     main()
