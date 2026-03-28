@@ -36,6 +36,24 @@ class CALC_DEGS(object):
             raise FileNotFoundError(f"R script not found: {self.rscript_path}")
 
 
+    def deduplicate_by_max_reads(self, df: pd.DataFrame) -> pd.DataFrame:
+        count_cols = [c for c in df.columns if c not in self.GENE_COLS]
+        if not count_cols:
+            raise ValueError("No count columns found.")
+
+        df2 = df.copy()
+
+        for c in count_cols:
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0)
+
+        df2["_total_reads"] = df2[count_cols].sum(axis=1)
+
+        df2 = df2.sort_values(["gene_id", "_total_reads"], ascending=[True, False]) \
+              .drop_duplicates(subset="gene_id", keep="first") \
+              .drop(columns="_total_reads") \
+              .reset_index(drop=True)
+
+        return df2
 
     def _find_count_columns(self, df: pd.DataFrame) -> list[str]:
         return [c for c in df.columns if c not in self.GENE_COLS]

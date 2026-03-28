@@ -26,7 +26,7 @@ if (is.null(opt$counts) || is.null(opt$meta) || is.null(opt$out)) {
 # -----------------------------
 # Read input
 # -----------------------------
-filename_count = 1opt$counts
+filename_count = opt$counts
 filename_metadata = opt$meta
 
 counts_df <- fread(filename_count, sep = "\t", header = TRUE, data.table = FALSE)
