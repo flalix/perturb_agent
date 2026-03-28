@@ -26,11 +26,16 @@ if (is.null(opt$counts) || is.null(opt$meta) || is.null(opt$out)) {
 # -----------------------------
 # Read input
 # -----------------------------
-counts_df <- fread(opt$counts, sep = "\t", header = TRUE, data.table = FALSE)
-meta <- fread(opt$meta, sep = "\t", header = TRUE, data.table = FALSE)
+filename_count = 1opt$counts
+filename_metadata = opt$meta
+
+counts_df <- fread(filename_count, sep = "\t", header = TRUE, data.table = FALSE)
+meta <- fread(filename_metadata, sep = "\t", header = TRUE, data.table = FALSE)
 
 required_gene_cols <- c("gene_id", "symbol", "gene_type")
+
 missing_gene_cols <- setdiff(required_gene_cols, colnames(counts_df))
+
 if (length(missing_gene_cols) > 0) {
   stop(sprintf("Counts table missing required columns: %s",
                paste(missing_gene_cols, collapse = ", ")))
@@ -85,7 +90,7 @@ n_tumor  <- ifelse("tumor"  %in% names(group_sizes), group_sizes[["tumor"]], 0)
 
 # filter low counts
 keep <- rowSums(count_mat) >= opt$`min-total-count`
-count_mat <- count_mat[keep, , drop = FALSE]
+count_mat  <- count_mat[keep, , drop = FALSE]
 gene_annot <- gene_annot[keep, , drop = FALSE]
 
 if (nrow(count_mat) == 0) {
