@@ -1,0 +1,50 @@
+
+verbose=True
+
+Interface
+
+below the program dropdown, all are initally empty
+
+1) Program dropdown - default 'TCGA'
+2) Primary Sites dropdown
+3) Find cases, subtypes, tumor class ane stages
+4) 2 tables, one below the ohter
+   a. df_subt -->  subtype sumary
+   b. df_cases2 --> cases
+
+
+Backend
+
+prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
+
+prog_list is a list
+is the first dropdown
+default: 'TCGA'
+
+
+next, 
+dfc = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
+
+return a dataframe dfc
+having as columns: pid	primary_site	project_id	disease_type	name
+
+
+
+setting a column, next
+df_cases, df_subt, _ = gdc.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, force=False, verbose=verbose)
+
+show 2 daframes, 
+
+1)
+df_subt -> having as columns: pid	subtype_global	tumor_class	subtype_tissue	sstage	n
+
+
+2) 
+df_cases -> 
+filter columns
+cols = ["pid", "case_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
+
+df_cases2 = df_cases[cols]
+
+df_cases2 -> pid	case_id	subtype_global	tumor_class	subtype_tissue	stage
+

@@ -36,6 +36,8 @@ dependencies = [
     "langsmith",
     "jupyterlab",
     "databricks>=0.2",
+    "kivy>=2.3.1",
+    "gradio>=6.10.0",
 ]
 
 [build-system]

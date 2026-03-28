@@ -1,0 +1,19 @@
+
+
+back to GDC pipeline
+
+I have two dataframes with the following columns: columns: gene_id, symbol, gene_type, conts1, conts2, ... countsn
+
+1) df_tumor 
+2) df_normal - the control
+
+
+With both we will calculate the Differenatially Expressed Genes (DEG) algorithm
+using a Python tool
+or interfacing R with DESeq2 or edgeR
+
+Caveat: there is the possiblity that one expriment has only counts1
+
+Please generate the code like
+- the core algorithm in RScript
+- elsewhere in Python
