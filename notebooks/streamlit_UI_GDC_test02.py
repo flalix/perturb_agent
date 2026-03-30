@@ -6,6 +6,14 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
+#--------------- init commands --------------------------
+# 
+# cd ~/uv/perturb_agent$/notebooks/
+# source .venv/bin/activate
+# mamba activate renv
+# 
+#------------------------------------------------------
+
 import os, sys
 import pandas as pd
 import streamlit as st
@@ -23,7 +31,7 @@ print("SRC added:", SRC)
 
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
-
+from libs.calc_degs_lib import CALC_DEGS
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")
@@ -76,8 +84,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(show_spinner=False)
-def load_programs(force: bool, verbose: bool) -> list[str]:
-    prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
+def load_programs(verbose: bool) -> list[str]:
+    prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
     if not isinstance(prog_list, list):
         raise TypeError("gdc.get_gdc_progams() did not return a list")
     return [str(x) for x in prog_list]
@@ -85,20 +93,20 @@ def load_programs(force: bool, verbose: bool) -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def load_primary_sites(program: str, verbose: bool) -> pd.DataFrame:
-    dfc = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
-    if not isinstance(dfc, pd.DataFrame):
+    df_psi = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
+    if not isinstance(df_psi, pd.DataFrame):
         raise TypeError("gdc.get_primary_sites() did not return a DataFrame")
 
     expected = {"pid", "primary_site", "project_id", "disease_type", "name"}
-    missing = expected - set(dfc.columns)
+    missing = expected - set(df_psi.columns)
     if missing:
-        raise ValueError(f"Missing columns in dfc: {sorted(missing)}")
+        raise ValueError(f"Missing columns in df_psi: {sorted(missing)}")
 
-    return dfc.copy()
+    return df_psi.copy()
 
 
 @st.cache_data(show_spinner=False)
-def load_cases_and_subtypes(pid: str, verbose: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_cases_and_subtypes(pid: str, verbose: bool) -> Tuple[pd.DataFrame, pd.DataFrame]:
     df_cases, df_subt, _ = gdc.get_cases_and_subtypes(
         pid=pid,
         batch_size=200,
@@ -112,7 +120,7 @@ def load_cases_and_subtypes(pid: str, verbose: bool) -> tuple[pd.DataFrame, pd.D
     if not isinstance(df_subt, pd.DataFrame):
         raise TypeError("df_subt is not a DataFrame")
 
-    subt_cols = ["pid", "subtype_global", "tumor_class", "subtype_tissue", "sstage", "n"]
+    subt_cols = ["pid", "subtype_global", "tumor_class", "subtype_tissue", "stage", "n"]
     missing_subt = [c for c in subt_cols if c not in df_subt.columns]
     if missing_subt:
         raise ValueError(f"df_subt missing columns: {missing_subt}")
@@ -122,10 +130,52 @@ def load_cases_and_subtypes(pid: str, verbose: bool) -> tuple[pd.DataFrame, pd.D
     if missing_cases:
         raise ValueError(f"df_cases missing columns: {missing_cases}")
 
-    df_subt2 = df_subt[subt_cols].copy()
-    df_cases2 = df_cases[case_cols].copy()
+    # df_subt  = df_subt[subt_cols].copy()
+    df_cases = df_cases[case_cols].copy().reset_index(drop=True)
 
-    return df_subt2, df_cases2
+    return df_subt, df_cases
+
+
+@st.cache_data(show_spinner=False)
+def load_lfc_and_expression_tables(pid: str, df_samples: pd.DataFrame, data_type:str='Gene Expression Quantification', 
+                                   lfc_cutoff = 1.0, fdr_cutoff = .05, 
+                                   verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    
+    case_id_list = list(np.unique(df_samples.case_id))
+
+    df_normal, df_tumor = gdc.get_tumor_normal_tables(
+        df_samples=df_samples, case_id_list=case_id_list, data_type=data_type, verbose=verbose)
+    
+    if not isinstance(df_normal, pd.DataFrame):
+        raise TypeError("df_normal is not a DataFrame")
+    
+    if not isinstance(df_tumor, pd.DataFrame):
+        raise TypeError("df_tumor is not a DataFrame")
+
+    df_normal, df_tumor = gdc.merge_normal_tumor_tables(pid=pid, df_normal=df_normal, df_tumor=df_tumor)
+
+    cdegs = CALC_DEGS(root_data=root_data)
+
+    df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+    df_tumor  = cdegs.deduplicate_by_max_reads(df_tumor)
+
+    df_counts, df_meta = cdegs.build_counts_and_metadata(
+        df_tumor=df_tumor,
+        df_normal=df_normal,
+        how="inner"
+    )
+
+    df_lfc = cdegs.run_deg_rscript(df_tumor=df_tumor, df_normal=df_normal,
+                                   method="edger",  manual_dispersion=0.1, min_total_count=10, 
+                                   merge_how="inner", keep_temp=False)
+    
+    if not isinstance(df_lfc, pd.DataFrame):
+        raise TypeError("df_lfc is not a DataFrame")
+    
+
+    df_degs = df_lfc[ (df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()    
+
+    return df_degs, df_counts, df_meta
 
 
 def init_state() -> None:
@@ -134,7 +184,11 @@ def init_state() -> None:
         "primary_site": None,
         "df_primary_sites": pd.DataFrame(),
         "df_subt": pd.DataFrame(),
-        "df_cases2": pd.DataFrame(),
+        "df_cases": pd.DataFrame(),
+        "df_counts": pd.DataFrame(),
+        "df_meta": pd.DataFrame(),
+        "df_lfc": pd.DataFrame(),
+        "df_degs": pd.DataFrame(),
         "pid": "",
         "loaded_program": None,
     }
@@ -156,7 +210,7 @@ def main() -> None:
     st.title("GDC Cases Explorer")
 
     try:
-        prog_list = load_programs(force=False, verbose=verbose)
+        prog_list = load_programs(verbose=verbose)
     except Exception as e:
         st.error(f"Error loading programs: {e}")
         st.stop()
@@ -182,22 +236,24 @@ def main() -> None:
         st.session_state.program = selected_program
         st.session_state.primary_site = None
         st.session_state.df_subt = pd.DataFrame()
-        st.session_state.df_cases2 = pd.DataFrame()
+        st.session_state.df_cases = pd.DataFrame()
+        st.session_state.df_counts = pd.DataFrame()
+        st.session_state.df_lfc = pd.DataFrame()
         st.session_state.pid = ""
 
         try:
-            dfc = load_primary_sites(program=selected_program, verbose=verbose)
-            st.session_state.df_primary_sites = dfc
+            df_psi = load_primary_sites(program=selected_program, verbose=verbose)
+            st.session_state.df_primary_sites = df_psi
         except Exception as e:
             st.session_state.df_primary_sites = pd.DataFrame()
             st.error(f"Error loading primary sites: {e}")
 
-    dfc = st.session_state.df_primary_sites
+    df_psi = st.session_state.df_primary_sites
 
     primary_site_options: list[str] = []
-    if not dfc.empty:
+    if not df_psi.empty:
         primary_site_options = (
-            dfc["primary_site"]
+            df_psi["primary_site"]
             .dropna()
             .astype(str)
             .sort_values()
@@ -230,15 +286,15 @@ def main() -> None:
     _, col_btn, _ = st.columns([1, 2, 1])
 
     with col_btn:
-        run_search = st.button("Find cases, subtypes, tumor class and stages", use_container_width=True, type="primary")
+        run_search = st.button("Find cases, subtypes, tumor class and stages", width="stretch", type="primary")
 
     if run_search:
         if not selected_primary_site:
             st.warning("Please select a primary site.")
-        elif dfc.empty:
+        elif df_psi.empty:
             st.warning("Primary site table is empty.")
         else:
-            df_match = dfc[dfc["primary_site"].astype(str) == str(selected_primary_site)]
+            df_match = df_psi[df_psi["primary_site"].astype(str) == str(selected_primary_site)]
 
             if df_match.empty:
                 st.warning("Could not find pid for the selected primary site.")
@@ -250,44 +306,131 @@ def main() -> None:
 
                 try:
                     with st.spinner(f"Loading cases and subtypes for {pid}..."):
-                        df_subt, df_cases2 = load_cases_and_subtypes(pid=pid, verbose=verbose)
+                        df_subt, df_cases = load_cases_and_subtypes(pid=pid, verbose=verbose)
 
-                    st.session_state.df_subt = df_subt
-                    st.session_state.df_cases2 = df_cases2
+                    st.session_state.df_subt = df_subt.reset_index(drop=True)
+                    st.session_state.df_cases = df_cases.reset_index(drop=True)
+
+                    # clear previous downstream state
+                    for key in [
+                        "selected_case_idx",
+                        "selected_case_row",
+                        "df_samples",
+                        "df_lfc",
+                        "df_counts",
+                        "df_meta",
+                    ]:
+                        st.session_state.pop(key, None)
+
                     st.success(
-                        f"Loaded {len(df_subt)} subtype rows and {len(df_cases2)} case rows for {pid}."
+                        f"Loaded {len(df_subt)} subtype rows and {len(df_cases)} case rows for {pid}."
                     )
                 except Exception as e:
                     st.error(f"Error loading cases/subtypes: {e}")
 
-    tab1, tab2 = st.tabs(["Subtype + Cases", "DEGs"])
+    tab1, tab2, tab3 = st.tabs(["Subtype + Cases", "Counts", "DEGs"])
 
     with tab1:
-
-        if not st.session_state.df_subt.empty:
-            st.subheader("Subtype summary")
-            st.dataframe(st.session_state.df_subt, use_container_width=True, height=260)
-        else:
-            st.info("No subtype summary loaded.")
-        
-        if not st.session_state.df_cases2.empty:
-            st.subheader("Cases")
-            st.dataframe(st.session_state.df_cases2, use_container_width=True, height=320)
-        else:
-            st.info("No cases loaded.")
-
-    with tab2:
-        if "df_degs" not in st.session_state:
-            st.session_state.df_degs = pd.DataFrame(
-                columns=["gene_id", "gene_name", "log2FC", "padj"]
+        st.subheader("Subtype table")
+        if "df_subt" in st.session_state and not st.session_state.df_subt.empty:
+            event = st.dataframe(
+                st.session_state.df_subt,
+                width="stretch",
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="df_subt_select",
             )
 
-        st.subheader("DEGs")
-        st.dataframe(
-            st.session_state.df_degs,
-            use_container_width=True,
-            height=320
-        )
+            selected_rows = event.selection.rows
+
+            if selected_rows:
+                st.session_state.selected_subt_idx = selected_rows[0]
+
+            if "selected_subt_idx" in st.session_state:
+                row = st.session_state.df_subt.iloc[st.session_state.selected_subt_idx]
+                st.session_state.selected_subt_row = row.to_dict()
+
+                pid = str(row["pid"])
+                subtype_global = row["subtype_global"]
+                tumor_class = row["tumor_class"]
+                subtype_tissue = row["subtype_tissue"]
+                stage = row["stage"]
+
+                st.markdown("**Selected subtype row**")
+                st.dataframe(
+                    pd.DataFrame([row]),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                try:
+                    with st.spinner("Loading samples and expression tables..."):
+                        st.success(f"PID: {pid}, subtype {subtype_global}, tumor {tumor_class}, tissue: {subtype_tissue}, stage {stage}")
+                        df_samples = gdc.get_samples_for_pid_subtypes(
+                            pid=pid,
+                            subtype_global=subtype_global,
+                            tumor_class=tumor_class,
+                            subtype_tissue=subtype_tissue,
+                            stage=stage,
+                            batch_size=200,
+                            force=False,
+                            verbose=verbose,
+                        )
+
+                        st.success(f">> Loaded {len(df_samples)} samples.")
+
+                        df_degs, df_counts, df_meta = load_lfc_and_expression_tables(
+                            pid=pid,
+                            df_samples=df_samples,
+                            data_type="Gene Expression Quantification",
+                            verbose=verbose,
+                        )
+
+                    st.session_state.df_samples = df_samples
+                    st.session_state.df_degs = df_degs
+                    st.session_state.df_counts = df_counts
+                    st.session_state.df_meta = df_meta
+
+                    st.success(f"Loaded {len(df_samples)} samples.")
+                except Exception as e:
+                    st.error(f"Error loading downstream Count and DEG tables: {e}")
+        else:
+            st.info("No subtype table loaded yet.")
+
+        st.subheader("Cases table")
+        if "df_cases" in st.session_state and not st.session_state.df_cases.empty:
+            st.dataframe(
+                st.session_state.df_cases,
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info("No cases table loaded yet.")
+
+
+    with tab2:
+        st.subheader("Counts")
+        if "df_counts" in st.session_state and not st.session_state.df_counts.empty:
+            st.dataframe(
+                st.session_state.df_counts,
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info("No counts loaded yet.")
+
+    with tab3:
+        st.subheader("DEGs / LFC")
+        if "df_lfc" in st.session_state and not st.session_state.df_lfc.empty:
+            st.dataframe(
+                st.session_state.df_lfc,
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info("Select one row in the subtype table.") 
+
 
 if __name__ == "__main__":
     main()
