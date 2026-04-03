@@ -48,8 +48,8 @@ class GDC(object):
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.fname_fileid   = '%s_for_%s_case_%s_sample_type_%s_stage_%s_fileid_%s.tsv'
-		self.fname_mut_anal = 'mutations_anal_for_study_%s_samples_%s_to_%s.tsv'
-		self.fname_mut_summ = 'mutations_summ_for_study_%s_samples_%s_to_%s.tsv'
+		self.fname_mut_anal = 'mutations_anal_for_study_%s.tsv'
+		self.fname_mut_summ = 'mutations_summ_for_study_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -1552,6 +1552,18 @@ class GDC(object):
 
 		return dic.get(study_id, study_id)
 	
+
+	def to_cbioportal_sample_id(self, x: str) -> str:
+		parts = x.split("-")
+
+		if len(parts) >= 4 and parts[0] == "TCGA":
+			sample_code = parts[3][:2]   # 01A -> 01, 11A -> 11
+			return "-".join([parts[0], parts[1], parts[2], sample_code])
+		
+		return x
+		
+		
+
 	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, sample_ids: Iterable[str], 
 		session: Optional[requests.Session] = None, timeout: int=60,
 		force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -1559,18 +1571,21 @@ class GDC(object):
 		self.study_id0 = study_id
 		self.s_case = s_case
 
-		sample_ids = [str(x).strip() for x in sample_ids if str(x).strip()]
+		'''
+		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
+		'''
+		sample_ids = [x.strip() for x in sample_ids if str(x).strip()]
+		sample_ids = [self.to_cbioportal_sample_id(x) for x in sample_ids]
 		if not sample_ids:
 			raise ValueError("sample_ids is empty.")
 		
-		if len(sample_ids[0].split('-')[-1]) == 3:
-			sample_ids = [x[:-1] for x in sample_ids]
+		# 01A, 01B, 01Z → all collapse to 01
+		sample_ids = list(np.unique(sample_ids))
 
-		sample_ids = list(sample_ids)
-		sample_ids.sort()
-
+		'''
 		sample_ini_id = sample_ids[0]
 		sample_fin_id = sample_ids[1] if len(sample_ids) > 1 else sample_ids[0]
+		'''
 
 		if study_id[0].isupper():
 			mat = study_id.lower().split('-')
@@ -1583,11 +1598,11 @@ class GDC(object):
 		print(f"\n>>> {study_id} --> {s_case} len = {len(sample_ids)} - {sample_ids[:5]}...")
 
 
-		fname_mut_anal = self.fname_mut_anal%(s_case, sample_ini_id, sample_fin_id)
+		fname_mut_anal = self.fname_mut_anal%(s_case)
 		fname_mut_anal = title_replace(fname_mut_anal)
 		filename_mutation = os.path.join(self.root_data, fname_mut_anal)
 
-		fname_mut_summ = self.fname_mut_summ%(s_case, sample_ini_id, sample_fin_id)
+		fname_mut_summ = self.fname_mut_summ%(s_case)
 		fname_mut_summ = title_replace(fname_mut_summ)
 		filename_extmut = os.path.join(self.root_data, fname_mut_summ)
 
