@@ -535,7 +535,6 @@ class GDC(object):
 		total = None
 		df_cases = pd.DataFrame()
 
-		# print("Searching: ", end='')
 		try:
 			while True:
 				print(".", end='')
@@ -802,7 +801,7 @@ class GDC(object):
 
 	def get_samples_for_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
 									 subtype_tissue:str, s_case:str,
-									 batch_cases:int=5, batch_size:int=200, 
+									 batch_cases:int=50, batch_size:int=200, 
 									 force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		return all samples given a list of cases
@@ -867,10 +866,10 @@ class GDC(object):
 		case_id_list = list(df_cases.case_id)
 		case_id_list.sort()
 
-		s_case_id_list3 = f"[{','.join(case_id_list[:3])}]"
+		# s_case_id_list3 = f"[{','.join(case_id_list[:3])}]"
 
 		N_cases = len(case_id_list)
-		print(f">>> {N_cases} cases", s_case_id_list3, ".....")
+		print(f">>> {N_cases} cases")
 
 
 		#-------------------------- batch loop ---------------------------
@@ -880,7 +879,7 @@ class GDC(object):
 		total = None
 		df_samples = pd.DataFrame()
 
-		print("Searching: ", end='')
+		# print("Searching: ", end='')
 
 		ini = -batch_cases
 		end = 0
@@ -898,7 +897,7 @@ class GDC(object):
 			print(f"{ini}-{end} ", end='')
 
 			lista = case_id_list[ini: end]
-			print("\n>>>", len(lista), lista)
+			# print("\n>>>", len(lista), lista)
 
 			filters = {
 				"op": "in",
@@ -952,7 +951,7 @@ class GDC(object):
 					all_hits.extend(hits)
 					from_ += size_
 
-				print("\n")
+				# print("\n")
 
 				if all_hits == []:
 					print(f"No files were found for {pid} cases {case_id_list}")
@@ -965,7 +964,7 @@ class GDC(object):
 				if N < total:
 					print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
 				else:
-					print(f"👉 Returned {N} / Total paginated {total}")
+					if verbose: print(f"👉 Returned {N} / Total paginated {total}")
 
 				#------------ having all hits -------------
 				records = []
@@ -1142,7 +1141,7 @@ class GDC(object):
 			self.df_tumor = pd.DataFrame()
 			return self.df_normal, self.df_tumor
 
-		case_id_list = np.unique(df2.case_id.to_list())
+		case_id_list = np.unique(df2.case_id)
 		if verbose: print(f"There are {len(case_id_list)} unique case IDs")
 
 		def return_normal_tumor(x:Any, term:str):
@@ -1367,8 +1366,7 @@ class GDC(object):
 
 
 	def get_mutations_from_samples(self, sample_ids: Iterable[str], study_id: str,
-		session: Optional[requests.Session] = None, timeout: int = 60,
-		verbose: bool = False) -> pd.DataFrame:
+		session: Optional[requests.Session]=None, timeout:int=60) -> pd.DataFrame:
 		"""
 		Fetch mutation records from cBioPortal for a list of sample IDs.
 
@@ -1507,8 +1505,8 @@ class GDC(object):
 		return dic.get(study_id, study_id)
 	
 	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, sample_ids: Iterable[str], 
-		session: Optional[requests.Session] = None, timeout: int = 60,
-		force: bool = False, verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+		session: Optional[requests.Session] = None, timeout: int=60,
+		force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 		sample_ids = [str(x).strip() for x in sample_ids if str(x).strip()]
 		if not sample_ids:
@@ -1520,8 +1518,8 @@ class GDC(object):
 		sample_ids = list(sample_ids)
 		sample_ids.sort()
 
-		sample_ids_ini = sample_ids[0]
-		sample_ids_end = sample_ids[1] if len(sample_ids) > 1 else sample_ids[0]
+		sample_ini_id = sample_ids[0]
+		sample_fin_id = sample_ids[1] if len(sample_ids) > 1 else sample_ids[0]
 
 		if study_id[0].isupper():
 			mat = study_id.lower().split('-')
@@ -1534,11 +1532,11 @@ class GDC(object):
 			print(f">>> {s_case} // {study_id} len = {len(sample_ids)} - {sample_ids[:5]}...")
 
 
-		fname_mut_anal = self.fname_mut_anal%(s_case, sample_ids_ini, sample_ids_end)
+		fname_mut_anal = self.fname_mut_anal%(s_case, sample_ini_id, sample_fin_id)
 		fname_mut_anal = title_replace(fname_mut_anal)
 		filename_mutation = os.path.join(self.root_data, fname_mut_anal)
 
-		fname_mut_summ = self.fname_mut_summ%(s_case, sample_ids_ini, sample_ids_end)
+		fname_mut_summ = self.fname_mut_summ%(s_case, sample_ini_id, sample_fin_id)
 		fname_mut_summ = title_replace(fname_mut_summ)
 		filename_extmut = os.path.join(self.root_data, fname_mut_summ)
 
@@ -1555,7 +1553,7 @@ class GDC(object):
 			"ref_allele", "tumor_seq_allele"]		
 		'''
 		df_mut = self.get_mutations_from_samples(sample_ids=sample_ids, study_id=study_id,
-											 	session=session, timeout=timeout, verbose=verbose)
+											 	session=session, timeout=timeout)
 		
 		self.df_mut = df_mut
 		
