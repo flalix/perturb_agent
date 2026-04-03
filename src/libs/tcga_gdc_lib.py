@@ -1365,6 +1365,22 @@ class GDC(object):
 		self.gdc_ouptut_filename = os.path.join(self.root_case, self.gdc_ouptut_fname)
 
 
+
+	def resolve_mutation_profile(self, study_id: str) -> str:
+
+		candidates = [
+			f"{study_id}_mutations",
+			f"{study_id}_mutations_extended",
+		]
+
+		for mp in candidates:
+			url = f"{self.url_cbioportal}/molecular-profiles/{mp}"
+			if requests.get(url, timeout=20).ok:
+				return mp
+
+		raise ValueError(f"No mutation profile found for {study_id}")
+
+
 	def get_mutations_from_samples(self, sample_ids: Iterable[str], study_id: str,
 		session: Optional[requests.Session]=None, timeout:int=60) -> pd.DataFrame:
 		"""
@@ -1396,7 +1412,8 @@ class GDC(object):
 		- If your samples come from multiple studies, call the function per study.
 		"""
 
-		molecular_profile_id = f"{study_id}_mutations"
+		# molecular_profile_id = f"{study_id}_mutations"
+		molecular_profile_id = self.resolve_mutation_profile(study_id)
 
 		http = session or requests.Session()
 
@@ -1434,7 +1451,7 @@ class GDC(object):
 
 		df = pd.DataFrame(data)
 
-		cols = ['sampleId', 'patientId', 'studyId', 'molecularProfileId',
+		cols_ori = ['sampleId', 'patientId', 'studyId', 'molecularProfileId',
 				'entrezGeneId', 'keyword', 'proteinChange', 'mutationType',
 				'mutationStatus', 'center', 'tumorRefCount', 'variantType', 'chr', 'startPosition',
 				'endPosition', 'referenceAllele', 'uniqueSampleKey',
@@ -1443,9 +1460,23 @@ class GDC(object):
 				'proteinPosEnd'] # 'normalAltCount', 'normalRefCount', 
 
 
+		if "tumorAltCount" in df.columns:
+			df = df[cols_ori]
+		else:
+			cols = ['sampleId', 'patientId', 'studyId', 'molecularProfileId',
+					'entrezGeneId', 'keyword', 'proteinChange', 'mutationType',
+					'mutationStatus', 'center', 'tumorRefCount', 'variantType', 'chr', 'startPosition',
+					'endPosition', 'referenceAllele', 'uniqueSampleKey',
+					'uniquePatientKey', 'validationStatus', 
+					'ncbiBuild', 'variantAllele', 'refseqMrnaId', 'proteinPosStart',
+					'proteinPosEnd']
+			df = df[cols]
+			df["tumorAltCount"] = None
+			df = df[cols_ori]
+
 		# the selected cols + others not listed
-		# cols = [c for c in cols if c in df.columns.to_list()] + [c for c in df.columns if c not in cols]
-		df = df[cols]
+		# cols = [c for c in df.columns if c in df.columns.to_list()] + [c for c in df.columns if c not in cols]
+		self.df = df
 
 		df['keyword'] = [x.split(' ')[0] if isinstance(x, str) else x for x in df['keyword']]
 
@@ -1478,13 +1509,20 @@ class GDC(object):
 	def change_cbioportal_studyid(self, study_id: str) -> str:
 		"""
 		Normalize TCGA study IDs to cBioPortal PanCancer Atlas studies.
+
+		In cBioPortal:
+			COAD = colon adenocarcinoma
+			READ = rectum adenocarcinoma
+
+			👉 In PanCancer Atlas they are merged into one cohort:
 		"""
 
 		dic = {
+			"acc_tcga": "acc_tcga_pan_can_atlas_2018",
 			"luad_tcga": "luad_tcga_pan_can_atlas_2018",
-			"coad_tcga": "coad_tcga_pan_can_atlas_2018",
-			"read_tcga": "read_tcga_pan_can_atlas_2018",
 			"lusc_tcga": "lusc_tcga_pan_can_atlas_2018",
+			"coad_tcga": "coadread_tcga_pan_can_atlas_2018",
+			"read_tcga": "coadread_tcga_pan_can_atlas_2018",
 			"brca_tcga": "brca_tcga_pan_can_atlas_2018",
 			"gbm_tcga":  "gbm_tcga_pan_can_atlas_2018",
 			"ov_tcga":   "ov_tcga_pan_can_atlas_2018",
@@ -1500,6 +1538,16 @@ class GDC(object):
 			"thca_tcga": "thca_tcga_pan_can_atlas_2018",
 			"esca_tcga": "esca_tcga_pan_can_atlas_2018",
 			"paad_tcga": "paad_tcga_pan_can_atlas_2018",
+			"kich_tcga": "kich_tcga_pan_can_atlas_2018",  # kidney chromophobe
+			"sarc_tcga": "sarc_tcga_pan_can_atlas_2018",
+			"pcpg_tcga": "pcpg_tcga_pan_can_atlas_2018",
+			"tgct_tcga": "tgct_tcga_pan_can_atlas_2018",
+			"thym_tcga": "thym_tcga_pan_can_atlas_2018",
+			"meso_tcga": "meso_tcga_pan_can_atlas_2018",
+			"ucs_tcga":  "ucs_tcga_pan_can_atlas_2018",
+			"uvm_tcga":  "uvm_tcga_pan_can_atlas_2018",
+			"chol_tcga": "chol_tcga_pan_can_atlas_2018",
+			"dlbc_tcga": "dlbc_tcga_pan_can_atlas_2018",
 		}
 
 		return dic.get(study_id, study_id)
@@ -1507,6 +1555,9 @@ class GDC(object):
 	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, sample_ids: Iterable[str], 
 		session: Optional[requests.Session] = None, timeout: int=60,
 		force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+		self.study_id0 = study_id
+		self.s_case = s_case
 
 		sample_ids = [str(x).strip() for x in sample_ids if str(x).strip()]
 		if not sample_ids:
@@ -1527,9 +1578,9 @@ class GDC(object):
 			study_id = mat[1] + '_' + mat[0]
 
 		study_id = self.change_cbioportal_studyid(study_id)
+		self.study_id = study_id
 
-		if verbose:
-			print(f">>> {s_case} // {study_id} len = {len(sample_ids)} - {sample_ids[:5]}...")
+		print(f"\n>>> {study_id} --> {s_case} len = {len(sample_ids)} - {sample_ids[:5]}...")
 
 
 		fname_mut_anal = self.fname_mut_anal%(s_case, sample_ini_id, sample_fin_id)
