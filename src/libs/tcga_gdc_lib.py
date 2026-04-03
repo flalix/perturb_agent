@@ -1479,6 +1479,34 @@ class GDC(object):
 
 		return df
 
+	def change_cbioportal_studyid(self, study_id: str) -> str:
+		"""
+		Normalize TCGA study IDs to cBioPortal PanCancer Atlas studies.
+		"""
+
+		dic = {
+			"luad_tcga": "luad_tcga_pan_can_atlas_2018",
+			"coad_tcga": "coad_tcga_pan_can_atlas_2018",
+			"read_tcga": "read_tcga_pan_can_atlas_2018",
+			"lusc_tcga": "lusc_tcga_pan_can_atlas_2018",
+			"brca_tcga": "brca_tcga_pan_can_atlas_2018",
+			"gbm_tcga":  "gbm_tcga_pan_can_atlas_2018",
+			"ov_tcga":   "ov_tcga_pan_can_atlas_2018",
+			"skcm_tcga": "skcm_tcga_pan_can_atlas_2018",
+			"ucec_tcga": "ucec_tcga_pan_can_atlas_2018",
+			"stad_tcga": "stad_tcga_pan_can_atlas_2018",
+			"blca_tcga": "blca_tcga_pan_can_atlas_2018",
+			"hnsc_tcga": "hnsc_tcga_pan_can_atlas_2018",
+			"kirc_tcga": "kirc_tcga_pan_can_atlas_2018",
+			"kirp_tcga": "kirp_tcga_pan_can_atlas_2018",
+			"lihc_tcga": "lihc_tcga_pan_can_atlas_2018",
+			"prad_tcga": "prad_tcga_pan_can_atlas_2018",
+			"thca_tcga": "thca_tcga_pan_can_atlas_2018",
+			"esca_tcga": "esca_tcga_pan_can_atlas_2018",
+			"paad_tcga": "paad_tcga_pan_can_atlas_2018",
+		}
+
+		return dic.get(study_id, study_id)
 	
 	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, sample_ids: Iterable[str], 
 		session: Optional[requests.Session] = None, timeout: int = 60,
@@ -1502,8 +1530,7 @@ class GDC(object):
 			# cBioPortal disease - tcga 
 			study_id = mat[1] + '_' + mat[0]
 
-		if study_id == "luad_tcga":
-			study_id = "luad_tcga_pan_can_atlas_2018"
+		study_id = self.change_cbioportal_studyid(study_id)
 
 		if verbose:
 			print(f">>> {s_case} // {study_id} len = {len(sample_ids)} - {sample_ids[:5]}...")
