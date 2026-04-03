@@ -818,9 +818,6 @@ class GDC(object):
 	
 		self.df_cases = df_cases
 
-
-		print(">>>", s_case)
-
 		if df_cases is None or df_cases.empty:
 			print(f"No cases found while searching for '{s_case}'")
 			return self.df_samples
@@ -1406,7 +1403,6 @@ class GDC(object):
 		http = session or requests.Session()
 
 		url = f"{self.url_cbioportal}/molecular-profiles/{molecular_profile_id}/mutations/fetch"
-		print(">>>", url)
 
 		payload = {
 			"sampleIds": sample_ids
@@ -1434,18 +1430,19 @@ class GDC(object):
 
 		data = resp.json()
 		if not data:
+			print(f"Error: cBioPortal URL: {url}")
+			print(f"No mutations found for molecular profile '{molecular_profile_id}' samples: {sample_ids}.")
 			return pd.DataFrame()
 
 		df = pd.DataFrame(data)
 
 		cols = ['sampleId', 'patientId', 'studyId', 'molecularProfileId',
 				'entrezGeneId', 'keyword', 'proteinChange', 'mutationType',
-				'mutationStatus', 'center', 'tumorRefCount', 'normalAltCount',
-				'normalRefCount', 'variantType', 'chr', 'startPosition',
+				'mutationStatus', 'center', 'tumorRefCount', 'variantType', 'chr', 'startPosition',
 				'endPosition', 'referenceAllele', 'uniqueSampleKey',
 				'uniquePatientKey', 'validationStatus', 'tumorAltCount',
 				'ncbiBuild', 'variantAllele', 'refseqMrnaId', 'proteinPosStart',
-				'proteinPosEnd']
+				'proteinPosEnd'] # 'normalAltCount', 'normalRefCount', 
 
 
 		# the selected cols + others not listed
@@ -1457,11 +1454,12 @@ class GDC(object):
 
 		rename_cols = ['sample_id', 'barcode', 'pid', 'mol_profile_id',
 					'entrez_gene_id', 'symbol', 'protein_mut', 'mutation_type',
-					'mutation_status', 'center', 'tumor_ref_count', 'normal_alt_count',
-					'normal_ref_count', 'variant_type', 'chr', 'start',
+					'mutation_status', 'center', 'tumor_ref_count', 
+					'variant_type', 'chr', 'start',
 					'end', 'ref_allele', 'unique_sample_key',
 					'unique_patient_key', 'validation_status', 'tumor_alt_count',
 					'ncbi_build', 'variant_allele', 'refseq_mrna_id', 'protein_pos_start', 'protein_pos_end']
+		# 'normal_alt_count', 'normal_ref_count',
 
 		df.columns = rename_cols
 
@@ -1472,8 +1470,8 @@ class GDC(object):
 				'ref_allele', 'variant_allele', 'variant_type', 
 				'chr', 'start', 'end', 
 				'validation_status', 'protein_pos_start', 'protein_pos_end', 'tumor_alt_count',
-				'ncbi_build',  'center', 'tumor_ref_count', 'normal_alt_count', 'normal_ref_count', 'unique_sample_key',
-				'unique_patient_key']
+				'ncbi_build',  'center', 'tumor_ref_count',  'unique_sample_key', 'unique_patient_key']
+		# 'normal_alt_count', 'normal_ref_count',
 
 		df = df[order_cols]
 
@@ -1559,8 +1557,10 @@ class GDC(object):
 		df_mut = self.get_mutations_from_samples(sample_ids=sample_ids, study_id=study_id,
 											 	session=session, timeout=timeout, verbose=verbose)
 		
+		self.df_mut = df_mut
+		
 		if df_mut.empty:
-			print("No mutation data found for these samples..")
+			print("No mutations found for these samples.")
 			return pd.DataFrame(), pd.DataFrame()
 
 		#--------------- map main cols from df_mut ------------------------
@@ -1571,7 +1571,7 @@ class GDC(object):
 			'ref_allele', 'variant_allele', 'variant_type', 
 			'chr', 'start', 'end', 
 			'validation_status', 'protein_pos_start', 'protein_pos_end', 'tumor_alt_count',
-			'ncbi_build', 'center', 'tumorRefCount', 'normalAltCount', 'normalRefCount', 'unique_sample_key',
+			'ncbi_build', 'center', 'tumorRefCount', 'unique_sample_key',
 			'unique_patient_key']
 		"""
 		dff = (df_mut
@@ -1586,8 +1586,10 @@ class GDC(object):
 		dff = dff.sort_values(["barcode", "sample_id", "symbol", "protein_mut"])
 		dff = dff.reset_index(drop=True)
 		
-		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=verbose)
-		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=verbose)
+		self.dff = dff
+
+		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=True)
+		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=True)
 
 		return dff, df_mut
 
