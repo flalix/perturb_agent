@@ -1652,8 +1652,8 @@ class GDC(object):
 		
 		self.dff = dff
 
-		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=True)
-		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=True)
+		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=False)
+		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=False)
 
 		return dff, df_mut
 
