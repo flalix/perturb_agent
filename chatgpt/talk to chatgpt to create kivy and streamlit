@@ -1,50 +1,96 @@
 
-verbose=True
 
-Interface
+Form algorighm in Python 3
 
-below the program dropdown, all are initally empty
+Write the code with Python and Streamlit
+We are intefacing the GDC dataset (cancer) from NIH.
 
-1) Program dropdown - default 'TCGA'
+the GDC is composed by:
+a) programs ('TCGA', 'MATCH', 'TARGET', 'CGCI', 'CMI', 'APOLLO',  ...)
+b) primary sites (Adrenal gland, Bladder, Brain, Breast ...)
+c) cases, subtypes, tumor class ane stages
+d) expression table for each case (patient)
+
+The user should select one program (the default is TCGA) and next the primary site
+Having defined the program and the primary site the system shows all cases, subtypes, tumor class and stages
+Next, having all cases: present the and "empty" dataset regarding to the case/control summary dataset (1st tab) and the DEGs (2nd tab)
+
+DEGs is the differentially expressed genes.
+
+========================================
+
+Divide the form with 2 horizontal areas
+
+1st) 2 dropdows
+2nd) 2 tabs; 1st tab: with expression table, 2nd tab: calculated DEGs (in this version, empty table)
+
+1) Programs dropdown - default 'TCGA'
 2) Primary Sites dropdown
 3) Find cases, subtypes, tumor class ane stages
-4) 2 tables, one below the ohter
+4.1) 1st Tab shows two datasets:
    a. df_subt -->  subtype sumary
-   b. df_cases2 --> cases
+   b. df_cases --> cases
+4.2) 2nd tab shows the DEGs' table.
 
+=========================================
 
-Backend
+Backend functions
 
-prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
+return_value = gdc.function(parameters)
+
+1) programs:
+  prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
 
 prog_list is a list
 is the first dropdown
-default: 'TCGA'
 
+2) primary sites
+  dfp = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
 
-next, 
-dfc = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
+return a dataframe dfp  (dataframe os primary sites)
+having as columns: pid, primary_site, project_id, disease_type, name
 
-return a dataframe dfc
-having as columns: pid	primary_site	project_id	disease_type	name
-
-
-
-setting a column, next
+3) chosing a primary site ID (pid) calc a dataframe having all cases:
 df_cases, df_subt, _ = gdc.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, force=False, verbose=verbose)
 
-show 2 daframes, 
+shows 2 daframes, 
 
-1)
+3.1) summary table
 df_subt -> having as columns: pid	subtype_global	tumor_class	subtype_tissue	sstage	n
 
+unique:
 
-2) 
+cols = subtype_global, tumor_class, subtype_tissue, stage
+df_summary = df_cases[cols] / unique
+
+
+3.2) analytical table
 df_cases -> 
 filter columns
 cols = ["pid", "case_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
 
-df_cases2 = df_cases[cols]
+4) calculate the 
 
-df_cases2 -> pid	case_id	subtype_global	tumor_class	subtype_tissue	stage
+4.1) summary expression data
+   gene_id, symbol, case1, case2, case3 .... ctrl1, ctrl2, ctrl3
+
+df_summ_exp_data = summary_expression(df_tumor, df_control)
+
+df_degs = calc_degs(df_summ_exp_data)
+
+in this version:
+
+summary_expression(df_tumor, df_control) return pd.DataFrame()
+
+calc_degs(df_summ_exp_data) return pd.DataFrame()
+
+
+a cleaner production version with:
+
+sidebar filters
+error handling
+loading spinners
+download buttons for CSV
+
+
 

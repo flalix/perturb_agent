@@ -160,7 +160,7 @@ class CALC_DEGS(object):
         """
 
 
-        counts_df, meta_df = self.build_counts_and_metadata(
+        df_counts, df_meta = self.build_counts_and_metadata(
             df_tumor=df_tumor,
             df_normal=df_normal,
             how=merge_how,
@@ -174,8 +174,8 @@ class CALC_DEGS(object):
             meta_file = tmpdir / "meta.tsv"
             out_file = tmpdir / "deg_results.tsv"
 
-            counts_df.to_csv(counts_file, sep="\t", index=False)
-            meta_df.to_csv(meta_file, sep="\t", index=False)
+            df_counts.to_csv(counts_file, sep="\t", index=False)
+            df_meta.to_csv(meta_file, sep="\t", index=False)
 
             cmd = [
                 "conda", "run", "-n", conda_env,
