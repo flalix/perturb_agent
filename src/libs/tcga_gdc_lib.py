@@ -48,8 +48,8 @@ class GDC(object):
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.fname_fileid   = '%s_for_%s_case_%s_sample_type_%s_stage_%s_fileid_%s.tsv'
-		self.fname_mutation = 'mutations_for_study_%s_samples_%s_to_%s.tsv'
-		self.fname_extmut   = 'mutations_all_fields_for_study_%s_samples_%s_to_%s.tsv'
+		self.fname_mut_anal = 'mutations_anal_for_study_%s_samples_%s_to_%s.tsv'
+		self.fname_mut_summ = 'mutations_summ_for_study_%s_samples_%s_to_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -801,7 +801,7 @@ class GDC(object):
 		return lista
 
 	def get_samples_for_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
-									 subtype_tissue:str, 
+									 subtype_tissue:str, s_case:str,
 									 batch_cases:int=5, batch_size:int=200, 
 									 force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
@@ -818,8 +818,6 @@ class GDC(object):
 	
 		self.df_cases = df_cases
 
-
-		s_case = f"{pid} subtype '{subtype_global}' tumor '{tumor_class}' subtype_tissue '{subtype_tissue}'"
 
 		print(">>>", s_case)
 
@@ -1482,7 +1480,7 @@ class GDC(object):
 		return df
 
 	
-	def get_df_mut_transform_mutation_table(self, sample_ids: Iterable[str], study_id: str,
+	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, sample_ids: Iterable[str], 
 		session: Optional[requests.Session] = None, timeout: int = 60,
 		force: bool = False, verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -1508,21 +1506,21 @@ class GDC(object):
 			study_id = "luad_tcga_pan_can_atlas_2018"
 
 		if verbose:
-			print(f">>> {study_id} len = {len(sample_ids)} - {sample_ids[:5]}...")
+			print(f">>> {s_case} // {study_id} len = {len(sample_ids)} - {sample_ids[:5]}...")
 
 
-		fname_mut = self.fname_mutation%(study_id, sample_ids_ini, sample_ids_end)
-		fname_mut = title_replace(fname_mut)
-		filename_mutation = os.path.join(self.root_data, fname_mut)
+		fname_mut_anal = self.fname_mut_anal%(s_case, sample_ids_ini, sample_ids_end)
+		fname_mut_anal = title_replace(fname_mut_anal)
+		filename_mutation = os.path.join(self.root_data, fname_mut_anal)
 
-		fname_extmut = self.fname_extmut%(study_id, sample_ids_ini, sample_ids_end)
-		fname_extmut = title_replace(fname_extmut)
-		filename_extmut = os.path.join(self.root_data, fname_extmut)
+		fname_mut_summ = self.fname_mut_summ%(s_case, sample_ids_ini, sample_ids_end)
+		fname_mut_summ = title_replace(fname_mut_summ)
+		filename_extmut = os.path.join(self.root_data, fname_mut_summ)
 
 
 		if os.path.exists(filename_mutation) and os.path.exists(filename_extmut) and not force:
-			dff    = pdreadcsv(fname_mut, self.root_data, verbose=verbose)
-			df_mut = pdreadcsv(fname_mut, self.root_data, verbose=verbose)
+			dff    = pdreadcsv(fname_mut_summ, self.root_data, verbose=verbose)
+			df_mut = pdreadcsv(fname_mut_anal, self.root_data, verbose=verbose)
 			return dff, df_mut
 		
 		'''
@@ -1561,8 +1559,8 @@ class GDC(object):
 		dff = dff.sort_values(["barcode", "sample_id", "symbol", "protein_mut"])
 		dff = dff.reset_index(drop=True)
 		
-		_ = pdwritecsv(dff, fname_mut, self.root_data, verbose=verbose)
-		_ = pdwritecsv(df_mut, fname_extmut, self.root_data, verbose=verbose)
+		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=verbose)
+		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=verbose)
 
 		return dff, df_mut
 
