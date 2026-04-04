@@ -28,9 +28,13 @@ class GDC(object):
 
 		self.root_data = root_data
 
+		self.root_summary = create_dir(root_data, 'summary')
+
 		self.clean_gdc_files()
 
 	def clean_gdc_files(self):
+		self.pid = None
+
 		self.gdc_file_name = ''
 		self.gdc_file_id = ''
 		self.gdc_data_type = ''
@@ -60,7 +64,7 @@ class GDC(object):
 		self.value_col = ""
 
 		# program, primary site, subtype, stage, case_id, samples
-		self.df_ps, self.df_subt, self.df_cases = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+		self.df_psi, self.df_subt, self.df_cases = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 		self.df_stage, self.df_samples, self.df_files = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 		'''
@@ -258,14 +262,18 @@ class GDC(object):
 
 	def get_primary_sites(self, program:str='TCGA', force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
+		self.pid = program
+
+		self.df_psi = pd.DataFrame()
+
 		fname = self.fname_primary_site%(program)
 		filename = os.path.join(self.root_data, fname)
 
 		if os.path.exists(filename) and not force:
-			df_ps = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_ps = df_ps
+			df_psi = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_psi = df_psi
 
-			return df_ps
+			return df_psi
 
 		filters = {
 					"op": "in",
@@ -287,37 +295,39 @@ class GDC(object):
 			if 'data' not in response.keys():
 				print(f"No data found while searching for '{program}'")
 				print(">>> response", response)
-				self.df_ps = pd.DataFrame()
-				return self.df_ps
+				self.df_psi = pd.DataFrame()
+				return self.df_psi
 
 			hits = response["data"]["hits"]
 
-			df_ps = pd.DataFrame(hits)
+			df_psi = pd.DataFrame(hits)
 			# fix list columns
-			for col in df_ps.columns:
-				df_ps[col] = df_ps[col].apply(
+			for col in df_psi.columns:
+				df_psi[col] = df_psi[col].apply(
 					lambda x: ", ".join(x) if isinstance(x, list) else x  )
 
-			df_ps = df_ps.rename(columns={"id": "pid"})
+			df_psi = df_psi.rename(columns={"id": "pid"})
 
-			df_ps = df_ps.sort_values(["primary_site", "disease_type"])
+			df_psi = df_psi.sort_values(["primary_site", "disease_type"])
 
-			_ = pdwritecsv(df_ps, fname, self.root_data, verbose=verbose)
+			_ = pdwritecsv(df_psi, fname, self.root_data, verbose=verbose)
 
 		except Exception as e:
 			print(f"Error searching for '{program}': {e}")
 			print(">>> response", response)
-			self.df_ps = pd.DataFrame()
-			return self.df_ps
+			self.df_psi = pd.DataFrame()
+			return self.df_psi
 
-		self.df_ps = df_ps
+		self.df_psi = df_psi
 	
-		return df_ps
+		return df_psi
 	
-	def list_disease_types(self, pid = 'TCGA-BLCA') -> List:
+	def list_disease_types(self, pid:str) -> List:
+
+		self.pid = pid
 	
 		try:
-			row = self.df_ps[self.df_ps.project_id == pid].iloc[0]
+			row = self.df_psi[self.df_psi.project_id == pid].iloc[0]
 			deas_type_list = row.disease_type
 
 			if isinstance(deas_type_list, str):
@@ -325,6 +335,8 @@ class GDC(object):
 		except:
 			print("No disease types were found.")
 			deas_type_list = []
+
+		self.deas_type_list = deas_type_list
 
 		return deas_type_list
 
@@ -342,6 +354,8 @@ class GDC(object):
 		output: df_cases, df_subt, df_prof
 		'''
 
+		self.pid = pid
+
 		def apply_filter(df_cases: pd.DataFrame) -> pd.DataFrame:
 			df_cases = df_cases[df_cases.validity == 'valid'].copy()
 			df_cases = df_cases[df_cases["consistency"] == "ok"]
@@ -350,7 +364,7 @@ class GDC(object):
 			# frac_threshold:float=0.01,
 			# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
 			# df_cases = df_cases[df_cases["frac"] > frac_threshold]
-			# df_cases.reset_index(drop=True, inplace=True)
+			# df_cases.reset_index(drop=True, inplace=True)'
 			# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
 
 			return df_cases
@@ -371,6 +385,10 @@ class GDC(object):
 
 			df_subt = self.groupby_state(df_cases)
 			df_prof = self.build_profile(df_cases)
+
+			self.df_cases = df_cases
+			self.df_subt = df_subt
+			self.df_prof = df_prof
 
 			return df_cases, df_subt, df_prof
 				
@@ -680,11 +698,12 @@ class GDC(object):
 		if do_filter:
 			df_cases = apply_filter(df_cases)
 
-		self.df_cases = df_cases
-		self.df_subt  = df_subt
-		
 		df_prof = self.build_profile(df_cases)
 
+		self.df_cases = df_cases
+		self.df_subt = df_subt
+		self.df_prof = df_prof
+	
 		return df_cases, df_subt, df_prof
 	
 
@@ -1669,6 +1688,121 @@ class GDC(object):
 		study_ids = [s["studyId"] for s in studies]
 
 		return study_ids
+	
+
+	def loop_program_psi_samples(self, program:str='TCGA', ipsi:Any=None, 
+			force:bool=False, verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+		
+		df_psi = self.get_primary_sites(program=program, force=force, verbose=verbose)
+
+		df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+		if isinstance(ipsi, int):
+			lista = [ipsi]
+		else:
+			lista = np.arange(len(df_psi))
+
+		df_list_cases, df_list_samples, df_list_mutations = [], [], []
+
+		for ipsi in lista:
+			row = df_psi.iloc[ipsi]
+			pid = row.pid
+			primary_site = row.primary_site
+
+			print(f'{ipsi}) {primary_site}', end=' - ')
+
+			df_cases, df_subt, df_prof = self.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, force=force, verbose=verbose)
+
+			if df_cases.empty:
+				print("No cases found for PID:", pid)
+				continue
+
+			if isinstance(df_cases, pd.DataFrame):
+				df_list_cases.append(df_cases)
+			else:
+				print("Unexpected type for df_cases:", type(df_cases))
+				raise Exception("Stope: unexpected type for df_cases")
+
+
+			for isubt, row in df_subt.iterrows():
+				subtype_global = row.subtype_global
+				tumor_class = row.tumor_class
+				subtype_tissue = row.subtype_tissue
+
+				s_case = f"{pid}_{primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
+
+				if len(s_case) > 180:
+					s_case = f"{pid}_{primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
+
+				s_case = title_replace(s_case)
+
+				print(f'{isubt}) {s_case}')
+
+				df_samples = self.get_samples_for_pid_subtypes(pid=pid, subtype_global=subtype_global,
+															tumor_class=tumor_class, subtype_tissue=subtype_tissue, s_case=s_case,
+															batch_size=200, force=force, verbose=verbose)
+				
+				if df_samples.empty:
+					print("No samples found for PID:", pid)
+					continue
+
+				df_list_samples.append(df_samples)
+
+				df2 = df_samples[~df_samples.sample_type.str.contains('Blood', case=False, na=False)]
+
+				if df2.empty:
+					print("No samples having non-blood types for PID:", pid)
+					continue
+
+				barcodes = list(np.unique(df2.barcode_id))
+
+				print("Getting mutations", end=' ')
+				dff, _ = self.get_df_mut_transform_mutation_table(study_id=pid, s_case=s_case, sample_ids=barcodes, force=force, verbose=verbose)
+
+				if dff.empty:
+					print("Could not find mutations for :", s_case)
+					continue
+
+				df_list_mutations.append(dff)
+
+		if len(df_list_cases) > 0:
+			df_all_cases = pd.concat(df_list_cases, ignore_index=True)
+			df_all_cases = df_all_cases.drop_duplicates()
+			df_all_cases = df_all_cases.reset_index(drop=True)
+		else:
+			df_all_cases = pd.DataFrame()
+
+		if len(df_list_samples) > 0:
+			df_all_samples = pd.concat(df_list_samples, ignore_index=True)
+			df_all_samples = df_all_samples.drop_duplicates()
+			df_all_samples = df_all_samples.reset_index(drop=True)
+		else:
+			df_all_samples = pd.DataFrame()
+
+		if len(df_list_mutations) > 0:
+			df_all_mutations = pd.concat(df_list_mutations, ignore_index=True)
+			df_all_mutations = df_all_mutations.drop_duplicates()
+			df_all_mutations = df_all_mutations.reset_index(drop=True)
+		else:
+			df_all_mutations = pd.DataFrame()
+
+		fname = f'{self.pid}_summ_cases.tsv'
+		_ = pdwritecsv(df_all_cases, fname, self.root_summary)
+
+		fname = f'{self.pid}_summ_samples.tsv'
+		_ = pdwritecsv(df_all_samples, fname, self.root_summary)
+
+		fname = f'{pid}_summ_mutations.tsv'
+		_ = pdwritecsv(df_all_mutations, fname, self.root_summary)
+
+
+		self.df_all_cases = df_all_cases
+		self.df_all_samples = df_all_samples
+		self.df_all_mutations = df_all_mutations
+		   
+		return df_all_cases, df_all_samples, df_all_mutations
+
+
 	
 	"""
 	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str,
