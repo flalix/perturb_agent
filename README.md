@@ -20,6 +20,7 @@ The pipeline integrates:
 
 
 ### Interfacing GDC TCGA data, one gathered:
+- 57 primary sites.
 - 11428 cases.
 - 245657 samples.
 - 480826 annotated mutations.
