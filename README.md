@@ -39,6 +39,9 @@ The pipeline integrates:
 > barcodes → patients  
 > annotated mutations (from [cBioPortal](https://www.cbioportal.org/))  
 
+
+See: tcga_gdc_and_cBioPortal_mutations_loop.ipynb
+
 ---
 
 ## 💡 Core components
@@ -53,7 +56,7 @@ The pipeline integrates:
    1. Given a disease
    2. Given a subtype or state
       * Or nogthing
-   3. Clusterize muation profiles
+   3. Clusterize mutation profiles
       * Calculate DEGs
       * Enriched Pathways
       * Query chatbots
