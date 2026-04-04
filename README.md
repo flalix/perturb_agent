@@ -14,15 +14,53 @@ The pipeline integrates:
 3. **Python (ML/AI layer)** — pathway scoring, feature attribution, and target prioritization
 4. **[uv](https://docs.astral.sh/uv/)** Python project and dependency management
 
+---
+
+## ⚙️ First results
+
+
+### Interfacing GDC TCGA data, one gathered:
+- 11428 cases.
+- 245657 samples.
+- 480826 annotated mutations.
+- 18961 different genes.
+
+---
+
+## 💡 GDC flow
+
+> project → project_id - gdc.list_gdc_progams()  
+> primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
+> cases → case_id (UUID) - gdc.build_cases(pid=pid, subtype=subtype, stage=stage)  
+  - subtypes → subtype_id
+  - stages →  stage_id (AJCC)
+
+> samples → sample_id [tumor, normal]  
+> barcodes → patients  
+> annotated mutations (from [cBioPortal](https://www.cbioportal.org/))  
+
+---
+
 ## 💡 Core components
 
-1. **Chatbot**
+2. **Chatbot**
    * Query any [GDC/TCGA](https://portal.gdc.cancer.gov/analysis_page?app=Projects) cancer type
    * Acts as the orchestration layer for pipeline execution
 
 ---
 
-2. **tool1 — Differential Expression (per patient)**
+3. **tool1 — Mutation clusterization**
+   1. Given a disease
+   2. Given a subtype or state
+      * Or nogthing
+   3. Clusterize muation profiles
+      * Calculate DEGs
+      * Enriched Pathways
+      * Query chatbots
+
+---
+
+4. **tool1 — Differential Expression (per patient)**
    1. Retrieve all patient cases (barcodes)
    2. For each patient:
       * Obtain gene expression (raw counts)
@@ -36,7 +74,7 @@ The pipeline integrates:
 ---
 
 
-3. **tool2 — Pathway Perturbation Modeling**
+5. **tool2 — Pathway Perturbation Modeling**
     1. Retrieve Reactome pathways and gene sets
     2. Map DEGs onto [Reactome](https://reactome.org/) pathways
     3. For each pathway:
@@ -55,14 +93,14 @@ The pipeline integrates:
 ---
 
 
-4. **tool3 - Patient Representation & Clustering**
+6. **tool3 - Patient Representation & Clustering**
     1. Represent each patient as a pathway perturbation vector
     2. Cluster patients based on pathway-level features
 
 ---
 
 
-5. **tool4 — Biological and Therapeutic Annotation**
+7. **tool4 — Biological and Therapeutic Annotation**
 
   - For each patient cluster and pathway:
 
@@ -84,8 +122,7 @@ The pipeline integrates:
 
 ---
 
-
-6. tool5 — Visualization & Reporting
+8. tool5 — Visualization & Reporting
 
   - Dashboard includes:
 
@@ -103,8 +140,7 @@ The pipeline integrates:
 
 ---
 
-
-6. Possible **'new'** questions:
+9. Possible **'new'** questions:
 
     1. Given a primary site, a subtype, and stage
         * are all samples similar?
@@ -112,19 +148,6 @@ The pipeline integrates:
     2. For each clusterization, are they similar to:
         * EXCEPTIONAL_RESPONDERS?
         * Organoids?
-
----
-
-### 💡 GDC flow
-
-> project → project_id - gdc.list_gdc_progams()  
-> primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
-> subtypes → subtype_id - gdc.build_subtypes(pid=pid, do_filter=True)  
-> stages →  stage_id (AJCC) - gdc.build_stages(pid=pid, subtype=subtype, do_filter=True)  
-> cases → case_id (UUID) - gdc.build_cases(pid=pid, subtype=subtype, stage=stage)  
-> samples → sample_id [tumor, normal]  
-> aliquots → aliquot_id  
-> files → file_id  
 
 ---
 
