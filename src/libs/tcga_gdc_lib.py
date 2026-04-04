@@ -32,6 +32,10 @@ class GDC(object):
 
 		self.clean_gdc_files()
 
+		self.fname_all_cases = '%s_summ_cases.tsv'
+		self.fname_all_samples = '%s_summ_samples.tsv'
+		self.fname_all_mutations = '%s_summ_mutations.tsv'
+
 	def clean_gdc_files(self):
 		self.pid = None
 
@@ -1690,17 +1694,38 @@ class GDC(object):
 		return study_ids
 	
 
-	def loop_program_psi_samples(self, program:str='TCGA', ipsi:Any=None, 
-			force:bool=False, verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+	def loop_program_psi_samples(self, program:str='TCGA', force:bool=False, 
+			verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
 		df_psi = self.get_primary_sites(program=program, force=force, verbose=verbose)
 
 		df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-		if isinstance(ipsi, int):
-			lista = [ipsi]
-		else:
-			lista = np.arange(len(df_psi))
+
+		fname_all_cases = self.fname_all_cases%(self.pid)
+		filename_cases = os.path.join(self.root_summary, fname_all_cases)
+
+		fname_all_samples = self.fname_all_samples%(self.pid)
+		filename_samples = os.path.join(self.root_summary, fname_all_samples)
+
+		fname_all_mutations = self.fname_all_mutations%(self.pid)
+		filename_mutations = os.path.join(self.root_summary, fname_all_mutations)
+
+		if os.path.exists(filename_cases) and os.path.exists(filename_samples) and \
+		   os.path.exists(filename_mutations) and not force:
+
+			df_all_cases = pdreadcsv(fname_all_cases, self.root_summary)
+			df_all_samples = pdreadcsv(fname_all_samples, self.root_summary)
+			df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary)
+
+			self.df_all_cases = df_all_cases
+			self.df_all_samples = df_all_samples
+			self.df_all_mutations = df_all_mutations
+			
+			return df_all_cases, df_all_samples, df_all_mutations
+
+
+		lista = np.arange(len(df_psi))
 
 		df_list_cases, df_list_samples, df_list_mutations = [], [], []
 
@@ -1786,15 +1811,9 @@ class GDC(object):
 		else:
 			df_all_mutations = pd.DataFrame()
 
-		fname = f'{self.pid}_summ_cases.tsv'
-		_ = pdwritecsv(df_all_cases, fname, self.root_summary)
-
-		fname = f'{self.pid}_summ_samples.tsv'
-		_ = pdwritecsv(df_all_samples, fname, self.root_summary)
-
-		fname = f'{pid}_summ_mutations.tsv'
-		_ = pdwritecsv(df_all_mutations, fname, self.root_summary)
-
+		_ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary)
+		_ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary)
+		_ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary)
 
 		self.df_all_cases = df_all_cases
 		self.df_all_samples = df_all_samples
