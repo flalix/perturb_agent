@@ -32,10 +32,10 @@ The pipeline integrates:
 > project → project_id - gdc.list_gdc_progams()  
 > primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
 > cases → case_id (UUID) - gdc.build_cases(pid=pid, subtype=subtype, stage=stage)  
-  - subtypes → subtype_id
+  - subtypes → cancer subtypes, tissue subtypes
   - stages →  stage_id (AJCC)
 
-> samples → sample_id [tumor, normal]  
+> samples → sample type: [tumor, normal] and file access  
 > barcodes → patients  
 > annotated mutations (from [cBioPortal](https://www.cbioportal.org/))  
 
