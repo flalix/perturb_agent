@@ -18,6 +18,9 @@ import os, sys
 import pandas as pd
 import streamlit as st
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from pathlib import Path
 
 ROOT = Path().resolve().parent.parent
@@ -178,6 +181,106 @@ def load_lfc_and_expression_tables(pid: str, df_samples: pd.DataFrame, data_type
     return df_degs, df_counts, df_meta
 
 
+@st.cache_data(show_spinner=False)
+def load_mutation_tables(
+    pid: str,
+    df_samples: pd.DataFrame,
+    verbose: bool = False,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Returns
+    -------
+    df_mut_genes : DataFrame
+        Columns: gene, mutated_count
+    dfpiv : DataFrame
+        index = barcode, columns = gene symbol, values = bool
+    """
+    case_id_list = list(np.unique(df_samples.case_id))
+
+    # adapt this call to your real mutation loader
+    df_mut = gdc.get_mutations_for_samples(
+        df_samples=df_samples,
+        case_id_list=case_id_list,
+        verbose=verbose,
+    )
+
+    if not isinstance(df_mut, pd.DataFrame):
+        raise TypeError("df_mut is not a DataFrame")
+
+    required = {"barcode", "gene_symbol"}
+    missing = required - set(df_mut.columns)
+    if missing:
+        raise ValueError(f"df_mut missing columns: {sorted(missing)}")
+
+    df_mut = (
+        df_mut[["barcode", "gene_symbol"]]
+        .dropna()
+        .astype(str)
+        .drop_duplicates()
+        .copy()
+    )
+
+    dfpiv = (
+        df_mut.assign(value=True)
+        .pivot_table(
+            index="barcode",
+            columns="gene_symbol",
+            values="value",
+            aggfunc="max",
+            fill_value=False,
+        )
+        .astype(bool)
+    )
+
+    df_mut_genes = (
+        dfpiv.sum(axis=0)
+        .sort_values(ascending=False)
+        .rename("mutated_count")
+        .reset_index()
+        .rename(columns={"gene_symbol": "gene"})
+    )
+
+    return df_mut_genes, dfpiv
+
+
+@st.cache_data(show_spinner=False)
+def build_mutation_heatmap_figure(dfpiv: pd.DataFrame, top_n: int = 50) -> Optional[Any]:
+    if dfpiv.empty:
+        return None
+
+    gene_counts = dfpiv.sum(axis=0).sort_values(ascending=False)
+    top_genes = gene_counts.head(top_n).index
+    dfplot = dfpiv.loc[:, top_genes].astype(int)
+
+    g = sns.clustermap(
+        dfplot,
+        metric="jaccard",
+        method="average",
+        cmap="viridis",
+        cbar=False,
+        figsize=(14, 10),
+    )
+    return g.fig
+
+
+@st.cache_data(show_spinner=False)
+def run_umap_by_k(pid: str, dfpiv: pd.DataFrame, k: int):
+    """
+    Your library method already returns a plotly figure.
+    Replace the body below with your real class/method call.
+    """
+    if dfpiv.empty:
+        return None
+
+    # Example:
+    # cmut = CALC_MUT(root_data=root_data)
+    # fig = cmut.calc_umap_knn(dfpiv=dfpiv, K=k)
+    # return fig
+
+    fig = gdc.calc_umap_knn(dfpiv=dfpiv, K=k)
+    return fig
+
+
 def init_state() -> None:
     defaults = {
         "program": "TCGA",
@@ -189,6 +292,8 @@ def init_state() -> None:
         "df_meta": pd.DataFrame(),
         "df_lfc": pd.DataFrame(),
         "df_degs": pd.DataFrame(),
+        "df_mut_genes": pd.DataFrame(),
+        "df_mut_piv": pd.DataFrame(),
         "pid": "",
         "loaded_program": None,
     }
@@ -319,6 +424,8 @@ def main() -> None:
                         "df_lfc",
                         "df_counts",
                         "df_meta",
+                        "df_mut_genes",
+                        "df_mut_piv",
                     ]:
                         st.session_state.pop(key, None)
 
@@ -328,7 +435,7 @@ def main() -> None:
                 except Exception as e:
                     st.error(f"Error loading cases/subtypes: {e}")
 
-    tab1, tab2, tab3 = st.tabs(["Subtype + Cases", "Counts", "DEGs"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Subtype + Cases", "Mutations", "Counts", "DEGs"])
 
     with tab1:
         st.subheader("Subtype table")
@@ -357,7 +464,7 @@ def main() -> None:
                 subtype_tissue = row["subtype_tissue"]
 
                 s_case = f"{pid}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
-  
+                
                 st.markdown("**Selected subtype row**")
                 st.dataframe(
                     pd.DataFrame([row]),
@@ -367,17 +474,10 @@ def main() -> None:
 
                 try:
                     with st.spinner("Loading samples and expression tables..."):
-                        st.success(f"PID: {pid}, subtype {subtype_global}, tumor {tumor_class}, tissue: {subtype_tissue}")
-                        df_samples = gdc.get_samples_for_pid_subtypes(
-                            pid=pid,
-                            subtype_global=subtype_global,
-                            tumor_class=tumor_class,
-                            subtype_tissue=subtype_tissue,
-                            s_case = s_case,
-                            batch_size=200,
-                            force=False,
-                            verbose=verbose,
-                        )
+                        st.success(f"PID: {pid}, subtype {subtype_global}, tumor {tumor_class}, tissue: {subtype_tissue}, stage {stage}")
+                        df_samples = gdc.get_samples_for_pid_subtypes(pid=pid, subtype_global=subtype_global,pid=pid, subtype_global=subtype_global,
+                                                          tumor_class=tumor_class, subtype_tissue=subtype_tissue, s_case=s_case,
+                                                          batch_size=200, force=False, verbose=False)
 
                         st.success(f">> Loaded {len(df_samples)} samples.")
 
@@ -388,10 +488,18 @@ def main() -> None:
                             verbose=verbose,
                         )
 
+                        df_mut_genes, df_mut_piv = load_mutation_tables(
+                            pid=pid,
+                            df_samples=df_samples,
+                            verbose=verbose,
+                        )
+
                     st.session_state.df_samples = df_samples
                     st.session_state.df_degs = df_degs
                     st.session_state.df_counts = df_counts
                     st.session_state.df_meta = df_meta
+                    st.session_state.df_mut_genes = df_mut_genes
+                    st.session_state.df_mut_piv = df_mut_piv
 
                     st.success(f"Loaded {len(df_samples)} samples.")
                 except Exception as e:
@@ -409,8 +517,72 @@ def main() -> None:
         else:
             st.info("No cases table loaded yet.")
 
-
     with tab2:
+        st.subheader("Mutations")
+
+        if "df_mut_piv" not in st.session_state or st.session_state.df_mut_piv.empty:
+            st.info("Select one row in the subtype table.")
+        else:
+            mut_tab1, mut_tab2, mut_tab3 = st.tabs(
+                ["Mutated Genes", "Mutation Heatmap + Dendrogram", "UMAP"]
+            )
+
+            with mut_tab1:
+                st.markdown("**Genes ranked by number of mutated barcodes**")
+                st.dataframe(
+                    st.session_state.df_mut_genes,
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            with mut_tab2:
+                st.markdown("**Clustered mutation heatmap**")
+
+                top_n_heatmap = st.slider(
+                    "Top mutated genes to display",
+                    min_value=20,
+                    max_value=200,
+                    value=50,
+                    step=10,
+                    key="mut_heatmap_top_n",
+                )
+
+                try:
+                    fig_heat = build_mutation_heatmap_figure(
+                        st.session_state.df_mut_piv,
+                        top_n=top_n_heatmap,
+                    )
+                    if fig_heat is not None:
+                        st.pyplot(fig_heat, clear_figure=True, width="stretch")
+                    else:
+                        st.info("No heatmap available.")
+                except Exception as e:
+                    st.error(f"Error building mutation heatmap: {e}")
+
+            with mut_tab3:
+                st.markdown("**UMAP of mutation profiles**")
+
+                k_value = st.selectbox(
+                    "Number of groups (K)",
+                    options=list(range(2, 13)),
+                    index=6,   # default K=8
+                    key="mut_umap_k",
+                )
+
+                try:
+                    fig_umap = run_umap_by_k(
+                        pid=st.session_state.pid,
+                        dfpiv=st.session_state.df_mut_piv,
+                        k=k_value,
+                    )
+
+                    if fig_umap is not None:
+                        st.plotly_chart(fig_umap, width="stretch")
+                    else:
+                        st.info("No UMAP figure available.")
+                except Exception as e:
+                    st.error(f"Error building UMAP: {e}")
+    with tab3:
         st.subheader("Counts")
         if "df_counts" in st.session_state and not st.session_state.df_counts.empty:
             st.dataframe(
@@ -421,16 +593,16 @@ def main() -> None:
         else:
             st.info("No counts loaded yet.")
 
-    with tab3:
+    with tab4:
         st.subheader("DEGs / LFC")
-        if "df_lfc" in st.session_state and not st.session_state.df_lfc.empty:
+        if "df_degs" in st.session_state and not st.session_state.df_degs.empty:
             st.dataframe(
-                st.session_state.df_lfc,
+                st.session_state.df_degs,
                 width="stretch",
                 hide_index=True,
             )
         else:
-            st.info("Select one row in the subtype table.") 
+            st.info("Select one row in the subtype table.")
 
 
 if __name__ == "__main__":
