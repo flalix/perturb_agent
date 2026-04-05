@@ -71,12 +71,16 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---------
 
+   5. Most mutated genes for disease = 'Esophagus'
 
-   5. Mutation heatmap for disease = 'Esophagus'
+![mutation frequency](./figures/most_mutated_genes_esophagus.png)
+
+
+   6. Mutation heatmap for disease = 'Esophagus'
 
 ![heatmap](./figures/esophagus_mutation_plot.png)
 
-   6. UMAP applying knn with k = 8
+   7. UMAP applying knn with k = 8
 
 ![UMAP](./figures/esophagus_UMAP_k=8.png)
 
