@@ -55,12 +55,28 @@ See: tcga_gdc_and_cBioPortal_mutations_loop.ipynb
 
 3. **tool1 — Mutation clusterization**
    1. Given a disease
-   2. Given a subtype or state
-      * Or nogthing
-   3. Clusterize mutation profiles
-      * Calculate DEGs
-      * Enriched Pathways
-      * Query chatbots
+   2. Retrieve all mutations
+   3. Create a pivot table: barcodes x symbols
+   4. Clusterization
+      * Pairwise distance using Jaccard distance - pairwise_distances(X, metric="jaccard")
+      * Hirarchical Clustering + dendogram (seaborn)
+      * Cluster with UMAP
+      * Find groups using **knn** with k=8
+
+**Jaccard distance**
+
+Jaccard distance is a measure of dissimilarity between two sets, derived directly from Jaccard similarity. While Jaccard similarity measures how much two sets overlap, Jaccard distance measures how different they are. It is defined as one minus the Jaccard similarity.
+
+
+   5. Mutation heatmap for disease = 'Esophagus'
+
+![heatmap](./figures/esophagus_mutation_plot.png)
+
+   6. UMAP applying knn with k = 8
+
+![UMAP](./figures/esophagus_UMAP_k=8.png)
+
+$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
