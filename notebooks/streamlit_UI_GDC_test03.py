@@ -167,6 +167,31 @@ def show_df_old(df, height:int=450):
         st.dataframe(df, height=height)
 
 
+import matplotlib.pyplot as plt
+
+def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20):
+    if dfpiv is None or dfpiv.empty:
+        st.info("No mutation matrix available.")
+        return
+
+    if dfpiv.shape[0] == 0:
+        st.info("No barcodes available.")
+        return
+
+    gene_freq = (dfpiv.sum(axis=0) / dfpiv.shape[0]).sort_values(ascending=False)
+    top_genes = gene_freq.head(top_n)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    top_genes.plot(kind="bar", ax=ax)
+
+    ax.set_ylabel("Fraction of barcodes mutated")
+    ax.set_xlabel("Gene symbol")
+    ax.set_title(f"Top {top_n} mutated genes")
+    plt.xticks(rotation=60, ha="right")
+    plt.tight_layout()
+
+    st.pyplot(fig)
+
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
@@ -380,9 +405,22 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     elif tab == "Mutations":
 
-        subtab = st.radio("Main", ["Mutated Genes", "Raw Mutation Rows"], horizontal=True)
+        subtab = st.radio("Main", ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"], horizontal=True)
 
-        if subtab == "Mutated Genes":
+        if subtab == "Barplot: top Mutated Genes":
+            st.write("Most frequently mutated genes across filtered barcodes")
+
+            top_n = st.slider(
+                "Top N genes",
+                min_value=5,
+                max_value=min(100, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
+                value=min(20, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
+                step=5,
+            )
+
+            plot_top_mutated_genes(dfpiv, top_n=top_n)
+
+        elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
             show_df(df_gene_counts, height=450)
 
