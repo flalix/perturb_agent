@@ -67,6 +67,10 @@ See: tcga_gdc_and_cBioPortal_mutations_loop.ipynb
 
 Jaccard distance is a measure of dissimilarity between two sets, derived directly from Jaccard similarity. While Jaccard similarity measures how much two sets overlap, Jaccard distance measures how different they are. It is defined as one minus the Jaccard similarity.
 
+$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
+
+---------
+
 
    5. Mutation heatmap for disease = 'Esophagus'
 
@@ -75,8 +79,6 @@ Jaccard distance is a measure of dissimilarity between two sets, derived directl
    6. UMAP applying knn with k = 8
 
 ![UMAP](./figures/esophagus_UMAP_k=8.png)
-
-$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
