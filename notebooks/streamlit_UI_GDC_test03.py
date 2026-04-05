@@ -1,25 +1,18 @@
-#!/usr/bin/python
-#!python
-# -*- coding: utf-8 -*-
-# Created on 2026/03/26
-# Udated  on 2026/03/26
-# @author: Flavio Lichtenstein
-# @local: Home sweet home
+# streamlit_gdc_tcga.py
 
-#--------------- init commands --------------------------
-# 
-# cd ~/uv/perturb_agent$/notebooks/
-# source .venv/bin/activate
-# mamba activate renv
-# 
-#------------------------------------------------------
+#=============== to run =====================
+#
+# export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+# streamlit run streamlit_UI_GDC_test03.py
+#
+#============================================
+
 
 import os, sys
+import numpy as np
 import pandas as pd
 import streamlit as st
-
-import matplotlib.pyplot as plt
-import seaborn as sns
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 from pathlib import Path
 
@@ -41,570 +34,431 @@ root_data = os.path.join(ROOT, "data/tcga")
 
 gdc = GDC(root_data=root_data)
 
+pid = 'TCGA'
+
 verbose = True
 
+# Optional
+import plotly.express as px
 
-# ---------- STYLE ----------
+# -----------------------------------------------------------------------------
+# PAGE
+# -----------------------------------------------------------------------------
+st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
 st.markdown("""
 <style>
-    .block-container {
-        max-width: 95% !important;
-        padding-top: .5rem !important;
-        padding-bottom: .5rem;
-    }
-    .app-title {
-        font-size: .85rem;
-        font-weight: 500;
-        line-height: 1.1;
-        margin-top: 20px;
-        margin-bottom: 0px;
-        color: #666;
-    }
-    .app-subtitle {
-        font-size: 0.95rem;
-        color: #666;
-        margin-bottom: 1rem;
-    }
-    div.stButton > button {
-        height: 3.2em;
-        font-size: 1.08rem;
-        font-weight: 600;
-        border-radius: 10px;
-    }
-    div[data-testid="stButton"] button[kind="primary"] {
-        height: 3.4em;
-        font-size: 1.15rem;
-        font-weight: 700;
-    }
-    .filter-box {
-        padding: 0.8rem 0.8rem 0.3rem 0.8rem;
-        border: 1px solid rgba(128,128,128,0.25);
-        border-radius: 12px;
-        margin-bottom: 1rem;
-    }
+.block-container {
+    max-width: 96%;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(show_spinner=False)
-def load_programs(verbose: bool) -> list[str]:
-    prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
-    if not isinstance(prog_list, list):
-        raise TypeError("gdc.get_gdc_progams() did not return a list")
-    return [str(x) for x in prog_list]
+st.markdown("""
+<style>
+div.stButton > button {
+    width: 100%;
+}
+</style>
+""", unsafe_allow_html=True)
 
+st.title("GDC / TCGA Explorer")
+st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
 
-@st.cache_data(show_spinner=False)
-def load_primary_sites(program: str, verbose: bool) -> pd.DataFrame:
-    df_psi = gdc.get_primary_sites(program=program, force=False, verbose=verbose)
-    if not isinstance(df_psi, pd.DataFrame):
-        raise TypeError("gdc.get_primary_sites() did not return a DataFrame")
+def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
 
-    expected = {"pid", "primary_site", "project_id", "disease_type", "name"}
-    missing = expected - set(df_psi.columns)
-    if missing:
-        raise ValueError(f"Missing columns in df_psi: {sorted(missing)}")
-
-    return df_psi.copy()
-
-
-@st.cache_data(show_spinner=False)
-def load_cases_and_subtypes(pid: str, verbose: bool) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    df_cases, df_subt, _ = gdc.get_cases_and_subtypes(
-        pid=pid,
-        batch_size=200,
-        do_filter=False,
-        force=False,
-        verbose=verbose,
-    )
-
-    if not isinstance(df_cases, pd.DataFrame):
-        raise TypeError("df_cases is not a DataFrame")
-    if not isinstance(df_subt, pd.DataFrame):
-        raise TypeError("df_subt is not a DataFrame")
-
-    subt_cols = ["pid", "subtype_global", "tumor_class", "subtype_tissue", "stage", "n"]
-    missing_subt = [c for c in subt_cols if c not in df_subt.columns]
-    if missing_subt:
-        raise ValueError(f"df_subt missing columns: {missing_subt}")
-
-    case_cols = ["pid", "case_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
-    missing_cases = [c for c in case_cols if c not in df_cases.columns]
-    if missing_cases:
-        raise ValueError(f"df_cases missing columns: {missing_cases}")
-
-    # df_subt  = df_subt[subt_cols].copy()
-    df_cases = df_cases[case_cols].copy().reset_index(drop=True)
-
-    return df_subt, df_cases
-
-
-@st.cache_data(show_spinner=False)
-def load_lfc_and_expression_tables(pid: str, df_samples: pd.DataFrame, data_type:str='Gene Expression Quantification', 
-                                   lfc_cutoff = 1.0, fdr_cutoff = .05, 
-                                   verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    out = df.copy()
     
-    case_id_list = list(np.unique(df_samples.case_id))
-
-    df_normal, df_tumor = gdc.get_tumor_normal_tables(
-        df_samples=df_samples, case_id_list=case_id_list, data_type=data_type, verbose=verbose)
+    # Make labels plain Python strings
+    out.index = out.index.map(str)
+    out.columns = [str(c) for c in out.columns]
     
-    if not isinstance(df_normal, pd.DataFrame):
-        raise TypeError("df_normal is not a DataFrame")
-    
-    if not isinstance(df_tumor, pd.DataFrame):
-        raise TypeError("df_tumor is not a DataFrame")
+    # Flatten MultiIndex columns if present
+    if isinstance(out.columns, pd.MultiIndex):
+        out.columns = [" | ".join(map(str, col)).strip() for col in out.columns.to_flat_index()]
 
-    df_normal, df_tumor = gdc.merge_normal_tumor_tables(pid=pid, df_normal=df_normal, df_tumor=df_tumor)
 
-    cdegs = CALC_DEGS(root_data=root_data)
+    # Convert every column to a Streamlit-safe pandas dtype
+    for col in out.columns:
+        s = out[col]
 
-    df_normal = cdegs.deduplicate_by_max_reads(df_normal)
-    df_tumor  = cdegs.deduplicate_by_max_reads(df_tumor)
+        # nullable / pyarrow / string extension -> Python objects
+        try:
+            if pd.api.types.is_string_dtype(s.dtype):
+                out[col] = s.astype("object")
+            elif str(s.dtype).lower().find("pyarrow") >= 0:
+                out[col] = s.astype("object")
+            else:
+                out[col] = s
+        except Exception:
+            out[col] = s.astype("object")
 
-    df_counts, df_meta = cdegs.build_counts_and_metadata(
-        df_tumor=df_tumor,
-        df_normal=df_normal,
-        how="inner"
+        # Replace pandas NA/NaT with None so Arrow does not try fancy typing
+        out[col] = out[col].where(pd.notna(out[col]), None)
+
+
+    return out
+
+def show_df(df, height:int=500, page_size:int=50):
+    df = make_streamlit_safe(df)
+
+    gb = GridOptionsBuilder.from_dataframe(df)
+
+    gb.configure_default_column(
+        sortable=True,
+        filter=True,
+        resizable=True,
     )
 
-    df_lfc = cdegs.run_deg_rscript(df_tumor=df_tumor, df_normal=df_normal,
-                                   method="edger",  manual_dispersion=0.1, min_total_count=10, 
-                                   merge_how="inner", keep_temp=False)
-    
-    if not isinstance(df_lfc, pd.DataFrame):
-        raise TypeError("df_lfc is not a DataFrame")
-    
-
-    df_degs = df_lfc[ (df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()    
-
-    return df_degs, df_counts, df_meta
-
-
-@st.cache_data(show_spinner=False)
-def load_mutation_tables(
-    pid: str,
-    df_samples: pd.DataFrame,
-    verbose: bool = False,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Returns
-    -------
-    df_mut_genes : DataFrame
-        Columns: gene, mutated_count
-    dfpiv : DataFrame
-        index = barcode, columns = gene symbol, values = bool
-    """
-    case_id_list = list(np.unique(df_samples.case_id))
-
-    # adapt this call to your real mutation loader
-    df_mut = gdc.get_mutations_for_samples(
-        df_samples=df_samples,
-        case_id_list=case_id_list,
-        verbose=verbose,
+    gb.configure_pagination(
+        enabled=True,
+        paginationAutoPageSize=False,
+        paginationPageSize=page_size,
     )
 
-    if not isinstance(df_mut, pd.DataFrame):
-        raise TypeError("df_mut is not a DataFrame")
+    grid_options = gb.build()
 
-    required = {"barcode", "gene_symbol"}
-    missing = required - set(df_mut.columns)
-    if missing:
-        raise ValueError(f"df_mut missing columns: {sorted(missing)}")
+    AgGrid(df,
+        gridOptions=grid_options,
+        height=height,
+        fit_columns_on_grid_load=True,
+        allow_unsafe_jscode=False)
 
-    df_mut = (
-        df_mut[["barcode", "gene_symbol"]]
-        .dropna()
-        .astype(str)
-        .drop_duplicates()
-        .copy()
-    )
+def show_df_html(df, height: int = 450):
+    if df is None or df.empty:
+        st.info("Empty dataframe")
+        return
 
-    dfpiv = (
-        df_mut.assign(value=True)
-        .pivot_table(
-            index="barcode",
-            columns="gene_symbol",
-            values="value",
-            aggfunc="max",
-            fill_value=False,
-        )
-        .astype(bool)
-    )
+    df = df.copy()
 
-    df_mut_genes = (
-        dfpiv.sum(axis=0)
-        .sort_values(ascending=False)
-        .rename("mutated_count")
-        .reset_index()
-        .rename(columns={"gene_symbol": "gene"})
-    )
+    # flatten columns first
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [" | ".join(map(str, c)).strip() for c in df.columns.to_flat_index()]
+    else:
+        df.columns = [str(c) for c in df.columns]
 
-    return df_mut_genes, dfpiv
+    df.index = [str(x) for x in df.index]
 
+    # force plain Python values
+    for col in df.columns:
+        df[col] = df[col].map(lambda x: None if pd.isna(x) else x)
 
-@st.cache_data(show_spinner=False)
-def build_mutation_heatmap_figure(dfpiv: pd.DataFrame, top_n: int = 50) -> Optional[Any]:
-    if dfpiv.empty:
-        return None
-
-    gene_counts = dfpiv.sum(axis=0).sort_values(ascending=False)
-    top_genes = gene_counts.head(top_n).index
-    dfplot = dfpiv.loc[:, top_genes].astype(int)
-
-    g = sns.clustermap(
-        dfplot,
-        metric="jaccard",
-        method="average",
-        cmap="viridis",
-        cbar=False,
-        figsize=(14, 10),
-    )
-    return g.fig
-
-
-@st.cache_data(show_spinner=False)
-def run_umap_by_k(pid: str, dfpiv: pd.DataFrame, k: int):
-    """
-    Your library method already returns a plotly figure.
-    Replace the body below with your real class/method call.
-    """
-    if dfpiv.empty:
-        return None
-
-    # Example:
-    # cmut = CALC_MUT(root_data=root_data)
-    # fig = cmut.calc_umap_knn(dfpiv=dfpiv, K=k)
-    # return fig
-
-    fig = gdc.calc_umap_knn(dfpiv=dfpiv, K=k)
-    return fig
-
-
-def init_state() -> None:
-    defaults = {
-        "program": "TCGA",
-        "primary_site": None,
-        "df_primary_sites": pd.DataFrame(),
-        "df_subt": pd.DataFrame(),
-        "df_cases": pd.DataFrame(),
-        "df_counts": pd.DataFrame(),
-        "df_meta": pd.DataFrame(),
-        "df_lfc": pd.DataFrame(),
-        "df_degs": pd.DataFrame(),
-        "df_mut_genes": pd.DataFrame(),
-        "df_mut_piv": pd.DataFrame(),
-        "pid": "",
-        "loaded_program": None,
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-
-def main() -> None:
-
-    # ---------- HEADER ----------
-    st.markdown("<div class='app-title'>GDC Cases Explorer</div>", unsafe_allow_html=True)
+    # last-resort HTML rendering: no Arrow, no LargeUtf8
+    html = df.to_html(index=False, escape=False)
     st.markdown(
-        "<div class='app-subtitle'>Explore programs, primary sites, tumor classes, subtypes, and stages from GDC.</div>",
-        unsafe_allow_html=True
+        f"""
+        <div style="height:{height}px; overflow:auto; border:1px solid #ddd; padding:0.25rem;">
+            {html}
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    init_state()
 
-    st.title("GDC Cases Explorer")
+def show_df_old(df, height:int=450):
+    df = make_streamlit_safe(df)
 
     try:
-        prog_list = load_programs(verbose=verbose)
+        st.dataframe(df, use_container_width=True, height=height)
+    except TypeError:
+        st.dataframe(df, height=height)
+
+
+# -----------------------------------------------------------------------------
+# HELPERS
+# -----------------------------------------------------------------------------
+# hash error: @st.cache(show_spinner=True)
+def load_program_data(pid:str, force:bool=False, verbose:bool=False):
+    df_all_cases, df_all_samples, df_all_mutations = gdc.loop_program_psi_samples(
+        program=pid,
+        force=force,
+        verbose=verbose,
+    )
+
+    df_all_cases = make_streamlit_safe(df_all_cases)
+    df_all_samples = make_streamlit_safe(df_all_samples)
+    df_all_mutations = make_streamlit_safe(df_all_mutations)
+
+    return df_all_cases, df_all_samples, df_all_mutations
+
+
+# hash error: @st.cache(show_spinner=False)
+def build_mutation_matrix(df_mut: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build barcode x gene boolean mutation matrix.
+    """
+    if df_mut is None or df_mut.empty:
+        return pd.DataFrame()
+
+    df_tmp = df_mut.copy()
+    df_tmp["value"] = True
+
+    dfpiv = df_tmp.pivot_table(
+        index="barcode",
+        columns="symbol",
+        values="value",
+        aggfunc="max",
+        fill_value=False,
+    )
+    dfpiv = make_streamlit_safe(dfpiv)
+
+    return dfpiv.sort_index(axis=0).sort_index(axis=1)
+
+
+# hash error:@st.cache(show_spinner=False)
+def summarize_mutations(df_mut: pd.DataFrame) -> pd.DataFrame:
+    """
+    Summarize mutated genes by number of patients/barcodes.
+    """
+    if df_mut is None or df_mut.empty:
+        return pd.DataFrame(columns=["symbol", "n_patients_mutated"])
+
+    df = ( df_mut.groupby("symbol")["barcode"]
+                .nunique()
+                .reset_index(name="n_patients_mutated")
+                .sort_values("n_patients_mutated", ascending=False)
+                .reset_index(drop=True)
+        )
+
+    df = make_streamlit_safe(df)
+    return df
+
+
+def safe_unique_sorted(series):
+    vals = [x for x in series.dropna().unique().tolist() if str(x).strip() != ""]
+    return sorted(vals)
+
+
+# -----------------------------------------------------------------------------
+# SIDEBAR
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    st.header("Controls")
+
+    pid = st.text_input("Program", value="TCGA")
+    force = st.checkbox("Force rebuild", value=False)
+    verbose = st.checkbox("Verbose", value=False)
+
+    run = st.button("Load data")
+
+
+if "loaded" not in st.session_state:
+    st.session_state.loaded = False
+
+if run:
+    st.session_state.loaded = True
+
+
+# -----------------------------------------------------------------------------
+# SESSION STATE
+# -----------------------------------------------------------------------------
+if "loaded" not in st.session_state:
+    st.session_state.loaded = False
+
+if run:
+    st.session_state.loaded = True
+
+
+# -----------------------------------------------------------------------------
+# MAIN LOAD
+# -----------------------------------------------------------------------------
+if st.session_state.loaded:
+    try:
+        with st.spinner(f"Loading all data for program: {pid}"):
+            df_all_cases, df_all_samples, df_all_mutations = load_program_data(
+                pid=pid, force=False, verbose=False
+            )
+
     except Exception as e:
-        st.error(f"Error loading programs: {e}")
+        df_all_cases = pd.DataFrame()
+        df_all_samples = pd.DataFrame()
+        df_all_mutations = pd.DataFrame()
+
+
+        st.error(f"Failed to load program data: {e}")
         st.stop()
 
-    if not prog_list:
-        st.warning("No programs returned.")
+    # -------------------------------------------------------------------------
+    # GLOBAL SUMMARY
+    # -------------------------------------------------------------------------
+    primary_sites = safe_unique_sorted(df_all_cases["primary_site"])
+    symbols = safe_unique_sorted(df_all_mutations["symbol"]) if not df_all_mutations.empty else []
+
+    st.subheader("Program summary")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Primary sites", len(primary_sites))
+    c2.metric("Cases", len(df_all_cases))
+    c3.metric("Samples", len(df_all_samples))
+    c4.metric("Annotated mutations", len(df_all_mutations))
+    c5.metric("Different genes", len(symbols))
+
+    with st.expander("Raw summary text"):
+        st.code(
+            "\n".join([
+                f"Interfacing GDC {pid} data, one gathered:",
+                f"\t- {len(primary_sites)} primary sites.",
+                f"\t- {len(df_all_cases)} cases.",
+                f"\t- {len(df_all_samples)} samples.",
+                f"\t- {len(df_all_mutations)} annotated mutations.",
+                f"\t- {len(symbols)} different genes.",
+            ])
+        )
+
+    # -------------------------------------------------------------------------
+    # PRIMARY SITE SELECTION
+    # -------------------------------------------------------------------------
+    st.subheader("Primary site selection")
+
+    if len(primary_sites) == 0:
+        st.warning("No primary sites found.")
         st.stop()
 
-    default_program_index = prog_list.index("TCGA") if "TCGA" in prog_list else 0
+    selected_primary_site = st.selectbox(
+        "Choose a primary site",
+        options=primary_sites,
+        index=0,
+    )
 
-    col1, col2 = st.columns(2)
+    # -------------------------------------------------------------------------
+    # FILTERED TABLES
+    # -------------------------------------------------------------------------
+    df_cases, df_samples, df_mut, barcode_list = gdc.get_filtered_tables(selected_primary_site)
 
-    with col1:
-        selected_program = st.selectbox(
-            "Program",
-            options=prog_list,
-            index=default_program_index,
-        )
+    df_cases = make_streamlit_safe(df_cases)
+    df_samples = make_streamlit_safe(df_samples)
+    df_mut = make_streamlit_safe(df_mut)    
 
-    # Reload primary sites when program changes
-    if st.session_state.loaded_program != selected_program:
-        st.session_state.loaded_program = selected_program
-        st.session_state.program = selected_program
-        st.session_state.primary_site = None
-        st.session_state.df_subt = pd.DataFrame()
-        st.session_state.df_cases = pd.DataFrame()
-        st.session_state.df_counts = pd.DataFrame()
-        st.session_state.df_lfc = pd.DataFrame()
-        st.session_state.pid = ""
+    # -------------------------------------------------------------------------
+    # LOCAL SUMMARY
+    # -------------------------------------------------------------------------
+    st.subheader(f"Filtered summary: {selected_primary_site}")
 
-        try:
-            df_psi = load_primary_sites(program=selected_program, verbose=verbose)
-            st.session_state.df_primary_sites = df_psi
-        except Exception as e:
-            st.session_state.df_primary_sites = pd.DataFrame()
-            st.error(f"Error loading primary sites: {e}")
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    cc1.metric("Filtered cases", len(df_cases))
+    cc2.metric("Tumor samples", len(df_samples))
+    cc3.metric("Total mutations", len(df_mut))
+    cc4.metric(
+        "Patients with mutation rows",
+        df_mut["barcode"].nunique() if not df_mut.empty and "barcode" in df_mut.columns else 0
+    )
 
-    df_psi = st.session_state.df_primary_sites
+    # -------------------------------------------------------------------------
+    # BUILD MATRIX
+    # -------------------------------------------------------------------------
+    dfpiv = build_mutation_matrix(df_mut)
+    # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
+    if not dfpiv.empty:
+        dfpiv = dfpiv.astype(int)
 
-    primary_site_options: list[str] = []
-    if not df_psi.empty:
-        primary_site_options = (
-            df_psi["primary_site"]
-            .dropna()
-            .astype(str)
-            .sort_values()
-            .unique()
-            .tolist()
-        )
+    df_gene_counts = summarize_mutations(df_mut)
 
-    with col2:
-        if primary_site_options:
-            selected_primary_site = st.selectbox(
-                "Primary Site",
-                options=primary_site_options,
-                index=None,
-                placeholder="Select primary site",
-                key="primary_site",
+    # -------------------------------------------------------------------------
+    # TABS
+    # -------------------------------------------------------------------------
+    tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
+
+    # -------------------------------------------------------------------------
+    # TAB 1 - CASES
+    # -------------------------------------------------------------------------
+    if tab == "Cases":
+        st.write("Filtered case table")
+        show_df(df_cases, height=450)
+
+    # -------------------------------------------------------------------------
+    # TAB 2 - TUMOR SAMPLES
+    # -------------------------------------------------------------------------
+    elif tab == "Tumor Samples":
+        st.write("Tumor samples linked to the selected primary site")
+        show_df(df_samples, height=450)
+
+    # -------------------------------------------------------------------------
+    # TAB 3 - MUTATIONS
+    # -------------------------------------------------------------------------
+    elif tab == "Mutations":
+
+        subtab = st.radio("Main", ["Mutated Genes", "Raw Mutation Rows"], horizontal=True)
+
+        if subtab == "Mutated Genes":
+            st.write("Number of patients/barcodes mutated per gene")
+            show_df(df_gene_counts, height=450)
+
+        elif subtab == "Raw Mutation Rows":
+            st.write("Mutation rows after barcode filtering")
+            show_df(df_mut, height=450)
+
+    # -------------------------------------------------------------------------
+    # TAB 4 - MUTATION MATRIX
+    # -------------------------------------------------------------------------
+    elif tab == "Mutation Matrix":
+        st.write("Boolean mutation matrix: rows = patient barcode, columns = gene symbol")
+
+        if dfpiv.empty:
+            st.info("No mutation matrix available for this primary site.")
+        else:
+            st.write(f"Matrix shape: {dfpiv.shape[0]} barcodes × {dfpiv.shape[1]} genes")
+
+            # Optional filters for wide matrices
+            max_genes = st.slider(
+                "Show top N genes by mutated patients",
+                min_value=10,
+                max_value=min(500, max(10, dfpiv.shape[1])),
+                value=min(50, max(10, dfpiv.shape[1])),
+                step=10,
             )
-        else:
-            selected_primary_site = None
-            st.selectbox("Primary Site", ["No primary sites available"], disabled=True)
-    
-    st.markdown("""
-    <style>
-    div[data-testid="stButton"] button[kind="primary"] {
-        height: 2em;
-        font-size: 1.3rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-    
-    _, col_btn, _ = st.columns([1, 2, 1])
 
-    with col_btn:
-        run_search = st.button("Find cases, subtypes, tumor class and stages", width="stretch", type="primary")
-
-    if run_search:
-        if not selected_primary_site:
-            st.warning("Please select a primary site.")
-        elif df_psi.empty:
-            st.warning("Primary site table is empty.")
-        else:
-            df_match = df_psi[df_psi["primary_site"].astype(str) == str(selected_primary_site)]
-
-            if df_match.empty:
-                st.warning("Could not find pid for the selected primary site.")
+            if not df_gene_counts.empty:
+                top_genes = df_gene_counts["symbol"].head(max_genes).tolist()
+                top_genes = [g for g in top_genes if g in dfpiv.columns]
+                dfpiv_show = dfpiv[top_genes].copy() if top_genes else dfpiv.copy()
             else:
-                pid = str(df_match.iloc[0]["pid"])
-                st.session_state.pid = pid
-                # once a widget owns a key, you should not manually overwrite
-                # st.session_state.primary_site = selected_primary_site
+                dfpiv_show = dfpiv.copy()
 
-                try:
-                    with st.spinner(f"Loading cases and subtypes for {pid}..."):
-                        df_subt, df_cases = load_cases_and_subtypes(pid=pid, verbose=verbose)
+            show_df(dfpiv_show, height=500)
 
-                    st.session_state.df_subt = df_subt.reset_index(drop=True)
-                    st.session_state.df_cases = df_cases.reset_index(drop=True)
+            # If later you want a heatmap, use this boolean matrix:
+            # df_plot = dfpiv_show.astype(int)
+            # fig = px.imshow(df_plot, aspect="auto")
+            # st.plotly_chart(fig, use_container_width=True)
 
-                    # clear previous downstream state
-                    for key in [
-                        "selected_case_idx",
-                        "selected_case_row",
-                        "df_samples",
-                        "df_lfc",
-                        "df_counts",
-                        "df_meta",
-                        "df_mut_genes",
-                        "df_mut_piv",
-                    ]:
-                        st.session_state.pop(key, None)
+    # -------------------------------------------------------------------------
+    # TAB 5 - DOWNLOADS
+    # -------------------------------------------------------------------------
+    elif tab == "Downloads":
+        st.write("Export filtered tables")
 
-                    st.success(
-                        f"Loaded {len(df_subt)} subtype rows and {len(df_cases)} case rows for {pid}."
-                    )
-                except Exception as e:
-                    st.error(f"Error loading cases/subtypes: {e}")
+        st.download_button(
+            "Download filtered cases CSV",
+            data=df_cases.to_csv(index=False).encode("utf-8"),
+            file_name=f"{pid}_{selected_primary_site}_cases.csv",
+            mime="text/csv",
+        )
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Subtype + Cases", "Mutations", "Counts", "DEGs"])
+        st.download_button(
+            "Download tumor samples CSV",
+            data=df_samples.to_csv(index=False).encode("utf-8"),
+            file_name=f"{pid}_{selected_primary_site}_tumor_samples.csv",
+            mime="text/csv",
+        )
 
-    with tab1:
-        st.subheader("Subtype table")
-        if "df_subt" in st.session_state and not st.session_state.df_subt.empty:
-            event = st.dataframe(
-                st.session_state.df_subt,
-                width="stretch",
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="df_subt_select",
+        st.download_button(
+            "Download filtered mutations CSV",
+            data=df_mut.to_csv(index=False).encode("utf-8"),
+            file_name=f"{pid}_{selected_primary_site}_mutations.csv",
+            mime="text/csv",
+        )
+
+        if not dfpiv.empty:
+            st.download_button(
+                "Download mutation matrix CSV",
+                data=dfpiv.reset_index().to_csv(index=False).encode("utf-8"),
+                file_name=f"{pid}_{selected_primary_site}_mutation_matrix.csv",
+                mime="text/csv",
+                use_container_width=True,
             )
 
-            selected_rows = event.selection.rows
-
-            if selected_rows:
-                st.session_state.selected_subt_idx = selected_rows[0]
-
-            if "selected_subt_idx" in st.session_state:
-                row = st.session_state.df_subt.iloc[st.session_state.selected_subt_idx]
-                st.session_state.selected_subt_row = row.to_dict()
-
-                pid = str(row["pid"])
-                subtype_global = row["subtype_global"]
-                tumor_class = row["tumor_class"]
-                subtype_tissue = row["subtype_tissue"]
-
-                s_case = f"{pid}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
-                
-                st.markdown("**Selected subtype row**")
-                st.dataframe(
-                    pd.DataFrame([row]),
-                    width="stretch",
-                    hide_index=True,
-                )
-
-                try:
-                    with st.spinner("Loading samples and expression tables..."):
-                        st.success(f"PID: {pid}, subtype {subtype_global}, tumor {tumor_class}, tissue: {subtype_tissue}, stage {stage}")
-                        df_samples = gdc.get_samples_for_pid_subtypes(pid=pid, subtype_global=subtype_global,pid=pid, subtype_global=subtype_global,
-                                                          tumor_class=tumor_class, subtype_tissue=subtype_tissue, s_case=s_case,
-                                                          batch_size=200, force=False, verbose=False)
-
-                        st.success(f">> Loaded {len(df_samples)} samples.")
-
-                        df_degs, df_counts, df_meta = load_lfc_and_expression_tables(
-                            pid=pid,
-                            df_samples=df_samples,
-                            data_type="Gene Expression Quantification",
-                            verbose=verbose,
-                        )
-
-                        df_mut_genes, df_mut_piv = load_mutation_tables(
-                            pid=pid,
-                            df_samples=df_samples,
-                            verbose=verbose,
-                        )
-
-                    st.session_state.df_samples = df_samples
-                    st.session_state.df_degs = df_degs
-                    st.session_state.df_counts = df_counts
-                    st.session_state.df_meta = df_meta
-                    st.session_state.df_mut_genes = df_mut_genes
-                    st.session_state.df_mut_piv = df_mut_piv
-
-                    st.success(f"Loaded {len(df_samples)} samples.")
-                except Exception as e:
-                    st.error(f"Error loading downstream Count and DEG tables: {e}")
-        else:
-            st.info("No subtype table loaded yet.")
-
-        st.subheader("Cases table")
-        if "df_cases" in st.session_state and not st.session_state.df_cases.empty:
-            st.dataframe(
-                st.session_state.df_cases,
-                width="stretch",
-                hide_index=True,
-            )
-        else:
-            st.info("No cases table loaded yet.")
-
-    with tab2:
-        st.subheader("Mutations")
-
-        if "df_mut_piv" not in st.session_state or st.session_state.df_mut_piv.empty:
-            st.info("Select one row in the subtype table.")
-        else:
-            mut_tab1, mut_tab2, mut_tab3 = st.tabs(
-                ["Mutated Genes", "Mutation Heatmap + Dendrogram", "UMAP"]
-            )
-
-            with mut_tab1:
-                st.markdown("**Genes ranked by number of mutated barcodes**")
-                st.dataframe(
-                    st.session_state.df_mut_genes,
-                    width="stretch",
-                    hide_index=True,
-                )
-
-            with mut_tab2:
-                st.markdown("**Clustered mutation heatmap**")
-
-                top_n_heatmap = st.slider(
-                    "Top mutated genes to display",
-                    min_value=20,
-                    max_value=200,
-                    value=50,
-                    step=10,
-                    key="mut_heatmap_top_n",
-                )
-
-                try:
-                    fig_heat = build_mutation_heatmap_figure(
-                        st.session_state.df_mut_piv,
-                        top_n=top_n_heatmap,
-                    )
-                    if fig_heat is not None:
-                        st.pyplot(fig_heat, clear_figure=True, width="stretch")
-                    else:
-                        st.info("No heatmap available.")
-                except Exception as e:
-                    st.error(f"Error building mutation heatmap: {e}")
-
-            with mut_tab3:
-                st.markdown("**UMAP of mutation profiles**")
-
-                k_value = st.selectbox(
-                    "Number of groups (K)",
-                    options=list(range(2, 13)),
-                    index=6,   # default K=8
-                    key="mut_umap_k",
-                )
-
-                try:
-                    fig_umap = run_umap_by_k(
-                        pid=st.session_state.pid,
-                        dfpiv=st.session_state.df_mut_piv,
-                        k=k_value,
-                    )
-
-                    if fig_umap is not None:
-                        st.plotly_chart(fig_umap, width="stretch")
-                    else:
-                        st.info("No UMAP figure available.")
-                except Exception as e:
-                    st.error(f"Error building UMAP: {e}")
-    with tab3:
-        st.subheader("Counts")
-        if "df_counts" in st.session_state and not st.session_state.df_counts.empty:
-            st.dataframe(
-                st.session_state.df_counts,
-                width="stretch",
-                hide_index=True,
-            )
-        else:
-            st.info("No counts loaded yet.")
-
-    with tab4:
-        st.subheader("DEGs / LFC")
-        if "df_degs" in st.session_state and not st.session_state.df_degs.empty:
-            st.dataframe(
-                st.session_state.df_degs,
-                width="stretch",
-                hide_index=True,
-            )
-        else:
-            st.info("Select one row in the subtype table.")
-
-
-if __name__ == "__main__":
-    main()
-
+else:
+    st.info("Click **Load data** in the sidebar to start.")
