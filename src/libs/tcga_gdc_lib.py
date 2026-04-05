@@ -999,7 +999,7 @@ class GDC(object):
 								"submitter_id": case["submitter_id"],
 								"sample_id":   sample["sample_id"],
 								"sample_type": sample["sample_type"],
-								"barcode_id":  sample["submitter_id"],
+								"barcode_sample":  sample["submitter_id"],
 								"file_id":    hit["file_id"],
 								"file_name":  hit["file_name"],
 								"data_type":  hit["data_type"],
@@ -1403,14 +1403,14 @@ class GDC(object):
 		raise ValueError(f"No mutation profile found for {study_id}")
 
 
-	def get_mutations_from_samples(self, barcode_id_list: Iterable[str], study_id: str,
+	def get_mutations_from_samples(self, barcode_sample_list: Iterable[str], study_id: str,
 		session: Optional[requests.Session]=None, timeout:int=60) -> pd.DataFrame:
 		"""
 		Fetch mutation records from cBioPortal for a list of sample IDs.
 
 		Parameters
 		----------
-		barcode_id_list : Iterable[str]
+		barcode_sample_list : Iterable[str]
 			cBioPortal sample IDs, e.g. ["TCGA-GC-A3BM-01", "TCGA-XF-A9SY-01"].
 		study_id : str
 			cBioPortal study ID, e.g. "blca_tcga".
@@ -1442,7 +1442,7 @@ class GDC(object):
 		url = f"{self.url_cbioportal}/molecular-profiles/{molecular_profile_id}/mutations/fetch"
 
 		payload = {
-			"sampleIds": barcode_id_list
+			"sampleIds": barcode_sample_list
 		}
 
 		headers = {
@@ -1468,7 +1468,7 @@ class GDC(object):
 		data = resp.json()
 		if not data:
 			print(f"Error: cBioPortal URL: {url}")
-			print(f"No mutations found for molecular profile '{molecular_profile_id}' barcodes: {barcode_id_list}.")
+			print(f"No mutations found for molecular profile '{molecular_profile_id}' barcodes: {barcode_sample_list}.")
 			return pd.DataFrame()
 
 		df = pd.DataFrame(data)
@@ -1494,7 +1494,7 @@ class GDC(object):
 
 		dic_rename = {'uniqueSampleKey':'unique_sample_key',
 				'uniquePatientKey':'unique_patient_key',  'molecularProfileId':'molecular_profile_id',
-				'sampleId':'barcode_id_sample', 'patientId':'barcode_id', 'entrezGeneId':'entrez_gene_id',
+				'sampleId':'barcode_sample', 'patientId':'barcode', 'entrezGeneId':'entrez_gene_id',
 				'studyId':'pid', 'center':'center', 'mutationStatus':'mutation_status',
 				'validationStatus':'validation_status', 'tumorRefCount':'tumor_ref_count', 
 				'normalRefCount':'normal_ref_count', 'startPosition':'start',
@@ -1509,7 +1509,9 @@ class GDC(object):
 		
 		df.columns = rename_cols
 
-		order_cols = ['barcode_id_sample', 'barcode_id', 'pid', 'molecular_profile_id',
+		df['sample'] = [x.split('-')[-1] for x in df['barcode_sample'] ]
+
+		order_cols = ['pid', 'molecular_profile_id', 'barcode', 'sample', 'barcode_sample',
 				'symbol', 'refseq_mrna_id', 'entrez_gene_id', 
 				'protein_mut', 'mutation_type', 'mutation_status',
 				'ref_allele', 'variant_allele', 'variant_type', 
@@ -1569,7 +1571,7 @@ class GDC(object):
 		return dic.get(study_id, study_id)
 	
 
-	def to_cbioportal_barcode_id(self, x: str) -> str:
+	def to_cbioportal_barcode_sample(self, x: str) -> str:
 		parts = x.split("-")
 
 		if len(parts) >= 4 and parts[0] == "TCGA":
@@ -1579,8 +1581,7 @@ class GDC(object):
 		return x
 		
 		
-
-	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, barcode_id_list: Iterable[str], 
+	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, barcode_sample_list: Iterable[str], 
 		session: Optional[requests.Session] = None, timeout: int=60,
 		force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -1588,14 +1589,15 @@ class GDC(object):
 		self.s_case = s_case
 
 		'''
+		if TCGA remove the last characters if len > 2
 		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
 		'''
-		barcode_id_list = [self.to_cbioportal_barcode_id(x) for x in barcode_id_list]
-		if not barcode_id_list:
-			raise ValueError("barcode_id_list is empty.")
+		barcode_sample_list = [self.to_cbioportal_barcode_sample(x) for x in barcode_sample_list]
+		if not barcode_sample_list:
+			raise ValueError("barcode_sample_list is empty.")
 		
 		# 01A, 01B, 01Z → all collapse to 01
-		barcode_id_list = list(np.unique(barcode_id_list))
+		barcode_sample_list = list(np.unique(barcode_sample_list))
 
 		if study_id[0].isupper():
 			mat = study_id.lower().split('-')
@@ -1605,7 +1607,7 @@ class GDC(object):
 		study_id = self.change_cbioportal_studyid(study_id)
 		self.study_id = study_id
 
-		print(f"\n>>> {study_id} --> {s_case} len = {len(barcode_id_list)} - {barcode_id_list[:5]}...")
+		print(f"\n>>> {study_id} --> {s_case} len = {len(barcode_sample_list)} - {barcode_sample_list[:5]}...")
 
 
 		fname_mut_anal = self.fname_mut_anal%(s_case)
@@ -1623,12 +1625,12 @@ class GDC(object):
 			return dff, df_mut
 		
 		'''
-			df_mut cols: ["sample_id", "barcode_id", "pid", "mol_profile_id","gene",
+			df_mut cols: ["sample_id", "barcode_sample", "pid", "mol_profile_id","gene",
 			"entrez_gene_id", "protein_mut", "mutation_type", "mutation_status",
 			"variant_type", "chr", "start", "end",
 			"ref_allele", "tumor_seq_allele"]		
 		'''
-		df_mut = self.get_mutations_from_samples(barcode_id_list=barcode_id_list, study_id=study_id,
+		df_mut = self.get_mutations_from_samples(barcode_sample_list=barcode_sample_list, study_id=study_id,
 											 	session=session, timeout=timeout)
 		
 		self.df_mut = df_mut
@@ -1639,7 +1641,7 @@ class GDC(object):
 
 		#--------------- map main cols from df_mut ------------------------
 		"""
-		order_cols = ['barcode_id_sample', 'barcode_id', 'pid', 'mol_profile_id',
+		order_cols = ['barcode_sample', 'barcode_sample', 'pid', 'mol_profile_id',
 			'symbol', 'refseq_mrna_id', 'entrez_gene_id', 
 			'protein_mut', 'mutation_type', 'mutation_status',
 			'ref_allele', 'variant_allele', 'variant_type', 
@@ -1649,15 +1651,16 @@ class GDC(object):
 			'unique_patient_key']
 		"""
 		dff = (df_mut
-					.groupby(['pid', 'barcode_id_sample', "barcode_id", 'symbol', 'refseq_mrna_id', "entrez_gene_id", "protein_mut", 'mutation_type', "variant_type", "chr"])
+					.groupby(['pid', 'barcode', "barcode_sample", 'symbol', 'refseq_mrna_id', "entrez_gene_id", "protein_mut", 'mutation_type', "variant_type", "chr"])
 					.size()
 					.reset_index(name="n_mutations")
 				)
 		
-		dff = dff[dff.barcode_id.notna()]
+		dff = dff[dff.barcode.notna()]
+		dff = dff[dff.barcode_sample.notna()]
 		dff = dff[dff.entrez_gene_id.notna()]
 
-		dff = dff.sort_values(["barcode_id", "symbol", "protein_mut"])
+		dff = dff.sort_values(["barcode", "symbol", "protein_mut"])
 		dff = dff.reset_index(drop=True)
 		
 		self.dff = dff
@@ -1766,10 +1769,10 @@ class GDC(object):
 					print("No samples having non-blood types for PID:", pid)
 					continue
 
-				barcode_id_list = list(np.unique(df2.barcode_id))
+				barcode_sample_list = list(np.unique(df2.barcode_sample))
 
 				print("Getting mutations", end=' ')
-				dff, _ = self.get_df_mut_transform_mutation_table(study_id=pid, s_case=s_case, barcode_id_list=barcode_id_list, force=force, verbose=verbose)
+				dff, _ = self.get_df_mut_transform_mutation_table(study_id=pid, s_case=s_case, barcode_sample_list=barcode_sample_list, force=force, verbose=verbose)
 
 				if dff.empty:
 					print("Could not find mutations for :", s_case)
