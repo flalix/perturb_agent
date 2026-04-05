@@ -82,7 +82,7 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
-4. **tool1 — Differential Expression (per patient)**
+4. **tool2 — Differential Expression (per patient)**
    1. Retrieve all patient cases (barcodes)
    2. For each patient:
       * Obtain gene expression (raw counts)
@@ -96,7 +96,7 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 ---
 
 
-5. **tool2 — Pathway Perturbation Modeling**
+5. **tool3 — Pathway Perturbation Modeling**
     1. Retrieve Reactome pathways and gene sets
     2. Map DEGs onto [Reactome](https://reactome.org/) pathways
     3. For each pathway:
@@ -115,14 +115,14 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 ---
 
 
-6. **tool3 - Patient Representation & Clustering**
+6. **tool4 - Patient Representation & Clustering**
     1. Represent each patient as a pathway perturbation vector
     2. Cluster patients based on pathway-level features
 
 ---
 
 
-7. **tool4 — Biological and Therapeutic Annotation**
+7. **tool5 — Biological and Therapeutic Annotation**
 
   - For each patient cluster and pathway:
 
@@ -144,7 +144,7 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
-8. tool5 — Visualization & Reporting
+8. tool6 — Visualization & Reporting
 
   - Dashboard includes:
 
