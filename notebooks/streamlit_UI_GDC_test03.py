@@ -41,7 +41,8 @@ gdc = GDC(root_data=root_data)
 
 pid = 'TCGA'
 verbose = True
-colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan']
+colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
+          'gray', 'brown', 'olive', 'navy', 'teal', 'maroon', 'silver']
 
 
 # Optional
@@ -271,27 +272,18 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     embedding = embedding[good]
 
 
-    '''
-    st.write("X shape:", X.shape)
-    st.write("Any NaN in X?", np.isnan(X).any())
-    st.write("Any Inf in X?", np.isinf(X).any())
-
-    st.write("embedding shape:", embedding.shape)
-    st.write("Any NaN in embedding?", np.isnan(embedding).any())
-    st.write("Any Inf in embedding?", np.isinf(embedding).any())
-    '''
-
     labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    cmap = plt.cm.get_cmap("tab10", k)
+    # cmap = plt.cm.get_cmap("tab10", k)
 
     sc = plt.scatter(
         embedding[:, 0],
         embedding[:, 1],
-        c=labels,
-        cmap=cmap,
+        c=[colors[label] for label in labels],
+        # c=labels,
+        # cmap=cmap,
         s=20
     )
 
