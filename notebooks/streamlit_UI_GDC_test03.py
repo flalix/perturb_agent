@@ -14,6 +14,11 @@ import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.cluster import KMeans
+import umap
+
 from pathlib import Path
 
 ROOT = Path().resolve().parent.parent
@@ -35,8 +40,9 @@ root_data = os.path.join(ROOT, "data/tcga")
 gdc = GDC(root_data=root_data)
 
 pid = 'TCGA'
-
 verbose = True
+colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan']
+
 
 # Optional
 import plotly.express as px
@@ -167,9 +173,7 @@ def show_df_old(df, height:int=450):
         st.dataframe(df, height=height)
 
 
-import matplotlib.pyplot as plt
-
-def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20):
+def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
     if dfpiv is None or dfpiv.empty:
         st.info("No mutation matrix available.")
         return
@@ -181,7 +185,7 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20):
     gene_freq = (dfpiv.sum(axis=0) / dfpiv.shape[0]).sort_values(ascending=False)
     top_genes = gene_freq.head(top_n)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     top_genes.plot(kind="bar", ax=ax)
 
     ax.set_ylabel("Fraction of barcodes mutated")
@@ -191,6 +195,117 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20):
     plt.tight_layout()
 
     st.pyplot(fig)
+    plt.close(fig)
+
+def plot_heatmap(dfpiv: pd.DataFrame, figsize:tuple=(14, 10)):
+    # Ensure numeric + binary (important for Jaccard)
+    data = dfpiv.fillna(0).astype(int)
+
+    cg = sns.clustermap(
+                data,
+                metric="jaccard",
+                method="average",
+                figsize=figsize,
+                cmap="viridis",
+                cbar=False
+            )
+
+    st.pyplot(cg.figure)
+    plt.close(cg.figure)
+
+def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
+
+    # Binary mutation matrix for Jaccard
+    # Force numeric/binary and remove bad values
+    data = (
+        dfpiv
+        .replace(["NaN", "nan", ""], np.nan)   # catch fake NaNs
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .astype(bool)
+        .astype(int)
+    )
+
+    # Drop empty genes and empty samples
+    data = data.loc[data.sum(axis=1) > 0, data.sum(axis=0) > 0]
+
+    if data.empty:
+        st.warning("No non-empty mutation matrix after filtering.")
+        return
+    
+    X = data.to_numpy(dtype=np.uint8)
+
+    n_samples = X.shape[0]
+
+    if n_samples < 3:
+        st.warning("Need at least 3 non-empty samples to compute UMAP + clustering.")
+        return
+
+    if k > X.shape[0]:
+        st.warning(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
+        k = X.shape[0]
+
+    k = min(k, n_samples)
+
+    n_neighbors = min(15, n_samples - 1)
+    n_neighbors = max(2, n_neighbors)    
+
+    reducer = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=0.1,
+        metric="jaccard",
+        random_state=42,
+        init="random",      # important
+        output_dens=False   # avoid tuple output
+    )
+
+    embedding = reducer.fit_transform(X)
+
+    if isinstance(embedding, tuple):
+        st.write("embedding return as a tuple")
+        embedding = embedding[0]
+
+    embedding = np.array(embedding)
+
+    good = np.isfinite(embedding).all(axis=1)
+    embedding = embedding[good]
+
+
+    '''
+    st.write("X shape:", X.shape)
+    st.write("Any NaN in X?", np.isnan(X).any())
+    st.write("Any Inf in X?", np.isinf(X).any())
+
+    st.write("embedding shape:", embedding.shape)
+    st.write("Any NaN in embedding?", np.isnan(embedding).any())
+    st.write("Any Inf in embedding?", np.isinf(embedding).any())
+    '''
+
+    labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    cmap = plt.cm.get_cmap("tab10", k)
+
+    sc = plt.scatter(
+        embedding[:, 0],
+        embedding[:, 1],
+        c=labels,
+        cmap=cmap,
+        s=20
+    )
+
+    ax.set_title(f"UMAP of Mutation Profiles (k={k})")
+    ax.set_xlabel("UMAP1")
+    ax.set_ylabel("UMAP2")
+
+    handles, _ = sc.legend_elements()
+    ax.legend(handles, [f"Cluster {i}" for i in range(k)], title="Groups", loc="best")
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -432,35 +547,30 @@ if st.session_state.loaded:
     # TAB 4 - MUTATION MATRIX
     # -------------------------------------------------------------------------
     elif tab == "Mutation Matrix":
-        st.write("Boolean mutation matrix: rows = patient barcode, columns = gene symbol")
+
+        subtab = st.radio("Main", ["Heatmap", "UMAP - cluster"], horizontal=True)
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
         else:
-            st.write(f"Matrix shape: {dfpiv.shape[0]} barcodes × {dfpiv.shape[1]} genes")
 
-            # Optional filters for wide matrices
-            max_genes = st.slider(
-                "Show top N genes by mutated patients",
-                min_value=10,
-                max_value=min(500, max(10, dfpiv.shape[1])),
-                value=min(50, max(10, dfpiv.shape[1])),
-                step=10,
-            )
+            if subtab == "Heatmap":
+                st.subheader("Mutation matrix heatmap")
+                plot_heatmap(dfpiv)
 
-            if not df_gene_counts.empty:
-                top_genes = df_gene_counts["symbol"].head(max_genes).tolist()
-                top_genes = [g for g in top_genes if g in dfpiv.columns]
-                dfpiv_show = dfpiv[top_genes].copy() if top_genes else dfpiv.copy()
-            else:
-                dfpiv_show = dfpiv.copy()
+            elif subtab == "UMAP - cluster":
+                st.subheader("UMAP Clustering")
 
-            show_df(dfpiv_show, height=500)
+                n_samples = dfpiv.shape[0]
 
-            # If later you want a heatmap, use this boolean matrix:
-            # df_plot = dfpiv_show.astype(int)
-            # fig = px.imshow(df_plot, aspect="auto")
-            # st.plotly_chart(fig, use_container_width=True)
+                k = st.slider(
+                    "K (number of clusters)",
+                    2,
+                    min(15, n_samples),
+                    min(8, n_samples)
+                )
+
+                plot_umap(dfpiv, k=k)
 
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
