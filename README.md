@@ -10,6 +10,11 @@ Perturb Agent is a computational framework to identify **patient-specific pathwa
 The pipeline integrates:
 
 1. **[Streamlit](https://streamlit.io/)** for interactive exploration and visualization  
+
+   > streamlit==1.55.0  
+   > protobuf==3.20.3  
+   > click==8.0.4  
+
 2. **[Nextflow](https://www.nextflow.io/)** for scalable, reproducible data processing  
 3. **Python (ML/AI layer)** — pathway scoring, feature attribution, and target prioritization
 4. **[uv](https://docs.astral.sh/uv/)** Python project and dependency management
@@ -19,7 +24,7 @@ The pipeline integrates:
 ## ⚙️ First results
 
 
-### Interfacing GDC TCGA data, one gathered:
+### Interfacing GDC TCGA data, results:
 - 57 primary sites.
 - 11428 cases.
 - 245657 samples.

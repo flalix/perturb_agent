@@ -10,6 +10,7 @@ import glob
 import os, requests, json, re
 import pandas as pd
 from collections import Counter
+from pathlib import Path
 
 from setuptools import glob
 from typing import List, Tuple, Any, Iterable, Optional
@@ -17,7 +18,7 @@ from typing import List, Tuple, Any, Iterable, Optional
 from libs.Basic import *
 
 class GDC(object):
-	def __init__(self, root_data:str='../data/'):
+	def __init__(self, root_data:Path=Path('../data/')):
 		
 		self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
@@ -1810,6 +1811,37 @@ class GDC(object):
 		self.df_all_mutations = df_all_mutations
 		   
 		return df_all_cases, df_all_samples, df_all_mutations
+
+
+	def get_filtered_tables(self, selected_primary_site: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+
+		df_cases = self.df_all_cases[self.df_all_cases.primary_site == selected_primary_site]
+
+		if df_cases.empty:
+			print("No cases found for primary site:", selected_primary_site)
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+		
+		df_cases = df_cases.copy().reset_index(drop=True)
+
+		#----- filtering cases ----------------------
+		case_id_list = np.unique(df_cases.case_id)
+		
+		df_samples = self.df_all_samples[self.df_all_samples.case_id.isin(case_id_list)]
+		df_samples = df_samples[df_samples.sample_type.str.contains('Tumor', case=False, na=False)]
+
+		if df_samples.empty:
+			print("No samples found for primary site:", selected_primary_site)
+			return df_cases, pd.DataFrame(), pd.DataFrame(), []
+
+		df_samples = df_samples.copy().reset_index(drop=True)
+
+		#--------- get all barcodes ---------------------------
+		barcode_list = list(np.unique(df_samples.barcode_sample))
+		barcode_list = ["-".join(x.split('-')[:-1]) for x in barcode_list]
+
+		df_mut = self.df_all_mutations[self.df_all_mutations.barcode.isin(barcode_list)]
+
+		return df_cases, df_samples, df_mut, barcode_list
 
 
 	
