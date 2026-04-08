@@ -1,6 +1,14 @@
-streamlit
+streamlit==1.25.0
+protobuf==3.20.*
+click==8.1.7
 streamlit-aggrid>=1.2.1.post2
 altair<6
+
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+
 
 pandas
 scipy
@@ -11,7 +19,6 @@ umap-learn>=0.5.11
 plotly>=6.6.0
 
 python-dotenv
-protobuf==3.20.*
 pypdf
 
 langchain
@@ -30,8 +37,3 @@ langgraph-cli
 langgraph-api
 langsmith
 tavily-python
-
-google-api-python-client
-google-auth
-google-auth-httplib2
-google-auth-oauthlib
