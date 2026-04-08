@@ -22,9 +22,10 @@ import umap
 from pathlib import Path
 import tempfile
 
-ROOT = Path(__file__).resolve().parent
+# Project root (works locally + Render)
+ROOT = Path(__file__).resolve().parent.parent
+# Add src to path
 SRC = ROOT / "src"
-
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
@@ -35,13 +36,11 @@ from libs.tcga_gdc_lib import *
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
 
-ROOT = Path().resolve().parent
 
-GDRIVE_FOLDER_ID = '1Tp4GONa9Qu1gySZaxEK2izwEZJ4E_xKr'
+# GDRIVE_FOLDER_ID = '1Tp4GONa9Qu1gySZaxEK2izwEZJ4E_xKr'
 
 # root_data = os.path.join(ROOT, "data/tcga")
-root_data = Path(tempfile.gettempdir()) / "tcga"
-root_data.mkdir(parents=True, exist_ok=True)
+root_data = Path('/opt/render/data/tcga/')
 
 gdc = GDC(root_data=root_data)
 
