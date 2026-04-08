@@ -23,7 +23,7 @@ class GDC(object):
 		self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
 		self.url_gdc_files = "https://api.gdc.cancer.gov/files"
-		self.url_gdc_data  = f"https://api.gdc.cancer.gov/data/%s"
+		self.url_gdc_data  = "https://api.gdc.cancer.gov/data/%s"
 
 		self.url_cbioportal = "https://www.cbioportal.org/api"
 

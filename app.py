@@ -9,5 +9,5 @@
 from pathlib import Path
 import runpy
 
-target = Path(__file__).parent / "notebooks" / "streamlit_UI_GDC_test03.py"
+target = Path(__file__).resolve().parent / "src" / "app_main.py"
 runpy.run_path(str(target), run_name="__main__")

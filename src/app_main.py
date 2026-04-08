@@ -22,8 +22,8 @@ import umap
 from pathlib import Path
 import tempfile
 
-ROOT = Path().resolve().parent.parent
-SRC = os.path.join(ROOT, "src")
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
 
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
