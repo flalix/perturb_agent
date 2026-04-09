@@ -62,8 +62,8 @@ class GDC(object):
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.fname_fileid   = '%s_for_%s_case_%s_sample_type_%s_stage_%s_fileid_%s.tsv'
-		self.fname_mut_anal = 'mutations_anal_for_study_%s.tsv'
-		self.fname_mut_summ = 'mutations_summ_for_study_%s.tsv'
+		self.fname_mut_anal0 = 'mutations_anal_for_study_%s.tsv'
+		self.fname_mut_summ0 = 'mutations_summ_for_study_%s.tsv'
 
 		self.gdc_fname = ''
 		self.gdc_filename = ''
@@ -279,6 +279,7 @@ class GDC(object):
 				return self.df_psi
 
 			hits = response["data"]["hits"]
+			print(">>> hits", len(hits))
 
 			df_psi = pd.DataFrame(hits)
 			# fix list columns
@@ -303,20 +304,20 @@ class GDC(object):
 		return df_psi
 	
 
-	def set_primary_site(self, psi_id:Any=None, selected_primary_site:Any=None, verbose:bool=False) -> bool:
+	def set_primary_site(self, psi_id:Any=None, primary_site:Any=None, verbose:bool=False) -> bool:
 
 		self.psi_id = ''
 		self.primary_site, self.disease_type, self.disease_name = '', '', ''
 
 		if isinstance(psi_id, str) and psi_id != '':
-			dfa = self.df_psi[self.df_psi.pid == psi_id]
+			dfa = self.df_psi[self.df_psi.psi_id == psi_id]
 			if dfa.empty:
 				print("No primary site information found for:", psi_id)
 				return False
-		elif isinstance(selected_primary_site, str) and selected_primary_site != '':
-			dfa = self.df_psi[self.df_psi.primary_site == selected_primary_site]
+		elif isinstance(primary_site, str) and primary_site != '':
+			dfa = self.df_psi[self.df_psi.primary_site == primary_site]
 			if dfa.empty:
-				print("No primary site information found for:", selected_primary_site)
+				print("No primary site information found for:", primary_site)
 				return False
 		else:
 			if verbose: print("No primary site information provided.")
@@ -325,7 +326,7 @@ class GDC(object):
 
 		row = dfa.iloc[0]
 
-		self.psi_id = row.pid
+		self.psi_id = row.psi_id
 		self.primary_site = row.primary_site
 		self.disease_type = row.disease_type
 		self.disease_name = row.name
@@ -371,7 +372,7 @@ class GDC(object):
 		self.psi_id = psi_id
 	
 		try:
-			row = self.df_psi[self.df_psi.pid == psi_id].iloc[0]
+			row = self.df_psi[self.df_psi.psi_id == psi_id].iloc[0]
 			deas_type_list = row.disease_type
 
 			if isinstance(deas_type_list, str):
@@ -1622,12 +1623,12 @@ class GDC(object):
 		return dic.get(study_id, study_id)
 	
 	def set_mutation_filenames(self):
-		fname_mut_anal = self.fname_mut_anal%(self.s_case)
-		self.fname_mut_anal = title_replace(fname_mut_anal)
+		self.fname_mut_anal = self.fname_mut_anal0%(self.s_case)
+		self.fname_mut_anal = title_replace(self.fname_mut_anal)
 		self.filename_mutanal = self.root_psi / self.fname_mut_anal
 
-		fname_mut_summ = self.fname_mut_summ%(self.s_case)
-		self.fname_mut_summ = title_replace(fname_mut_summ)
+		self.fname_mut_summ = self.fname_mut_summ0%(self.s_case)
+		self.fname_mut_summ = title_replace(self.fname_mut_summ)
 		self.filename_mutsumm = self.root_psi / self.fname_mut_summ
 
 
@@ -1719,10 +1720,10 @@ class GDC(object):
 
 		return study_ids
 	
-	def loop_program_psi_samples(self, program:str='TCGA', force:bool=False, 
+	def loop_program_psi_samples(self, prog_id:str='TCGA', force:bool=False, 
 			verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
-		df_psi = self.get_primary_sites(program=program, force=force, verbose=verbose)
+		df_psi = self.get_primary_sites(prog_id=prog_id, force=force, verbose=verbose)
 
 		df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -1841,14 +1842,14 @@ class GDC(object):
 		return df_all_cases, df_all_samples, df_all_mutations
 
 
-	def get_filtered_tables(self, selected_primary_site: str, 
+	def get_filtered_tables(self, primary_site: str, 
 						    verbose: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
-		dfa = self.df_psi[self.df_psi.primary_site == selected_primary_site]
+		dfa = self.df_psi[self.df_psi.primary_site == primary_site]
 
 		if dfa.empty:
 			self.psi_id = ''
-			print("No primary site information found for:", selected_primary_site)
+			print("No primary site information found for:", primary_site)
 			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
 		
 		row = dfa.iloc[0]
@@ -1887,6 +1888,10 @@ class GDC(object):
 			return self.df_cases, self.df_all_samples, self.df_all_mut, self.all_barcode_list
 
 		df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
+		if 'pid' in df_cases.columns:
+			df_cases = df_cases.rename(columns={'pid': 'psi_id'})
+			pdwritecsv(df_cases, self.fname_cases, self.root_psi)
+
 
 		if do_filter:
 			df_cases = self.apply_filter_cases(df_cases)
