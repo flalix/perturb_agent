@@ -8,6 +8,7 @@
 
 import glob
 import os, requests, json, re
+from tabnanny import verbose
 import pandas as pd
 from collections import Counter
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import List, Tuple, Any, Iterable, Optional
 from libs.Basic import *
 
 class GDC(object):
-	def __init__(self, root_data:Path=Path('../data/')):
+	def __init__(self, root0:Path=Path('../data/')):
 		
 		self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
@@ -27,9 +28,13 @@ class GDC(object):
 
 		self.url_cbioportal = "https://www.cbioportal.org/api"
 
-		self.root_data = root_data
+		self.prog_id, self.psi_id = '', ''
 
-		self.root_summary = root_data / 'summary'
+		self.root0 = root0
+
+		self.root_data = root0
+		self.root_summary = root0
+		self.root_psi = root0
 
 		self.clean_gdc_files()
 
@@ -38,20 +43,20 @@ class GDC(object):
 		self.fname_all_mutations = '%s_summ_mutations.tsv'
 
 	def clean_gdc_files(self):
-		self.pid = None
 
 		self.gdc_file_name = ''
 		self.gdc_file_id = ''
 		self.gdc_data_type = ''
 
-		self.fname_programs = 'programs.txt'
+		self.s_case = ''
+
+		self.fname_programs = 'gdc_programs.txt'
 
 		# primary_site
-		self.fname_primary_site = 'primary_site_program_%s.tsv'
-		self.fname_cases        = 'cases_for_%s.tsv'
-		self.fname_subtype      = 'subtype_for_%s.tsv'
-		self.fname_stage        = 'stage_for_%s_subtype_%s.tsv'
-		self.fname_pid_samples  = 'samples_for_%s.tsv'
+		self.fname_prim_site = 'primary_site_program_%s.tsv'
+		self.fname_cases0    = 'cases_for_%s.tsv'
+		self.fname_subtype0  = 'subtype_for_%s.tsv'
+		self.fname_samples0  = 'samples_for_%s.tsv'
 		self.fname_rnaseq_exp_files = 'rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
@@ -191,9 +196,9 @@ class GDC(object):
 				return h
 		return "other"
 
-	def map_tissue_subtype(self, global_subtype:str, pid:str) -> str:
-		if pid in self.SITE_MAP:
-			return self.SITE_MAP[pid].get(global_subtype, global_subtype)
+	def map_tissue_subtype(self, global_subtype:str) -> str:
+		if self.psi_id in self.SITE_MAP:
+			return self.SITE_MAP[self.psi_id].get(global_subtype, global_subtype)
 	
 		return global_subtype
 
@@ -226,19 +231,115 @@ class GDC(object):
 		
 		return None
 
-	def set_cancer_type(self, case:str="Breast Cancer"):
-		self.case = case
+	def set_program(self, prog_id:str):
+		self.prog_id = prog_id
 
-		self.root_case = os.path.join(self.root_data, self.dir_case)
-		os.makedirs(self.root_case, exist_ok=True)
-
-		self.dir_case = case.lower().replace(' ', '_')
-
+		self.root_data    = self.root0 / prog_id
+		self.root_summary = create_dir(self.root_data, 'summary')
+		
 		self.clean_gdc_files()
+
+
+	def get_primary_sites(self, prog_id:str='TCGA',force:bool=False, verbose:bool=False) -> pd.DataFrame:
+
+		self.df_psi = pd.DataFrame()
+
+		self.set_program(prog_id)
+
+		fname = self.fname_prim_site%(prog_id)
+		filename = os.path.join(self.root_data, fname)
+
+		if os.path.exists(filename) and not force:
+			df_psi = pdreadcsv(fname, self.root_data, verbose=verbose)
+			self.df_psi = df_psi
+
+			return df_psi
+
+		filters = {
+					"op": "in",
+					"content": { "field": "program.name", "value": [self.prog_id] }
+				}
+
+		params = {
+			"filters": json.dumps(filters),
+			"fields": "project_id,name,primary_site,disease_type",
+			"format": "JSON",
+			"size": 1000
+		}
+
+		response = None
+		try:
+			res = requests.get(self.url_gdc_project, params=params)
+			response = res.json()
+			
+			if 'data' not in response.keys():
+				print(f"No data found while searching for '{self.prog_id}'")
+				print(">>> response", response)
+				self.df_psi = pd.DataFrame()
+				return self.df_psi
+
+			hits = response["data"]["hits"]
+
+			df_psi = pd.DataFrame(hits)
+			# fix list columns
+			for col in df_psi.columns:
+				df_psi[col] = df_psi[col].apply(
+					lambda x: ", ".join(x) if isinstance(x, list) else x  )
+
+			df_psi = df_psi.rename(columns={"id": "psi_id"})
+
+			df_psi = df_psi.sort_values(["primary_site", "disease_type"])
+
+			_ = pdwritecsv(df_psi, fname, self.root_data, verbose=verbose)
+
+		except Exception as e:
+			print(f"Error searching for '{self.prog_id}': {e}")
+			print(">>> response", response)
+			self.df_psi = pd.DataFrame()
+			return self.df_psi
+
+		self.df_psi = df_psi
+	
+		return df_psi
+	
+
+	def set_primary_site(self, psi_id:Any=None, selected_primary_site:Any=None, verbose:bool=False) -> bool:
+
+		self.psi_id = ''
+		self.primary_site, self.disease_type, self.disease_name = '', '', ''
+
+		if isinstance(psi_id, str) and psi_id != '':
+			dfa = self.df_psi[self.df_psi.pid == psi_id]
+			if dfa.empty:
+				print("No primary site information found for:", psi_id)
+				return False
+		elif isinstance(selected_primary_site, str) and selected_primary_site != '':
+			dfa = self.df_psi[self.df_psi.primary_site == selected_primary_site]
+			if dfa.empty:
+				print("No primary site information found for:", selected_primary_site)
+				return False
+		else:
+			if verbose: print("No primary site information provided.")
+			return False
+
+
+		row = dfa.iloc[0]
+
+		self.psi_id = row.pid
+		self.primary_site = row.primary_site
+		self.disease_type = row.disease_type
+		self.disease_name = row.name
+
+		self.root_psi = self.root_data / self.psi_id
+		os.makedirs(self.root_psi, exist_ok=True)
+
+		self.set_filenames()
+
+		return True
 
 	def get_gdc_progams(self, force:bool=False, verbose:bool=False) -> List:
 
-		filename = os.path.join(self.root_data, self.fname_programs)
+		filename = os.path.join(self.root0, self.fname_programs)
 
 		if os.path.exists(filename) and not force:
 			txt = read_txt(filename, verbose=verbose)
@@ -265,74 +366,12 @@ class GDC(object):
 		return prog_list
 
 
-	def get_primary_sites(self, program:str='TCGA', force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def list_disease_types(self, psi_id:str) -> List:
 
-		self.pid = program
-
-		self.df_psi = pd.DataFrame()
-
-		fname = self.fname_primary_site%(program)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_psi = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_psi = df_psi
-
-			return df_psi
-
-		filters = {
-					"op": "in",
-					"content": { "field": "program.name", "value": [program] }
-				}
-
-		params = {
-			"filters": json.dumps(filters),
-			"fields": "project_id,name,primary_site,disease_type",
-			"format": "JSON",
-			"size": 1000
-		}
-
-		response = None
-		try:
-			res = requests.get(self.url_gdc_project, params=params)
-			response = res.json()
-			
-			if 'data' not in response.keys():
-				print(f"No data found while searching for '{program}'")
-				print(">>> response", response)
-				self.df_psi = pd.DataFrame()
-				return self.df_psi
-
-			hits = response["data"]["hits"]
-
-			df_psi = pd.DataFrame(hits)
-			# fix list columns
-			for col in df_psi.columns:
-				df_psi[col] = df_psi[col].apply(
-					lambda x: ", ".join(x) if isinstance(x, list) else x  )
-
-			df_psi = df_psi.rename(columns={"id": "pid"})
-
-			df_psi = df_psi.sort_values(["primary_site", "disease_type"])
-
-			_ = pdwritecsv(df_psi, fname, self.root_data, verbose=verbose)
-
-		except Exception as e:
-			print(f"Error searching for '{program}': {e}")
-			print(">>> response", response)
-			self.df_psi = pd.DataFrame()
-			return self.df_psi
-
-		self.df_psi = df_psi
-	
-		return df_psi
-	
-	def list_disease_types(self, pid:str) -> List:
-
-		self.pid = pid
+		self.psi_id = psi_id
 	
 		try:
-			row = self.df_psi[self.df_psi.project_id == pid].iloc[0]
+			row = self.df_psi[self.df_psi.pid == psi_id].iloc[0]
 			deas_type_list = row.disease_type
 
 			if isinstance(deas_type_list, str):
@@ -345,49 +384,52 @@ class GDC(object):
 
 		return deas_type_list
 
-	def get_cases_and_subtypes(self, pid:str, batch_size:int=200, 
+
+
+	def set_filenames(self):
+		self.fname_cases = self.fname_cases0%(self.psi_id)
+		self.filename_cases = os.path.join(self.root_psi, self.fname_cases)
+
+		self.fname_subt = self.fname_subtype0%(self.psi_id)
+		self.filename_subt = os.path.join(self.root_psi, self.fname_subt)
+
+	def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
+		df_cases = df_cases[df_cases.validity == 'valid'].copy()
+		df_cases = df_cases[df_cases["consistency"] == "ok"]
+		df_cases.reset_index(drop=True, inplace=True)
+		
+		# frac_threshold:float=0.01,
+		# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
+		# df_cases = df_cases[df_cases["frac"] > frac_threshold]
+		# df_cases.reset_index(drop=True, inplace=True)'
+		# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
+
+		return df_cases
+		
+	def get_cases_and_subtypes(self, batch_size:int=200, 
 							   do_filter:bool=True, debug:bool=False, 
 				    		   force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		'''
-		calc all subtypes, given and pid --> df_cases
+		calc all subtypes, given and psi_id --> df_cases
 		group by ["subtype_global", "subtype_tissue", "stage"] --> df_subt
 
 		filter: NOS (Not Otherwise Specified) → the pathologist could not (or did not) assign a more specific subtype.
 		e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
 
-		input: pid = primary site ID
+		input: psi_id = primary site ID
 		output: df_cases, df_subt, df_prof
 		'''
 
-		self.pid = pid
+		self.set_filenames()
 
-		def apply_filter(df_cases: pd.DataFrame) -> pd.DataFrame:
-			df_cases = df_cases[df_cases.validity == 'valid'].copy()
-			df_cases = df_cases[df_cases["consistency"] == "ok"]
-			df_cases.reset_index(drop=True, inplace=True)
-			
-			# frac_threshold:float=0.01,
-			# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
-			# df_cases = df_cases[df_cases["frac"] > frac_threshold]
-			# df_cases.reset_index(drop=True, inplace=True)'
-			# df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
-
-			return df_cases
-
-		fname_cases = self.fname_cases%(pid)
-		filename_cases = os.path.join(self.root_data, fname_cases)
-
-		fname_subt = self.fname_subtype%(pid)
-		filename_subt = os.path.join(self.root_data, fname_subt)
-
-		if os.path.exists(filename_cases) and os.path.exists(filename_subt) and not force:
-			df_cases = pdreadcsv(fname_cases, self.root_data, verbose=verbose)
+		if os.path.exists(self.filename_cases) and os.path.exists(self.filename_subt) and not force:
+			df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
 			self.df_cases = df_cases
 
 			if do_filter:
-				df_cases = apply_filter(df_cases)
+				df_cases = self.apply_filter_cases(df_cases)
 
-			df_subt = self.groupby_state(df_cases)
+			df_subt = self.groupby_case_by_subtypes(df_cases)
 			df_prof = self.build_profile(df_cases)
 
 			self.df_cases = df_cases
@@ -418,10 +460,10 @@ class GDC(object):
 			df["subtype_global"] = df["diagnosis_norm"].apply(self.map_global_subtype)
 
 			"""
-			for pid=='TCGA-ACC' if subtype_global = other --> change to adrenal_cortical_carcinoma
+			for psi_id=='TCGA-ACC' if subtype_global = other --> change to adrenal_cortical_carcinoma
 			"""
 			df["subtype_global"] = [df.iloc[i]["tumor_class"] 
-						            if  (df.iloc[i]["pid"] =='TCGA-ACC' and df.iloc[i]["subtype_global"] =='other')
+						            if  (df.iloc[i]["psi_id"] =='TCGA-ACC' and df.iloc[i]["subtype_global"] =='other')
 						            else df.iloc[i]["subtype_global"] for i in range(len(df))]
 
 			# histology
@@ -429,7 +471,7 @@ class GDC(object):
 
 			# tissue-specific subtype
 			df["subtype_tissue"] = df.apply(
-				lambda r: self.map_tissue_subtype(r["subtype_global"], r["pid"]),
+				lambda r: self.map_tissue_subtype(r["subtype_global"], r["psi_id"]),
 				axis=1
 			)
 
@@ -547,7 +589,7 @@ class GDC(object):
 			"op": "in",
 			"content": {
 				"field": "cases.project.project_id",
-				"value": [pid]
+				"value": [psi_id]
 			}
 		}
 
@@ -584,7 +626,7 @@ class GDC(object):
 				response = res.json()
 
 				if 'data' not in response.keys():
-					print(f"No data found while searching for '{pid}'")
+					print(f"No data found while searching for '{psi_id}'")
 					print(">>> response", response)
 					self.df_cases = pd.DataFrame()
 					self.df_subt  = pd.DataFrame()
@@ -606,7 +648,7 @@ class GDC(object):
 			print("\n")
 
 			if all_hits == []:
-				print(f"No subtypes found for {pid} ")
+				print(f"No subtypes found for {psi_id} ")
 				self.df_cases = response
 				self.df_subt  = pd.DataFrame()
 				self.df_prof  = pd.DataFrame()
@@ -662,7 +704,7 @@ class GDC(object):
 			'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
 			"""
 
-			df_cases = df_cases.rename(columns={"project.project_id": "pid"})
+			df_cases = df_cases.rename(columns={"project.project_id": "psi_id"})
 
 			if debug:
 				print("----------- 2 ---------------")
@@ -686,21 +728,21 @@ class GDC(object):
 			df_cases.reset_index(drop=True, inplace=True)
 
 			df_cases = df_cases.drop(columns=['id'])
-			df_subt = self.groupby_state(df_cases)
+			df_subt = self.groupby_case_by_subtypes(df_cases)
 
-			_ = pdwritecsv(df_cases, fname_cases, self.root_data, verbose=verbose)
-			_ = pdwritecsv(df_subt,  fname_subt, self.root_data, verbose=verbose)
+			_ = pdwritecsv(df_cases, self.fname_cases, self.root_psi, verbose=verbose)
+			_ = pdwritecsv(df_subt,  self.fname_subt, self.root_psi, verbose=verbose)
 
 
 		except Exception as e:
-			print(f"Error for searching diags for '{pid}'. error: {e}")
+			print(f"Error for searching diags for '{psi_id}'. error: {e}")
 			self.df_cases = df_cases
 			self.df_subt  = pd.DataFrame()
 			self.df_prof  = pd.DataFrame()
 			return self.df_cases, self.df_subt, self.df_prof
 
 		if do_filter:
-			df_cases = apply_filter(df_cases)
+			df_cases = self.apply_filter_cases(df_cases)
 
 		df_prof = self.build_profile(df_cases)
 
@@ -720,7 +762,7 @@ class GDC(object):
 	def groupby_sstate(self, df_cases:pd.DataFrame):
 
 		df_cases["sstage"] = df_cases["stage"].map(lambda x: self.simplify_stage(x))
-		df_subt = df_cases.groupby(["pid", "subtype_global", "tumor_class", "subtype_tissue", "sstage"], dropna=False).size().reset_index(name="n")
+		df_subt = df_cases.groupby(["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "sstage"], dropna=False).size().reset_index(name="n")
 		df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
 
 		self.df_subt = df_subt
@@ -728,12 +770,12 @@ class GDC(object):
 		return df_subt
 
 
-	def groupby_state(self, df_cases:pd.DataFrame):
+	def groupby_case_by_subtypes(self, df_cases:pd.DataFrame):
 
 		# df_subt = df_cases[cols].copy().drop_duplicates()
 		# df_subt = df_subt.sort_values(cols).reset_index(drop=True)		
 
-		cols = ['pid', 'subtype_global', 'tumor_class', 'subtype_tissue', 'stage']
+		cols = ['psi_id', 'subtype_global', 'tumor_class', 'subtype_tissue', 'stage']
 		df_subt = df_cases.groupby(cols, dropna=False).size().reset_index(name="n")
 		df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
 
@@ -822,26 +864,36 @@ class GDC(object):
 				lista.append(dfa.iloc[0].stage)
 		return lista
 
-	def get_samples_for_pid_subtypes(self, pid:str, subtype_global:str, tumor_class:str, 
-									 subtype_tissue:str, s_case:str,
-									 batch_cases:int=50, batch_size:int=200, 
-									 force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def set_s_case(self, subtype_global:str, tumor_class:str, subtype_tissue:str):
+
+		self.s_case = f"{self.psi_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
+
+		if len(self.s_case) > 180:
+			self.s_case = f"{self.psi_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
+
+		self.s_case = title_replace(self.s_case)
+
+	def get_samples_for_subtypes(self, subtype_global:str, tumor_class:str, subtype_tissue:str, 
+								 batch_cases:int=50, batch_size:int=200, 
+								 force:bool=False, verbose:bool=False) -> pd.DataFrame:
 		'''
 		return all samples given a list of cases
-		for pid, subtype_global, tumor_class, subtype_tissue
+		for psi_id, subtype_global, tumor_class, subtype_tissue
 
-		input: pid, subtype_global, tumor_class, subtype_tissue
+		input: psi_id, subtype_global, tumor_class, subtype_tissue
 		output: df_samples
 		'''
 		self.df_samples = pd.DataFrame()
 
-		df_cases, _, _ = self.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, 
+		self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+		df_cases, _, _ = self.get_cases_and_subtypes(batch_size=200, do_filter=False, 
 											         force=False, verbose=verbose)
 	
 		self.df_cases = df_cases
 
 		if df_cases is None or df_cases.empty:
-			print(f"No cases found while searching for '{s_case}'")
+			print(f"No cases found while searching for '{self.s_case}'")
 			return self.df_samples
 		
 		"""
@@ -873,15 +925,15 @@ class GDC(object):
 		self.df_cases = df_cases
 
 		if df_cases.empty:
-			print(f"No cases found for {s_case}")
+			print(f"No cases found for {self.s_case}")
 			return self.df_samples
 
-		fname = self.fname_pid_samples%(s_case)
+		fname = self.fname_samples0%(self.s_case)
 		fname = title_replace(fname)
-		filename = os.path.join(self.root_data, fname)
+		filename = os.path.join(self.root_psi, fname)
 
 		if os.path.exists(filename) and not force:
-			df_samples = pdreadcsv(fname, self.root_data, verbose=verbose)
+			df_samples = pdreadcsv(fname, self.root_psi, verbose=verbose)
 			self.df_samples = df_samples
 
 			return df_samples
@@ -957,7 +1009,7 @@ class GDC(object):
 					response = res.json()
 
 					if 'data' not in response.keys():
-						print(f"No data found while searching for '{pid}' cases {case_id_list}")
+						print(f"No data found while searching for '{psi_id}' cases {case_id_list}")
 						print(">>> response", response)
 						self.df_samples = pd.DataFrame()
 						return self.df_samples
@@ -977,7 +1029,7 @@ class GDC(object):
 				# print("\n")
 
 				if all_hits == []:
-					print(f"No files were found for {pid} cases {case_id_list}")
+					print(f"No files were found for {psi_id} cases {case_id_list}")
 					self.df_samples = pd.DataFrame()
 					return self.df_samples
 		
@@ -1012,21 +1064,21 @@ class GDC(object):
 				cols = list(df_samples.columns)
 
 				# 🔹 Metadata 
-				df_samples['pid'] = pid
+				df_samples['psi_id'] = psi_id
 				df_samples['subtype_global'] = subtype_global
 				df_samples['tumor_class'] = tumor_class
 				df_samples['subtype_tissue'] = subtype_tissue
 				df_samples['stage'] = self.get_stage_from_cases(df_samples.case_id.tolist())
 
-				cols = ["pid", "subtype_global", "tumor_class", "subtype_tissue", "stage"] + cols
+				cols = ["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"] + cols
 
 				df_samples = df_samples.sort_values(["case_id", "sample_type"], ascending=[False,False]).reset_index(drop=True)
 				df_samples.reset_index(drop=True, inplace=True)
 
-				_ = pdwritecsv(df_samples, fname, self.root_data, verbose=verbose)
+				_ = pdwritecsv(df_samples, fname, self.root_psi, verbose=verbose)
 
 			except Exception as e:
-				print(f"Error for searching files for {s_case}'. error: {e}")
+				print(f"Error for searching files for {self.s_case}'. error: {e}")
 				self.df_samples = df_samples
 				return df_samples
 
@@ -1034,7 +1086,7 @@ class GDC(object):
 
 		return df_samples
 
-	def get_table_given_fileID(self, pid:str, case_id:str, 
+	def get_table_given_fileID(self, psi_id:str, case_id:str, 
 								sample_type:str, stage:str,
 								file_type:str, file_id:str,
 								force:bool=False, verbose:bool=False) -> pd.DataFrame:
@@ -1050,12 +1102,12 @@ class GDC(object):
 			self.df_table = pd.DataFrame()
 			return self.df_table
 
-		fname = self.fname_fileid%(file_type, pid, case_id, sample_type, stage, file_id)
+		fname = self.fname_fileid%(file_type, psi_id, case_id, sample_type, stage, file_id)
 		fname = title_replace(fname)
-		filename = os.path.join(self.root_data, fname)
+		filename = os.path.join(self.root_psi, fname)
 
 		if os.path.exists(filename) and not force:
-			df_table = pdreadcsv(fname, self.root_data, verbose=verbose)
+			df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
 			self.df_table = df_table
 
 			return df_table
@@ -1080,14 +1132,14 @@ class GDC(object):
 						"tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded"]
 				df_table = df_table[cols]
 
-				_ = pdwritecsv(df_table, fname, self.root_data, verbose=verbose)
+				_ = pdwritecsv(df_table, fname, self.root_psi, verbose=verbose)
 			else:
-				df_table = pdreadcsv(fname, self.root_data, verbose=verbose)
+				df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
 
 			if verbose: print(f"found {len(df_table)} files in selected samples.")
 
 		except Exception as e:
-			print(f"Error for '{pid}', '{file_type}', and {file_id}: {e}")
+			print(f"Error for '{psi_id}', '{file_type}', and {file_id}: {e}")
 			self.df_table = pd.DataFrame()
 			return self.df_table
 
@@ -1111,12 +1163,12 @@ class GDC(object):
 		return df
 
 
-	def get_table_searching_for_fileID(self, pid:str, data_type:str, sample_type:str, file_id:str,  verbose:bool=False) -> pd.DataFrame:
+	def get_table_searching_for_fileID(self, psi_id:str, data_type:str, sample_type:str, file_id:str,  verbose:bool=False) -> pd.DataFrame:
 			
 		data_type2 = title_replace(data_type)
 		sample_type2 = title_replace(sample_type)
 
-		files = [x for x in os.listdir(self.root_data) if file_id in x and data_type2 in x and sample_type2 in x]
+		files = [x for x in os.listdir(self.root_psi) if file_id in x and data_type2 in x and sample_type2 in x]
 
 		if len(files) == 0:
 			print(f"No files found for {file_id}.")
@@ -1127,7 +1179,7 @@ class GDC(object):
 			print(f"Multiple files found for {file_id}. Using the first one.")
 
 		fname = files[0]
-		df_table = pdreadcsv(fname, self.root_data, verbose=verbose)
+		df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
 		self.df_table = df_table
 
 		return df_table
@@ -1208,7 +1260,7 @@ class GDC(object):
 
 		return self.df_normal, self.df_tumor
 
-	def merge_normal_tumor_tables(self, pid:str, df_normal:pd.DataFrame, df_tumor:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+	def merge_normal_tumor_tables(self, psi_id:str, df_normal:pd.DataFrame, df_tumor:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 		cols = ["gene_id", "symbol", "gene_type", "counts"]
 		common_cols = ["gene_id", "symbol", "gene_type"]
@@ -1221,7 +1273,7 @@ class GDC(object):
 			sample_type = row.sample_type
 			file_id = row.file_id
 			
-			dft = self.get_table_searching_for_fileID(pid=pid, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
+			dft = self.get_table_searching_for_fileID(psi_id=psi_id, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
 
 			if dft.empty:
 				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
@@ -1243,7 +1295,7 @@ class GDC(object):
 			sample_type = row.sample_type
 			file_id = row.file_id
 			
-			dft = self.get_table_searching_for_fileID(pid=pid, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
+			dft = self.get_table_searching_for_fileID(psi_id=psi_id, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
 
 			if dft.empty:
 				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
@@ -1303,8 +1355,6 @@ class GDC(object):
 		return lista
 
 	def get_expression_files_by_uuid(self, case_uuid:str, data_type:str="Gene Expression Quantification") -> List:
-
-		self.clean_gdc_files()
 
 		if not isinstance(case_uuid, str) or len(case_uuid) < 3:
 			print(f"UUID bad formated {case_uuid}.")
@@ -1373,7 +1423,7 @@ class GDC(object):
 		fname = f"{self.gdc_file_id}.dat"
 		self.gdc_fname = fname.replace(".dat", ".tsv")
 
-		self.gdc_filename = os.path.join(self.root_case, fname)
+		self.gdc_filename = os.path.join(self.root_psi, fname)
 
 		if exp_unit == 'TPM':
 			self.exp_unit = exp_unit
@@ -1385,7 +1435,7 @@ class GDC(object):
 
 
 		self.gdc_ouptut_fname = f"{fname.replace('.dat', '')}_{exp_unit}.tsv"
-		self.gdc_ouptut_filename = os.path.join(self.root_case, self.gdc_ouptut_fname)
+		self.gdc_ouptut_filename = os.path.join(self.root_psi, self.gdc_ouptut_fname)
 
 
 
@@ -1496,7 +1546,7 @@ class GDC(object):
 		dic_rename = {'uniqueSampleKey':'unique_sample_key',
 				'uniquePatientKey':'unique_patient_key',  'molecularProfileId':'molecular_profile_id',
 				'sampleId':'barcode_sample', 'patientId':'barcode', 'entrezGeneId':'entrez_gene_id',
-				'studyId':'pid', 'center':'center', 'mutationStatus':'mutation_status',
+				'studyId':'psi_id', 'center':'center', 'mutationStatus':'mutation_status',
 				'validationStatus':'validation_status', 'tumorRefCount':'tumor_ref_count', 
 				'normalRefCount':'normal_ref_count', 'startPosition':'start',
 				'endPosition':'end', 'referenceAllele':'ref_allele', 
@@ -1512,7 +1562,7 @@ class GDC(object):
 
 		df['sample'] = [x.split('-')[-1] for x in df['barcode_sample'] ]
 
-		order_cols = ['pid', 'molecular_profile_id', 'barcode', 'sample', 'barcode_sample',
+		order_cols = ['psi_id', 'molecular_profile_id', 'barcode', 'sample', 'barcode_sample',
 				'symbol', 'refseq_mrna_id', 'entrez_gene_id', 
 				'protein_mut', 'mutation_type', 'mutation_status',
 				'ref_allele', 'variant_allele', 'variant_type', 
@@ -1571,34 +1621,27 @@ class GDC(object):
 
 		return dic.get(study_id, study_id)
 	
+	def set_mutation_filenames(self):
+		fname_mut_anal = self.fname_mut_anal%(self.s_case)
+		self.fname_mut_anal = title_replace(fname_mut_anal)
+		self.filename_mutanal = self.root_psi / self.fname_mut_anal
 
-	def to_cbioportal_barcode_sample(self, x: str) -> str:
-		parts = x.split("-")
+		fname_mut_summ = self.fname_mut_summ%(self.s_case)
+		self.fname_mut_summ = title_replace(fname_mut_summ)
+		self.filename_mutsumm = self.root_psi / self.fname_mut_summ
 
-		if len(parts) >= 4 and parts[0] == "TCGA":
-			sample_code = parts[3][:2]   # 01A -> 01, 11A -> 11
-			return "-".join([parts[0], parts[1], parts[2], sample_code])
-		
-		return x
-		
-		
-	def get_df_mut_transform_mutation_table(self, study_id: str, s_case:str, barcode_sample_list: Iterable[str], 
+
+	def get_df_mut_transform_mutation_table(self, study_id: str, barcode_sample_list: List[str], 
 		session: Optional[requests.Session] = None, timeout: int=60,
 		force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 		self.study_id0 = study_id
-		self.s_case = s_case
 
 		'''
 		if TCGA remove the last characters if len > 2
 		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
 		'''
-		barcode_sample_list = [self.to_cbioportal_barcode_sample(x) for x in barcode_sample_list]
-		if not barcode_sample_list:
-			raise ValueError("barcode_sample_list is empty.")
-		
-		# 01A, 01B, 01Z → all collapse to 01
-		barcode_sample_list = list(np.unique(barcode_sample_list))
+		barcode_list = self.prepare_barcode_sample_list(barcode_sample_list)	
 
 		if study_id[0].isupper():
 			mat = study_id.lower().split('-')
@@ -1608,25 +1651,17 @@ class GDC(object):
 		study_id = self.change_cbioportal_studyid(study_id)
 		self.study_id = study_id
 
-		print(f"\n>>> {study_id} --> {s_case} len = {len(barcode_sample_list)} - {barcode_sample_list[:5]}...")
+		print(f"\n>>> {study_id} --> {self.s_case} len = {len(barcode_list)} - {barcode_list[:5]}...")
 
+		self.set_mutation_filenames()
 
-		fname_mut_anal = self.fname_mut_anal%(s_case)
-		fname_mut_anal = title_replace(fname_mut_anal)
-		filename_mutation = os.path.join(self.root_data, fname_mut_anal)
-
-		fname_mut_summ = self.fname_mut_summ%(s_case)
-		fname_mut_summ = title_replace(fname_mut_summ)
-		filename_extmut = os.path.join(self.root_data, fname_mut_summ)
-
-
-		if os.path.exists(filename_mutation) and os.path.exists(filename_extmut) and not force:
-			dff    = pdreadcsv(fname_mut_summ, self.root_data, verbose=verbose)
-			df_mut = pdreadcsv(fname_mut_anal, self.root_data, verbose=verbose)
+		if os.path.exists(self.filename_mutanal) and os.path.exists(self.filename_mutsumm) and not force:
+			dff    = pdreadcsv(self.fname_mut_summ, self.root_psi, verbose=verbose)
+			df_mut = pdreadcsv(self.fname_mut_anal, self.root_psi, verbose=verbose)
 			return dff, df_mut
 		
 		'''
-			df_mut cols: ["sample_id", "barcode_sample", "pid", "mol_profile_id","gene",
+			df_mut cols: ["sample_id", "barcode_sample", "psi_id", "mol_profile_id","gene",
 			"entrez_gene_id", "protein_mut", "mutation_type", "mutation_status",
 			"variant_type", "chr", "start", "end",
 			"ref_allele", "tumor_seq_allele"]		
@@ -1642,7 +1677,7 @@ class GDC(object):
 
 		#--------------- map main cols from df_mut ------------------------
 		"""
-		order_cols = ['barcode_sample', 'barcode_sample', 'pid', 'mol_profile_id',
+		order_cols = ['barcode_sample', 'barcode_sample', 'psi_id', 'mol_profile_id',
 			'symbol', 'refseq_mrna_id', 'entrez_gene_id', 
 			'protein_mut', 'mutation_type', 'mutation_status',
 			'ref_allele', 'variant_allele', 'variant_type', 
@@ -1652,7 +1687,7 @@ class GDC(object):
 			'unique_patient_key']
 		"""
 		dff = (df_mut
-					.groupby(['pid', 'barcode', "barcode_sample", 'symbol', 'refseq_mrna_id', "entrez_gene_id", "protein_mut", 'mutation_type', "variant_type", "chr"])
+					.groupby(['psi_id', 'barcode', "barcode_sample", 'symbol', 'refseq_mrna_id', "entrez_gene_id", "protein_mut", 'mutation_type', "variant_type", "chr"])
 					.size()
 					.reset_index(name="n_mutations")
 				)
@@ -1666,8 +1701,8 @@ class GDC(object):
 		
 		self.dff = dff
 
-		_ = pdwritecsv(dff, fname_mut_summ, self.root_data, verbose=False)
-		_ = pdwritecsv(df_mut, fname_mut_anal, self.root_data, verbose=False)
+		_ = pdwritecsv(dff,    self.fname_mut_summ, self.root_psi, verbose=False)
+		_ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_psi, verbose=False)
 
 		return dff, df_mut
 
@@ -1684,7 +1719,6 @@ class GDC(object):
 
 		return study_ids
 	
-
 	def loop_program_psi_samples(self, program:str='TCGA', force:bool=False, 
 			verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
@@ -1692,14 +1726,13 @@ class GDC(object):
 
 		df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-
-		fname_all_cases = self.fname_all_cases%(self.pid)
+		fname_all_cases = self.fname_all_cases%(self.psi_id)
 		filename_cases = os.path.join(self.root_summary, fname_all_cases)
 
-		fname_all_samples = self.fname_all_samples%(self.pid)
+		fname_all_samples = self.fname_all_samples%(self.psi_id)
 		filename_samples = os.path.join(self.root_summary, fname_all_samples)
 
-		fname_all_mutations = self.fname_all_mutations%(self.pid)
+		fname_all_mutations = self.fname_all_mutations%(self.psi_id)
 		filename_mutations = os.path.join(self.root_summary, fname_all_mutations)
 
 		if os.path.exists(filename_cases) and os.path.exists(filename_samples) and \
@@ -1722,15 +1755,17 @@ class GDC(object):
 
 		for ipsi in lista:
 			row = df_psi.iloc[ipsi]
-			pid = row.pid
+			psi_id = row.psi_id
 			primary_site = row.primary_site
+
+			self.set_primary_site(psi_id)
 
 			print(f'{ipsi}) {primary_site}', end=' - ')
 
-			df_cases, df_subt, df_prof = self.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, force=force, verbose=verbose)
+			df_cases, df_subt, _ = self.get_cases_and_subtypes(batch_size=200, do_filter=False, force=force, verbose=verbose)
 
 			if df_cases.empty:
-				print("No cases found for PID:", pid)
+				print("No cases found for PSI_ID:", psi_id)
 				continue
 
 			if isinstance(df_cases, pd.DataFrame):
@@ -1745,21 +1780,14 @@ class GDC(object):
 				tumor_class = row.tumor_class
 				subtype_tissue = row.subtype_tissue
 
-				s_case = f"{pid}_{primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
 
-				if len(s_case) > 180:
-					s_case = f"{pid}_{primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
-
-				s_case = title_replace(s_case)
-
-				print(f'{isubt}) {s_case}')
-
-				df_samples = self.get_samples_for_pid_subtypes(pid=pid, subtype_global=subtype_global,
-															tumor_class=tumor_class, subtype_tissue=subtype_tissue, s_case=s_case,
-															batch_size=200, force=force, verbose=verbose)
+				df_samples = self.get_samples_for_subtypes(subtype_global=subtype_global,
+														   tumor_class=tumor_class, subtype_tissue=subtype_tissue,
+														   batch_size=200, force=force, verbose=verbose)
+				print(f'{isubt}) {self.s_case}')
 				
 				if df_samples.empty:
-					print("No samples found for PID:", pid)
+					print("No samples found for PSI_ID:", psi_id)
 					continue
 
 				df_list_samples.append(df_samples)
@@ -1767,16 +1795,16 @@ class GDC(object):
 				df2 = df_samples[~df_samples.sample_type.str.contains('Blood', case=False, na=False)]
 
 				if df2.empty:
-					print("No samples having non-blood types for PID:", pid)
+					print("No samples having non-blood types for PSI_ID:", psi_id)
 					continue
 
 				barcode_sample_list = list(np.unique(df2.barcode_sample))
 
 				print("Getting mutations", end=' ')
-				dff, _ = self.get_df_mut_transform_mutation_table(study_id=pid, s_case=s_case, barcode_sample_list=barcode_sample_list, force=force, verbose=verbose)
+				dff, _ = self.get_df_mut_transform_mutation_table(study_id=self.psi_id, barcode_sample_list=barcode_sample_list, force=force, verbose=verbose)
 
 				if dff.empty:
-					print("Could not find mutations for :", s_case)
+					print("Could not find mutations for :", self.s_case)
 					continue
 
 				df_list_mutations.append(dff)
@@ -1813,494 +1841,149 @@ class GDC(object):
 		return df_all_cases, df_all_samples, df_all_mutations
 
 
-	def get_filtered_tables(self, selected_primary_site: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+	def get_filtered_tables(self, selected_primary_site: str, 
+						    verbose: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
-		df_cases = self.df_all_cases[self.df_all_cases.primary_site == selected_primary_site]
+		dfa = self.df_psi[self.df_psi.primary_site == selected_primary_site]
 
-		if df_cases.empty:
-			print("No cases found for primary site:", selected_primary_site)
+		if dfa.empty:
+			self.psi_id = ''
+			print("No primary site information found for:", selected_primary_site)
 			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
 		
-		df_cases = df_cases.copy().reset_index(drop=True)
+		row = dfa.iloc[0]
+		self.set_primary_site(psi_id = row.psi_id)
 
-		#----- filtering cases ----------------------
-		case_id_list = np.unique(df_cases.case_id)
-		
-		df_samples = self.df_all_samples[self.df_all_samples.case_id.isin(case_id_list)]
-		df_samples = df_samples[df_samples.sample_type.str.contains('Tumor', case=False, na=False)]
-
-		if df_samples.empty:
-			print("No samples found for primary site:", selected_primary_site)
-			return df_cases, pd.DataFrame(), pd.DataFrame(), []
-
-		df_samples = df_samples.copy().reset_index(drop=True)
-
-		#--------- get all barcodes ---------------------------
-		barcode_list = list(np.unique(df_samples.barcode_sample))
-		barcode_list = ["-".join(x.split('-')[:-1]) for x in barcode_list]
-
-		df_mut = self.df_all_mutations[self.df_all_mutations.barcode.isin(barcode_list)]
-
-		return df_cases, df_samples, df_mut, barcode_list
-
-
-	
-	"""
-	def get_expression_files_given_samples(self, pid:str, subtype:str, stage:str,
-										   case_ids: List, batch_size:int=20,
-										   force:bool=False, verbose:bool=False) -> pd.DataFrame:
-		'''
-		Retrieve RNA-seq expression files for given case_ids
-		input: case_ids
-		output: dataframe
-		'''
-
-		fname = self.fname_rnaseq_exp_files%(pid, subtype, stage)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_files = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_files = df_files
-
-			return df_files
-
-		if not case_ids:
-			print(f"No samples ids")
-			return pd.DataFrame()
-
-		filters = {"op": "and",
-					"content": [
-						{ "op": "in",
-							"content": {"field": "cases.case_id", "value": case_ids}
-						},
-						{ "op": "in",
-							"content": {"field": "data_type", "value": ["Gene Expression Quantification"]}
-						},
-						{ "op": "in",
-							"content": {"field": "experimental_strategy", "value": ["RNA-Seq"]}
-						},
-						{ "op": "in",
-							"content": {"field": "analysis.workflow_type", "value": ["STAR - Counts"]}
-						},
-						{ "op": "in",
-						  "content": { "field": "cases.samples.sample_type", "value": ["Primary Tumor", "Solid Tissue Normal"]	}
-						},		
-						{ "op": "in",
-							"content": {"field": "data_format", "value": ["TSV"]}
-						},
-						{ "op": "in",
-							"content": {"field": "access", "value": ["open"] }
-						}
-					]
-				}
+		df_cases, df_all_samples, df_all_mut, all_barcode_list = \
+			self.get_filtered_tables_subtypes(sample_type='tumor', do_filter=True, verbose=verbose)
 		
 
-		#------------- batch search 
-		all_hits = []
-		from_ = 0
-		size_ = batch_size
-		total = None
+		if df_cases.empty:
+			print("No cases found for primary site:", self.primary_site)
+		
+		if df_all_samples.empty:
+			print("No samples found for primary site:", self.primary_site)
 
-		print("Searching: ", end='')
-		try:
-			while True:
-				print(".", end='')
+		
+		if df_all_mut.empty:
+			print("No mutations found for primary site:", self.primary_site)
 
-				params = {
-					"filters": json.dumps(filters),
-					"fields": ",".join([
-						"file_id", 	"file_name", "file_size", "md5sum",
-						"cases.case_id", "cases.submitter_id",
-						"cases.samples.sample_id", 	"cases.samples.submitter_id", 
-						"analysis.workflow_type"
-					]),
-					"expand": "cases,cases.samples",
-					"format": "JSON",
-					"from": from_,
-					"size": size_,
-				}
+		if len(all_barcode_list) == 0:
+			print("No barcodes found for primary site:", self.primary_site)
 
-				res = requests.get(self.url_gdc_files, params=params)
-				data = res.json()
-	
-				hits = data.get("data", {}).get("hits", [])
+		return df_cases, df_all_samples, df_all_mut, all_barcode_list
 
-				if total is None:
-					total = data["data"]["pagination"]["total"]
 
-				if not hits:
-					break
+	def get_filtered_tables_subtypes(self, sample_type:str='tumor', do_filter:bool=True,
+								     verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
-				all_hits.extend(hits)
-				from_ += size_
+		self.df_cases   = pd.DataFrame()
+		self.df_all_samples = pd.DataFrame()
+		self.df_all_mut = pd.DataFrame()
+		self.all_barcode_list = []
 
-			print("\n")
+		if not os.path.exists(self.filename_cases):
+			print("Error: could not find cases file:", self.filename_cases)
+			return self.df_cases, self.df_all_samples, self.df_all_mut, self.all_barcode_list
 
-			if all_hits == []:
-				print(f"No cases found for {pid} / {subtype} / {stage} / samples {len(case_ids)} ")
-				return pd.DataFrame()
+		df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
+
+		if do_filter:
+			df_cases = self.apply_filter_cases(df_cases)
+
+		self.df_cases = df_cases
+
+		df_subt = self.groupby_case_by_subtypes(df_cases)
+
+		df_list_samples =[]
+		df_list_mut = []
+		list_all_barcodes = []
+
+		for _, row in df_subt.iterrows():
+			subtype_global = row.subtype_global
+			tumor_class    = row.tumor_class
+			subtype_tissue = row.subtype_tissue
+
+			self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+			df3 = df_cases[ (df_cases.subtype_global == subtype_global) & 
+							(df_cases.tumor_class == tumor_class) &
+							(df_cases.subtype_tissue == subtype_tissue) ]
 			
-			#------------ lost data? ------------------
-			N = len(all_hits)
+			if df3.empty:
+				print(f"No cases found for {subtype_global} {tumor_class} {subtype_tissue}")
+				continue
+					
+			df3 = df3.copy().reset_index(drop=True)
 
-			if N < total:
-				print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
+			case_id_list = np.unique(df3.case_id)
+
+			fname = self.fname_samples0%(self.s_case)
+			fname = title_replace(fname)
+			filename = os.path.join(self.root_psi, fname)
+
+			if not os.path.exists(filename):
+				print("Error: could not find samples file:", filename)
+				continue
+		
+			df_samples = pdreadcsv(fname, self.root_psi, verbose=verbose)
+
+			if df_samples.empty:
+				print("Error: could not read samples file:", filename)
+				continue
+
+			df_samples = df_samples[ (df_samples.case_id.isin(case_id_list)) & (df_samples.sample_type.str.contains(sample_type, case=False)) ]
+			self.df_samples = df_samples
+
+			if df_samples.empty:
+				print("Error: could not filter df_samples")
+				continue
+			
+			df_samples = df_samples.copy().reset_index(drop=True)
+			self.barcode_list = self.prepare_barcode_sample_list(df_samples.barcode_sample.tolist())	
+
+			self.set_mutation_filenames()
+
+			if os.path.exists(self.filename_mutsumm):
+				df_mut = pdreadcsv(self.fname_mut_anal, self.root_psi, verbose=verbose)
 			else:
-				print(f"👉 Returned {N} / Total paginated {total}")
-
-			#------------ having all hits -------------
-			rows = []
-
-			for hit in all_hits:
-
-				workflow = hit.get("analysis", {}).get("workflow_type")
-
-				for case in hit.get("cases", []):
-					for sample in case.get("samples", []):
-
-						if case.get("case_id") not in case_ids:
-							continue  # 🔥 critical fix
-
-						rows.append({
-							"case_id": case.get("case_id"),
-							"sample_id": sample.get("sample_id"),
-							"file_id": hit.get("file_id"),
-							"file_name": hit.get("file_name"),
-							"case_submitter_id": case.get("submitter_id"),
-							"sample_submitter_id": sample.get("submitter_id"),
-							"workflow": workflow
-						})
-
-			df_files = pd.DataFrame(rows)
-			cols = list(df_files.columns)
-
-			# 🔹 Metadata 
-			df_files["project_id"] = pid 
-			df_files["subtype"] = subtype 
-			df_files["stage"] = stage 
-
-			cols = ["project_id", "subtype", "stage"] + cols
-			df_files = df_files[cols]
-
-			df_files = df_files.drop_duplicates(subset="file_id")
-			df_files = df_files.sort_values("sample_id", ascending=False).reset_index(drop=True)
+				print("No mutation analysis file found for:", self.s_case)
+				df_mut = pd.DataFrame()
 			
-			_ = pdwritecsv(df_files, fname, self.root_data, verbose=verbose)
-			if verbose: print(f"Found {len(df_files)} files in selected samples.")
+			df_list_samples.append(df_samples)
+			if not df_mut.empty:
+				df_list_mut.append(df_mut)
+			list_all_barcodes += list(self.barcode_list)
 
-		except Exception as e:
-			print(f"Error for '{pid}', '{subtype}', and {stage}: {e}")
-			self.df_files = pd.DataFrame()
-			return self.df_files
+		df_all_samples = pd.concat(df_list_samples, ignore_index=True) if df_list_samples else pd.DataFrame()
+		df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
+		list_all_barcodes = list(np.unique(list_all_barcodes))
 
-		self.df_files = df_files
+		return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
 
-		return df_files
 
+	def prepare_barcode_sample_list(self, barcode_sample_list: list[str]) -> list[str]:
+
+		'''
+		if TCGA remove the last characters if len > 2
+		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
+		'''
+
+		barcode_sample_list = [self.to_cbioportal_barcode_sample(x) for x in barcode_sample_list]
+		if not barcode_sample_list:
+			raise ValueError("barcode_sample_list is empty.")
+		
+		# 01A, 01B, 01Z → all collapse to 01
+		barcode_sample_list = list(np.unique(barcode_sample_list))
+
+		return barcode_sample_list
 	
-	def download_file(self, force:bool=False, verbose:bool=True) -> bool:
 
-		if os.path.exists(self.gdc_ouptut_filename) and not force:
-			if verbose: print(f"File already downloaded and cleaned: {self.gdc_filename}")
-			return True
+	def to_cbioportal_barcode_sample(self, x: str) -> str:
+		parts = x.split("-")
 
-		if not isinstance(self.gdc_file_id, str) or len(self.gdc_file_id) < 3:
-			print(f"Filename bad formated {self.gdc_file_id}.")
-			return False
-
-		if "." in self.gdc_file_id:
-			print(f"Filename without '.' {self.gdc_file_id}.")
-			return False
-
-		ret = True
-
-		try:
-			url = self.url_gdc_data%(self.gdc_file_id)
-			response = requests.get(url, stream=True)
-
-			with open(self.gdc_filename, "wb") as f:
-				for chunk in response.iter_content(chunk_size=8192):
-					if chunk:
-						f.write(chunk)
-
-			if verbose: print(f"File saved at {self.gdc_filename}.")
-
-		except Exception as e:
-			print(f"No data found for {self.gdc_file_id}. error: {e}")
-			ret = False
-			
-		return ret
-
-	def clean_gdc_tsv(self, force:bool=False, verbose:bool=True) -> pd.DataFrame:
-		'''
-		clean comment lines and transform in tsv file
-		auto-detect comments
-
-		original table --> self.gdc_filename
-		final tsv table --> self.gdc_ouptut_filename
-
-		'''		
-		if os.path.exists(self.gdc_ouptut_filename) and not force:
-			df2 = pdreadcsv(self.gdc_ouptut_filename)
-			if verbose: print(f"Reading table {df2.shape}: {self.gdc_ouptut_filename}")
-			return df2
+		if len(parts) >= 4 and parts[0] == "TCGA":
+			sample_code = parts[3][:2]   # 01A -> 01, 11A -> 11
+			return "-".join([parts[0], parts[1], parts[2], sample_code])
 		
-		try:
-			df = pd.read_csv(self.gdc_filename, sep="\t", comment="#")
-
-			df = self.clean_expression_table_value_col(df)
-
-			_ = pdwritecsv(df, self.gdc_ouptut_filename)
-
-			if verbose: print(f"Read table {df.shape}: {self.gdc_ouptut_filename}")
-		except Exception as e:
-			print(f"Could not prepare and save '{self.gdc_ouptut_filename}' - error: {e}")
-			return pd.DataFrame()
-		
-		return df2
-	
-	def show_fnames(self):
-		print(f"fname       '{self.gdc_file_name}'")
-		print(f"fname id    '{self.gdc_file_id}'")
-		print(f"data type   '{self.gdc_data_type}'")
-		print(f"downloaded  '{self.gdc_fname}'")
-		print(f"final fname '{self.gdc_ouptut_fname}'")
-
-	def clean_expression_table_value_col(self, df:pd.DataFrame) -> pd.DataFrame:
-		
-		# Remove summary rows (N_*)
-		df = df[~df["gene_id"].str.startswith("N_")]
-
-		# Keep only valid Ensembl genes
-		df = df[df["gene_id"].str.startswith("ENSG")]
-
-		# Remove version from gene_id (ENSG... -> ENSG...)
-		df["gene_id"] = df["gene_id"].str.split(".").str[0]
-
-		# Optional: keep only relevant columns
-		cols = ["gene_id", "gene_name", "gene_type", self.value_col]
-		df2 = df[cols].copy()
-
-		# Rename for clarity
-		df2 = df2.rename(columns={"gene_name": "symbol", self.value_col: self.exp_unit})
-
-		return df2
-
-
-	self.fname_samples      = 'samples_for_%s_subtype_%s_stage_%s.tsv'
-	def get_samples_deprecated(self, pid:str, subtype:str, stage:str, batch_size:int=200,
-				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
-		'''
-		calc all cases, given and pid, subtype, stage, and case_id
-
-		input: pid = primary site ID, subtype, stage, and case_id
-		output: dataframe
-		'''
-
-		fname = self.fname_samples%(pid, subtype, stage)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_case = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_case = df_case
-
-			return df_case
-				
-
-		filters = { "op": "and", 
-			 		"content": [ 
-						{ "op": "in", 
-						  "content": { "field": "cases.project.project_id", "value": [pid] } 
-						}, 
-						{ "op": "in", 
-						  "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } 
-						},
-						{ "op": "in", 
-						  "content": { "field": "diagnoses.ajcc_pathologic_stage", "value": [stage] } 
-						},
-					]
-				   }
-
-		#------------- batch search 
-		all_hits = []
-		from_ = 0
-		size_ = batch_size
-		total = None
-
-		print("Searching: ", end='')
-		try:
-			while True:
-				print(".", end='')
-				params = {
-					"filters": json.dumps(filters),
-					"fields": ",".join([
-						"case_id",
-						"submitter_id",
-						"samples.sample_id",
-						"samples.submitter_id",
-						"samples.sample_type"
-					]),
-					"from": from_,
-					"size": size_,
-				}
-
-				res = requests.get(self.url_gdc_cases, params=params)
-				response = res.json()
-
-				if 'data' not in response:
-					print(f"No data found for '{pid}', '{subtype}', and {stage}")
-					self.df_samples = pd.DataFrame()
-					return self.df_samples
-
-				hits = response.get("data", {}).get("hits", [])
-
-				if total is None:
-					total = response["data"]["pagination"]["total"]
-				
-				if not hits:
-					break
-
-				all_hits.extend(hits)
-				from_ += size_
-
-			print("\n")
-
-			if all_hits == []:
-				print(f"No cases found for {pid} / {subtype} / {stage} ")
-				self.df_samples = pd.DataFrame()
-				return self.df_samples
-			
-			#------------ lost data? ------------------
-			N = len(all_hits)
-
-			if N < total:
-				print(f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} ")
-			else:
-				print(f"👉 Returned {N} / Total paginated {total}")
-
-			#------------ having all hits -------------
-			rows = []
-
-			for hit in all_hits:
-				for s in hit.get("samples", []):
-					rows.append({
-						"case_id": hit["case_id"],
-						"case_submitter_id": hit["submitter_id"],
-						"sample_id": s.get("sample_id"),
-						"sample_submitter_id": s.get("submitter_id"),
-						"sample_type": s.get("sample_type")
-					})
-
-			df_samples = pd.DataFrame(rows)
-			cols = list(df_samples.columns)
-
-			# 🔹 Metadata 
-			df_samples["project_id"] = pid 
-			df_samples["subtype"] = subtype 
-			df_samples["stage"] = stage 
-
-			cols = ["project_id", "subtype", "stage"] + cols
-			df_samples = df_samples[cols]
-			
-			df_samples = df_samples.sort_values("sample_id", ascending=False).reset_index(drop=True)
-			
-			_ = pdwritecsv(df_samples, fname, self.root_data, verbose=verbose)
-			if verbose: print(f"Found {len(df_samples)} samples for many cases.")
-
-		except Exception as e:
-			print(f"Error while searching with '{pid}', '{subtype}', and {stage}: {e}")
-			df_samples = pd.DataFrame()
-
-		self.df_samples = df_samples
-
-		return df_samples
-
-
-	def get_cases_deprecated(self, pid:str, subtype:str, stage:str, size_:int=10000,
-				    force:bool=False, verbose:bool=False) -> pd.DataFrame:
-		'''
-		calc all cases, given and pid, subtype, and stage
-
-		input: pid = primary site ID, subtype, and stage
-		output: dataframe
-		'''
-
-		fname = self.fname_cases%(pid, subtype, stage)
-		filename = os.path.join(self.root_data, fname)
-
-		if os.path.exists(filename) and not force:
-			df_case = pdreadcsv(fname, self.root_data, verbose=verbose)
-			self.df_case = df_case
-
-			return df_case
-		
-
-		stage_clean = stage.lower().replace("stage", "").strip()
-		stage1 = f"stage {stage_clean.upper()}"
-		stage2 = f"Stage {stage_clean.upper()}"
-		
-		# Stage III, or Stage IIIa and Stage IIIb //  stage IIIa and stage IIIb
-		filters = { "op": "and", 
-			 		"content": [ 
-						{ "op": "in", 
-						  "content": { "field": "cases.project.project_id", "value": [pid] } }, 
-						{ "op": "in", 
-						  "content": { "field": "diagnoses.primary_diagnosis", "value": [subtype] } },
-						{ "op": "or",
-						  "content": [
-								{ "op": "like",
-									"content": { "field": "diagnoses.ajcc_pathologic_stage", "value": stage1 + "%" }
-								},
-								{ "op": "like",
-								"content": { "field": "diagnoses.ajcc_pathologic_stage", "value": stage2 + "%" }
-								},
-							]
-						}
-					]
-				   }
-
-		params = {
-			"filters": json.dumps(filters), 
-			"fields": "case_id",
-    		"size": size_
-			}
-
-		try:
-			res = requests.get(self.url_gdc_cases, params=params)
-			data = res.json()
-
-			hits = data.get("data", {}).get("hits", [])
-
-			if not hits:
-				print(f"No cases found for {pid} / {subtype} / {stage}")
-				return pd.DataFrame()
-
-			case_list = [h["case_id"] for h in hits]
-
-			df_case = pd.DataFrame({"case_id": case_list, "n":1})
-			# 🔹 Fraction 
-			df_case["frac"] = df_case["n"] / df_case["n"].sum() 
-			cols = list(df_case.columns)
-			
-			# 🔹 Metadata 
-			df_case["project_id"] = pid 
-			df_case["subtype"] = subtype 
-			df_case["stage"] = stage 
-
-			cols = ["project_id", "subtype", "stage"] + cols
-			df_case = df_case[cols]
-			
-			df_case = df_case.sort_values("n", ascending=False).reset_index(drop=True)
-			
-			_ = pdwritecsv(df_case, fname, self.root_data, verbose=verbose)
-
-		except Exception as e:
-			print(f"No data found for '{pid}', '{subtype}', and {stage}. error: {e}")
-			df_case = pd.DataFrame()
-
-		self.df_case = df_case
-
-		return df_case
-			
-
-	"""
+		return x

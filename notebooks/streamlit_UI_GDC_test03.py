@@ -35,9 +35,9 @@ from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
 
 ROOT = Path().resolve().parent
-root_data = os.path.join(ROOT, "data/tcga")
+root0 = os.path.join(ROOT, "data/tcga")
 
-gdc = GDC(root_data=root_data)
+gdc = GDC(root0=root0)
 
 pid = 'TCGA'
 verbose = True
@@ -318,7 +318,7 @@ def load_program_data(pid:str, force:bool=False, verbose:bool=False):
 
 
 # hash error: @st.cache(show_spinner=False)
-def build_mutation_matrix(df_mut: pd.DataFrame) -> pd.DataFrame:
+def build_pivot_table(df_mut: pd.DataFrame) -> pd.DataFrame:
     """
     Build barcode x gene boolean mutation matrix.
     """
@@ -394,10 +394,13 @@ if run:
     st.session_state.loaded = True
 
 
+prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
+
 # -----------------------------------------------------------------------------
 # MAIN LOAD
 # -----------------------------------------------------------------------------
 if st.session_state.loaded:
+    '''
     try:
         with st.spinner(f"Loading all data for program: {pid}"):
             df_all_cases, df_all_samples, df_all_mutations = load_program_data(
@@ -413,14 +416,31 @@ if st.session_state.loaded:
         st.error(f"Failed to load program data: {e}")
         st.stop()
 
+    '''
+
     # -------------------------------------------------------------------------
     # GLOBAL SUMMARY
     # -------------------------------------------------------------------------
-    primary_sites = safe_unique_sorted(df_all_cases["primary_site"])
-    symbols = safe_unique_sorted(df_all_mutations["symbol"]) if not df_all_mutations.empty else []
+
+    prog_list = gdc.get_gdc_progams(force=force, verbose=verbose)
+    prog_id = 'TCGA'
+    gset_program(self, prog_id:str):
+    
+    df_psi = gdc.get_primary_sites(prog_id=prog_id, force=force, verbose=verbose)
+
+    primary_sites = safe_unique_sorted(df_psi.primary_site)
+
+
+    df_psi = gdc.get_primary_sites(program=pid, force=force, verbose=verbose)
+
+    primary_sites = safe_unique_sorted(df_psi)
+
+    
+    # symbols = safe_unique_sorted(df_all_mutations["symbol"]) if not df_all_mutations.empty else []
 
     st.subheader("Program summary")
 
+    '''
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Primary sites", len(primary_sites))
     c2.metric("Cases", len(df_all_cases))
@@ -439,6 +459,7 @@ if st.session_state.loaded:
                 f"\t- {len(symbols)} different genes.",
             ])
         )
+    '''
 
     # -------------------------------------------------------------------------
     # PRIMARY SITE SELECTION
@@ -481,7 +502,7 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # BUILD MATRIX
     # -------------------------------------------------------------------------
-    dfpiv = build_mutation_matrix(df_mut)
+    dfpiv = build_pivot_table(df_mut)
     # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
     if not dfpiv.empty:
         dfpiv = dfpiv.astype(int)

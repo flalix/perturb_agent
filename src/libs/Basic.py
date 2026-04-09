@@ -9,6 +9,7 @@
 
 import numpy as np
 import os, re, random  # sys
+from pathlib import Path
 from os.path import join as osjoin
 from os.path import exists as exists
 import shutil
@@ -16,7 +17,7 @@ import shutil
 import pickle
 import pandas as pd
 from collections import OrderedDict
-from typing import List # Optional, Iterable, Set, Tuple, Any,
+from typing import List, Any # Optional, Iterable, Set, Tuple, ,
 
 import zipfile # , zlib
 
@@ -170,15 +171,15 @@ def read_txt(filename, path="./", iniLine=None, endLine=None, verbose=False):  #
 	return "\n".join(text)
 
 # encondig = 'utf-8',
-def pdreadcsv(filename:str, path:str="./", sep:str='\t', dtype:dict={}, colnames:List=[], skiprows:int=0,
+def pdreadcsv(filename:str, path:Path=Path("./"), sep:str='\t', dtype:dict={}, colnames:List=[], skiprows:int=0,
 			  selcols:List=[], sortcols:List=[], low_memory:bool=False, removedup:bool=False, header:int=0,
 			  verbose:bool=False) -> pd.DataFrame:
 
-	if not exists(path):
+	if not path.exists():
 		print(f"Path does not exists: '{path}'")
 		return pd.DataFrame()
 
-	filename = osjoin(path, filename)
+	filename = path / filename
 
 	if not exists(filename):
 		print(f"File does not exist: '{filename}'")
@@ -250,13 +251,13 @@ def remove_spaces(stri:str, replace_nans:bool=True):
 	return stri.strip()
 
 # encondig = 'utf-8',
-def pdwritecsv(df, filename, path="./", sep='\t', index=False, verbose=False):
+def pdwritecsv(df, filename, path:Path=Path("./"), sep='\t', index=False, verbose=False):
 
-	if not exists(path):
+	if not path.exists():
 		print("Path does not exists: '%s'"%(path))
 		return False
 
-	filename = osjoin(path, filename)
+	filename = path / filename
 	try:
 		df.to_csv(filename, sep=sep, index=index)  # , encondig = encondig
 	except ValueError:
@@ -266,16 +267,16 @@ def pdwritecsv(df, filename, path="./", sep='\t', index=False, verbose=False):
 	if verbose: print("Table saved (%s) at '%s'"%(df.shape, filename))
 	return True
 
-def dumpdic(dic, filename, path="./", verbose=True):
+def dumpdic(dic, filename, path:Path=Path("./"), verbose=True):
 	return pddumpdic(dic=dic, filename=filename, path=path, verbose=verbose)
 
-def pddumpdic(dic, filename, path="./", verbose=True):
+def pddumpdic(dic, filename, path:Path=Path("./"), verbose=True):
 
-	if not exists(path):
+	if not path.exists():
 		print(f"Path does not exists: '{path}'")
 		return False
 
-	filename = osjoin(path, filename)
+	filename = path / filename
 	try:
 		# Store data (serialize)
 		with open(filename, 'wb') as handle:
@@ -686,14 +687,13 @@ def list_dfmeta_field(dfmeta, field):
 
 	return np.sort(vals)
 
-def create_dir(root, _dir=None):
-	if _dir is None:
-		path = root
+def create_dir(root:Path, _dir:Any=None):
+	if isinstance(_dir, str) and _dir != '':
+		path = root / _dir
 	else:
-		path = osjoin(root, _dir)
+		path = root
 
-	if not exists(path):
-		os.mkdir(path)
+	os.makedirs(path, exist_ok=True)		
 
 	return path
 
