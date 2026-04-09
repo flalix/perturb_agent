@@ -29,7 +29,7 @@ class GDC(object):
 
 		self.root_data = root_data
 
-		self.root_summary = create_dir(root_data, 'summary')
+		self.root_summary = root_data / 'summary'
 
 		self.clean_gdc_files()
 

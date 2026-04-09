@@ -23,7 +23,9 @@ from pathlib import Path
 import tempfile
 
 # Project root (works locally + Render)
-ROOT = Path(__file__).resolve().parent
+# ROOT = Path(__file__).resolve().parent
+ROOT = Path('/opt/render/project/src/')
+
 # Add src to path
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -40,7 +42,10 @@ from libs.calc_degs_lib import CALC_DEGS
 # GDRIVE_FOLDER_ID = '1Tp4GONa9Qu1gySZaxEK2izwEZJ4E_xKr'
 
 # root_data = os.path.join(ROOT, "data/tcga")
-root_data = Path('/opt/render/data/tcga/')
+
+
+root_data = Path('/opt/render/project/src/storage/tcga/')
+print("root_data:", root_data)
 
 gdc = GDC(root_data=root_data)
 
