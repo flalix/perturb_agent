@@ -9,7 +9,6 @@
 #=============== to run =====================
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-# streamlit run streamlit_UI_GDC_test03.py
 #
 # uv run streamlit run streamlit_UI_GDC_test03.py 
 #
@@ -66,6 +65,8 @@ st.markdown("""
 <style>
 .block-container {
     max-width: 96%;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
     padding-left: 1.5rem;
     padding-right: 1.5rem;
 }
@@ -82,6 +83,33 @@ div.stButton > button {
 
 st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
+
+# --- FOOTER / BOX BELOW ALL TABS ---
+def show_profile_box():
+    st.markdown("""
+    <div style="display:flex; justify-content:left; margin-top:40px;">
+        <div style="
+            margin-top: 40px;
+            background-color: lightblue;
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #A0C4FF;
+            max-width: 600px;
+        ">
+            <h3 style="margin-bottom:5px;">PhD Flavio Lichtenstein</h3>
+            <p style="color:#A0A0A0;">
+                Bioinformatics, Immunoinformatics, Biostatistics,<br>
+                Systems Biology and Artificial Intelligence
+            </p>
+            <hr>
+            <p>📍 Sao Paulo, SP - Brazil</p>
+            <p>📞 (+55) 11 96560-1960</p>
+            <p>✉️ flalix@gmail.com</p>
+            <p>🔗 <a href="https://www.linkedin.com/in/flaviolichtenstein/" target="_blank" style="color:#0A66C2; text-decoration:none;">LinkedIn Profile</a>
+            </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -505,20 +533,19 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
 
-    print(">>>", tab)
 
     # -------------------------------------------------------------------------
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
     if tab == "Cases":
-        st.write(f"Cases {len(df_cases)}")
-        show_df(df_cases, height=450, key=f"samples_{selected_primary_site}")
+        st.write(f"Cases #{len(df_cases)}")
+        show_df(df_cases, height=450, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     elif tab == "Tumor Samples":
-        st.write("Tumor samples linked to the selected primary site")
+        st.write(f"Tumor samples linked to the selected primary site #{len(df_all_samples)}")
         show_df(df_all_samples, height=450, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
@@ -613,6 +640,9 @@ if st.session_state.loaded:
                 mime="text/csv",
                 use_container_width=True,
             )
+    show_profile_box()
 
 else:
     st.info("Click **Load data** in the sidebar to start.")
+    show_profile_box()
+
