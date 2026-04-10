@@ -24,6 +24,11 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 from collections import defaultdict
 
+#----------- here *** ---------------------
+setattr(pd.Series, "iteritems", pd.Series.items)
+setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
+
+
 import matplotlib.pyplot as plt
 import plotly.express as px
 
@@ -188,15 +193,35 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def show_df_AgGrid2(df, height=600, page_size=25, key="grid"):
+    if df is None or df.empty:
+        st.info("Empty dataframe")
+        return
 
-def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
+    df = make_aggrid_safe(df).copy()
+
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_default_column(sortable=True, filter=True, resizable=True)
+
+    grid_options = gb.build()
+    grid_options["pagination"] = True
+    grid_options["paginationPageSize"] = page_size
+    grid_options["suppressPaginationPanel"] = False
+
+    AgGrid(
+        df,
+        gridOptions=grid_options,
+        height=height,
+        key=key,
+        fit_columns_on_grid_load=True,
+    )
+
+def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
 
     df = make_aggrid_safe(df)
-
-    # st.write("shape:", df.shape)
 
     gb = GridOptionsBuilder.from_dataframe(df)
 
@@ -219,18 +244,19 @@ def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
         df,
         gridOptions=grid_options,
         height=height,
-        fit_columns_on_grid_load=True,
-        allow_unsafe_jscode=False,
-        enable_enterprise_modules=False,
+        fit_columns_on_grid_load=True, # nice UX, no horizontal scroll
+        allow_unsafe_jscode=False, # safe (good default)
+        enable_enterprise_modules=False, # lightweight
+        reload_data=False,  # avoids flicker / rerender
         key=key,
     )
 
 
-def show_df(df, height:int=500, page_size:int=25, key:str="grid"):
+def show_df(df, height:int=600, page_size:int=25, key:str="grid"):
     show_df_AgGrid(df, height=height, page_size=page_size, key=key)
 
 
-def show_df_html(df, height: int = 450):
+def show_df_html(df, height: int = 600):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -538,15 +564,15 @@ if st.session_state.loaded:
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
     if tab == "Cases":
-        st.write(f"Cases #{len(df_cases)}")
-        show_df(df_cases, height=450, key=f"cases_{selected_primary_site}")
+        st.write(f"Cases #{len(df_cases)} {type(df_cases)}")
+        show_df(df_cases, height=600, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     elif tab == "Tumor Samples":
         st.write(f"Tumor samples linked to the selected primary site #{len(df_all_samples)}")
-        show_df(df_all_samples, height=450, key=f"samples_{selected_primary_site}")
+        show_df(df_all_samples, height=600, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
@@ -570,11 +596,11 @@ if st.session_state.loaded:
 
         elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=450, key=f"gene_counts_{selected_primary_site}")
+            show_df(df_gene_counts, height=600, key=f"gene_counts_{selected_primary_site}")
 
         elif subtab == "Raw Mutation Rows":
             st.write("Mutation rows after barcode filtering")
-            show_df(df_all_mut, height=450, key=f"mut_rows_{selected_primary_site}")
+            show_df(df_all_mut, height=600, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX

@@ -6,7 +6,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "streamlit==1.25.0",
     "protobuf==3.20.*",
-    "streamlit-aggrid==0.3.4.post3",
+    "streamlit-aggrid==0.3.3",
     "altair<6",
     "ipykernel",
     "pandas",

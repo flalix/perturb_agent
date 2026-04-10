@@ -3355,16 +3355,16 @@ wheels = [
 
 [[package]]
 name = "streamlit-aggrid"
-version = "0.3.4.post3"
+version = "0.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "python-decouple" },
     { name = "streamlit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/d8/caae3dd2e7682d265ff24a2b178c6555e93ad0bdd003401a3dc281c96c23/streamlit-aggrid-0.3.4.post3.tar.gz", hash = "sha256:0cb9332199e7735289a673efabc913e1a3466cc188bc025bec2c50c32ab1989a", size = 3362878, upload-time = "2023-03-09T17:58:31.003Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/ff/5635f6e00976a963db20ab91d4decf47fc88fa4ae7f21e7963b10e638b23/streamlit-aggrid-0.3.3.tar.gz", hash = "sha256:d96edb102df98450f3b6bcf5a52b64e6ceef9678e82e2dba9cfef074e7f134ab", size = 3204332, upload-time = "2022-08-27T15:33:41.492Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/88/dfec35e43a4704c20ce094d7420cd23003bbdf3e8579a20ada63f5f60103/streamlit_aggrid-0.3.4.post3-py3-none-any.whl", hash = "sha256:b909117eb90cfdb855b1c74e694e9ec97554c101baaafb7339eaf885d1f4e49c", size = 3395413, upload-time = "2023-03-09T17:58:33.636Z" },
+    { url = "https://files.pythonhosted.org/packages/51/dd/2cfd7a11b8c80069d5da9812fdee9fbdf2e58f3767a6082d9843d7c5ee93/streamlit_aggrid-0.3.3-py3-none-any.whl", hash = "sha256:c5202347b1257c4246ef3541b233866f57bc930b97040be58b059093c4fee22e", size = 3234006, upload-time = "2022-08-27T15:33:45.587Z" },
 ]
 
 [[package]]
@@ -3465,7 +3465,7 @@ requires-dist = [
     { name = "setuptools", specifier = ">=82.0.1" },
     { name = "sounddevice" },
     { name = "streamlit", specifier = "==1.25.0" },
-    { name = "streamlit-aggrid", specifier = "==0.3.4.post3" },
+    { name = "streamlit-aggrid", specifier = "==0.3.3" },
     { name = "tavily" },
     { name = "tavily-python" },
     { name = "umap-learn", specifier = ">=0.5.11" },

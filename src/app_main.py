@@ -194,7 +194,7 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
+def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -215,7 +215,6 @@ def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
     grid_options = gb.build()
     grid_options["pagination"] = True
     grid_options["paginationPageSize"] = page_size
-    grid_options["domLayout"] = "normal"    
 
     if not isinstance(grid_options, dict):
         raise TypeError(f"grid_options must be dict, got {type(grid_options)}")
@@ -224,14 +223,14 @@ def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
         df,
         gridOptions=grid_options,
         height=height,
-        fit_columns_on_grid_load=True,
+        # fit_columns_on_grid_load=True,
         allow_unsafe_jscode=False,
         enable_enterprise_modules=False,
         key=key,
     )
 
 
-def show_df(df, height:int=500, page_size:int=25, key:str="grid"):
+def show_df(df, height:int=600, page_size:int=25, key:str="grid"):
     show_df_AgGrid(df, height=height, page_size=page_size, key=key)
 
 
@@ -545,14 +544,14 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     if tab == "Cases":
         st.write(f"Cases {len(df_cases)}")
-        show_df(df_cases, height=450, key=f"cases_{selected_primary_site}")
+        show_df(df_cases, height=600, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     elif tab == "Tumor Samples":
         st.write("Tumor samples linked to the selected primary site")
-        show_df(df_all_samples, height=450, key=f"samples_{selected_primary_site}")
+        show_df(df_all_samples, height=600, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
@@ -576,11 +575,11 @@ if st.session_state.loaded:
 
         elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=450, key=f"gene_counts_{selected_primary_site}")
+            show_df(df_gene_counts, height=600, key=f"gene_counts_{selected_primary_site}")
 
         elif subtab == "Raw Mutation Rows":
             st.write("Mutation rows after barcode filtering")
-            show_df(df_all_mut, height=450, key=f"mut_rows_{selected_primary_site}")
+            show_df(df_all_mut, height=600, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
