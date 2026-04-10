@@ -1,7 +1,7 @@
 streamlit==1.25.0
 protobuf==3.20.*
 click==8.1.7
-streamlit-aggrid>=1.2.1.post2
+streamlit-aggrid==0.3.4.post3
 altair<6
 
 google-api-python-client
@@ -9,7 +9,7 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib
 
-
+ipykernel
 pandas
 scipy
 matplotlib>=3.10.8

@@ -6,7 +6,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "streamlit==1.25.0",
     "protobuf==3.20.*",
-    "streamlit-aggrid>=1.2.1.post2",
+    "streamlit-aggrid==0.3.4.post3",
     "altair<6",
     "ipykernel",
     "pandas",
@@ -39,6 +39,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "umap-learn>=0.5.11",
     "plotly>=6.6.0",
+    "setuptools>=82.0.1",
 ]
 
 [build-system]

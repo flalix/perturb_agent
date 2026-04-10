@@ -9,12 +9,17 @@
 
 
 import os, sys
+from pprint import pprint
+# from marshmallow import pprint, Schema, fields
 import numpy as np
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
+import plotly.express as px
+
 import seaborn as sns
 from sklearn.cluster import KMeans
 import umap
@@ -44,7 +49,7 @@ from libs.calc_degs_lib import CALC_DEGS
 # root_data = os.path.join(ROOT, "data/tcga")
 
 
-root_data = Path('/opt/render/project/src/storage/tcga/')
+root_data = Path('/opt/render/project/src/storage/')
 print("root_data:", root_data)
 
 gdc = GDC(root_data=root_data)
