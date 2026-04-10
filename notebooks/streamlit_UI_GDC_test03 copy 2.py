@@ -108,58 +108,17 @@ def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
-
-def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # Flatten columns
-    if isinstance(out.columns, pd.MultiIndex):
-        out.columns = [" | ".join(map(str, c)).strip() for c in out.columns.to_flat_index()]
-    else:
-        out.columns = [str(c) for c in out.columns]
-
-    # String index
-    out.index = [str(i) for i in out.index]
-
-    # Remove duplicated column names
-    if pd.Index(out.columns).duplicated().any():
-        seen = {}
-        new_cols = []
-        for c in out.columns:
-            if c in seen:
-                seen[c] += 1
-                new_cols.append(f"{c}_{seen[c]}")
-            else:
-                seen[c] = 0
-                new_cols.append(c)
-        out.columns = new_cols
-
-    # Force plain Python scalar values only
-    for col in out.columns:
-        out[col] = out[col].map(
-            lambda x: None if pd.isna(x)
-            else str(x) if isinstance(x, (list, dict, set, tuple, np.ndarray))
-            else x
-        )
-        out[col] = out[col].astype(object)
-
-    return out
-
-
-def show_df_AgGrid(df, height: int = 500, page_size: int = 50):
-    if df is None or df.empty:
-        st.info("Empty dataframe")
-        return
-
-    df = make_aggrid_safe(df)
-
-    st.write("shape:", df.shape)
+def show_df(df, height:int=500, page_size:int=50):
+    df = make_streamlit_safe(df)
 
     gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(sortable=True, filter=True, resizable=True)
+
+    gb.configure_default_column(
+        sortable=True,
+        filter=True,
+        resizable=True,
+    )
+
     gb.configure_pagination(
         enabled=True,
         paginationAutoPageSize=False,
@@ -168,19 +127,11 @@ def show_df_AgGrid(df, height: int = 500, page_size: int = 50):
 
     grid_options = gb.build()
 
-    AgGrid(
-        df,
+    AgGrid(df,
         gridOptions=grid_options,
         height=height,
         fit_columns_on_grid_load=True,
-        allow_unsafe_jscode=False,
-        enable_enterprise_modules=False,
-    )
-
-
-def show_df(df, height:int=500, page_size:int=50):
-    show_df_AgGrid(df, height=height)
-
+        allow_unsafe_jscode=False)
 
 def show_df_html(df, height: int = 450):
     if df is None or df.empty:
@@ -211,6 +162,14 @@ def show_df_html(df, height: int = 450):
         """,
         unsafe_allow_html=True,
     )
+
+def show_df_old(df, height:int=450):
+    df = make_streamlit_safe(df)
+
+    try:
+        st.dataframe(df, use_container_width=True, height=height)
+    except TypeError:
+        st.dataframe(df, height=height)
 
 
 def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
@@ -414,9 +373,6 @@ def safe_unique_sorted(series):
 # -----------------------------------------------------------------------------
 # SIDEBAR
 # -----------------------------------------------------------------------------
-if "loaded" not in st.session_state:
-    st.session_state.loaded = False
-
 with st.sidebar:
     st.header("Controls")
 
@@ -424,10 +380,7 @@ with st.sidebar:
     force = st.checkbox("Force rebuild", value=False)
     verbose = st.checkbox("Verbose", value=False)
 
-    load_clicked = st.button("Load data", use_container_width=True)
-
-    if load_clicked:
-        st.session_state.loaded = True 
+   
 
 st.session_state.loaded = True
 
@@ -436,8 +389,16 @@ st.session_state.loaded = True
 # -----------------------------------------------------------------------------
 if st.session_state.loaded:
 
+
+    # -------------------------------------------------------------------------
+    # GLOBAL SUMMARY
+    # -------------------------------------------------------------------------
+
     primary_sites = safe_unique_sorted(df_psi.primary_site)
 
+    # -------------------------------------------------------------------------
+    # PRIMARY SITE SELECTION
+    # -------------------------------------------------------------------------
     st.subheader("Primary site selection")
 
     if len(primary_sites) == 0:
@@ -453,8 +414,11 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
-    with st.spinner("Loading primary site data..."):
-        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(selected_primary_site, verbose=False)
+    df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(selected_primary_site, verbose=False)
+
+    # -------------------------------------------------------------------------
+    # LOCAL SUMMARY
+    # -------------------------------------------------------------------------
 
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
@@ -480,13 +444,11 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
 
-    print(">>>", tab)
-
     # -------------------------------------------------------------------------
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
     if tab == "Cases":
-        st.write(f"Cases {len(df_cases)}")
+        st.write("Filtered case table")
         show_df(df_cases, height=450)
 
     # -------------------------------------------------------------------------
