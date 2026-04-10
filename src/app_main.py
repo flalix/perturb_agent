@@ -69,8 +69,8 @@ st.markdown("""
 <style>
 .block-container {
     max-width: 96%;
-    padding-top: 1rem;
-    padding-bottom: 1rem;
+    padding-top: .5rem;
+    padding-bottom: .5rem;
     padding-left: 1.5rem;
     padding-right: 1.5rem;
 }
@@ -205,7 +205,14 @@ def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
 
     gb = GridOptionsBuilder.from_dataframe(df)
 
-    gb.configure_default_column(sortable=True, filter=True, resizable=True)
+    gb.configure_default_column(
+        sortable=True,
+        minWidth=150,
+        filter=True, 
+        resizable=True
+    )
+    
+
     gb.configure_pagination(
         enabled=True,
         paginationAutoPageSize=False,
@@ -516,7 +523,6 @@ if st.session_state.loaded:
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
 
-        
         st.text(f"Cases {len(df_cases)}")
         st.text(f"Tumor samples {len(df_all_samples)}")
         st.text(f"Total mutations {len(df_all_mut)}")
@@ -544,7 +550,12 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     if tab == "Cases":
         st.write(f"Cases {len(df_cases)}")
-        show_df(df_cases, height=600, key=f"cases_{selected_primary_site}")
+        cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
+       'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
+        'tumor_stage', 'stage', 'tumor_class', 'histology',
+       'subtype_tissue'] # 'stage_clin', 'figo_stage',
+        
+        show_df(df_cases[cols], height=600, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES

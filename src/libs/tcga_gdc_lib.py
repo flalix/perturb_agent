@@ -33,9 +33,9 @@ class GDC(object):
 		self.root0 = Path(root0)
 
 		# root_data will be: ../data/TCGA
-		self.root_data = ''
-		self.root_summary = ''
-		self.root_psi = ''
+		self.root_data = Path()
+		self.root_summary = Path()
+		self.root_psi = Path()
 
 		self.clean_gdc_files()
 
@@ -426,6 +426,10 @@ class GDC(object):
 
 		if os.path.exists(self.filename_cases) and os.path.exists(self.filename_subt) and not force:
 			df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
+			if 'pid' in df_cases.columns:
+				df_cases = df_cases.rename(columns={'pid': 'psi_id'})
+				pdwritecsv(df_cases, self.fname_cases, self.root_psi)
+
 			self.df_cases = df_cases
 
 			if do_filter:
@@ -1728,13 +1732,13 @@ class GDC(object):
 
 		df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-		fname_all_cases = self.fname_all_cases%(self.psi_id)
+		fname_all_cases = self.fname_all_cases%(self.prog_id)
 		filename_cases = os.path.join(self.root_summary, fname_all_cases)
 
-		fname_all_samples = self.fname_all_samples%(self.psi_id)
+		fname_all_samples = self.fname_all_samples%(self.prog_id)
 		filename_samples = os.path.join(self.root_summary, fname_all_samples)
 
-		fname_all_mutations = self.fname_all_mutations%(self.psi_id)
+		fname_all_mutations = self.fname_all_mutations%(self.prog_id)
 		filename_mutations = os.path.join(self.root_summary, fname_all_mutations)
 
 		if os.path.exists(filename_cases) and os.path.exists(filename_samples) and \

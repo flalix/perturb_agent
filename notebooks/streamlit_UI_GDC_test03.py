@@ -70,8 +70,8 @@ st.markdown("""
 <style>
 .block-container {
     max-width: 96%;
-    padding-top: 1rem;
-    padding-bottom: 1rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
     padding-left: 1.5rem;
     padding-right: 1.5rem;
 }
@@ -213,7 +213,7 @@ def show_df_AgGrid2(df, height=600, page_size=25, key="grid"):
         gridOptions=grid_options,
         height=height,
         key=key,
-        fit_columns_on_grid_load=True,
+        # fit_columns_on_grid_load=True,
     )
 
 def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
@@ -225,7 +225,13 @@ def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
 
     gb = GridOptionsBuilder.from_dataframe(df)
 
-    gb.configure_default_column(sortable=True, filter=True, resizable=True)
+    gb.configure_default_column(
+        sortable=True,
+        minWidth=150,
+        filter=True, 
+        resizable=True)
+    
+
     gb.configure_pagination(
         enabled=True,
         paginationAutoPageSize=False,
@@ -235,7 +241,6 @@ def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
     grid_options = gb.build()
     grid_options["pagination"] = True
     grid_options["paginationPageSize"] = page_size
-    grid_options["domLayout"] = "normal"    
 
     if not isinstance(grid_options, dict):
         raise TypeError(f"grid_options must be dict, got {type(grid_options)}")
@@ -244,7 +249,7 @@ def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
         df,
         gridOptions=grid_options,
         height=height,
-        fit_columns_on_grid_load=True, # nice UX, no horizontal scroll
+        # fit_columns_on_grid_load=True, # nice UX, no horizontal scroll
         allow_unsafe_jscode=False, # safe (good default)
         enable_enterprise_modules=False, # lightweight
         reload_data=False,  # avoids flicker / rerender
@@ -538,7 +543,6 @@ if st.session_state.loaded:
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
 
-        
         st.text(f"Cases {len(df_cases)}")
         st.text(f"Tumor samples {len(df_all_samples)}")
         st.text(f"Total mutations {len(df_all_mut)}")
@@ -564,8 +568,13 @@ if st.session_state.loaded:
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
     if tab == "Cases":
-        st.write(f"Cases #{len(df_cases)} {type(df_cases)}")
-        show_df(df_cases, height=600, key=f"cases_{selected_primary_site}")
+        st.write(f"Cases #{len(df_cases)}")
+        cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
+       'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
+        'tumor_stage', 'stage', 'tumor_class', 'histology',
+       'subtype_tissue'] # 'stage_clin', 'figo_stage',
+        
+        show_df(df_cases[cols], height=600, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
