@@ -19,12 +19,12 @@ import os, sys
 from pprint import pprint
 # from marshmallow import pprint, Schema, fields
 import numpy as np
-import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 from collections import defaultdict
 
-#----------- here *** ---------------------
+#----------- fix incompatibilities ---------------------
+import pandas as pd
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
