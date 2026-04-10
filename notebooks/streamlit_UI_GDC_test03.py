@@ -1,18 +1,29 @@
-# streamlit_gdc_tcga.py
+#!/usr/bin/python
+#!python
+# -*- coding: utf-8 -*-
+# Created on 2026/03/19
+# Udated  on 2026/03/20
+# @author: Flavio Lichtenstein
+# @local: Home sweet home
 
 #=============== to run =====================
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 # streamlit run streamlit_UI_GDC_test03.py
 #
+# uv run streamlit run streamlit_UI_GDC_test03.py 
+#
 #============================================
 
 
 import os, sys
+from pprint import pprint
+# from marshmallow import pprint, Schema, fields
 import numpy as np
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import plotly.express as px
@@ -149,16 +160,18 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def show_df_AgGrid(df, height: int = 500, page_size: int = 50):
+
+def show_df_AgGrid(df, height:int=500, page_size:int=25, key:str="grid"):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
 
     df = make_aggrid_safe(df)
 
-    st.write("shape:", df.shape)
+    # st.write("shape:", df.shape)
 
     gb = GridOptionsBuilder.from_dataframe(df)
+
     gb.configure_default_column(sortable=True, filter=True, resizable=True)
     gb.configure_pagination(
         enabled=True,
@@ -167,6 +180,12 @@ def show_df_AgGrid(df, height: int = 500, page_size: int = 50):
     )
 
     grid_options = gb.build()
+    grid_options["pagination"] = True
+    grid_options["paginationPageSize"] = page_size
+    grid_options["domLayout"] = "normal"    
+
+    if not isinstance(grid_options, dict):
+        raise TypeError(f"grid_options must be dict, got {type(grid_options)}")
 
     AgGrid(
         df,
@@ -175,11 +194,12 @@ def show_df_AgGrid(df, height: int = 500, page_size: int = 50):
         fit_columns_on_grid_load=True,
         allow_unsafe_jscode=False,
         enable_enterprise_modules=False,
+        key=key,
     )
 
 
-def show_df(df, height:int=500, page_size:int=50):
-    show_df_AgGrid(df, height=height)
+def show_df(df, height:int=500, page_size:int=25, key:str="grid"):
+    show_df_AgGrid(df, height=height, page_size=page_size, key=key)
 
 
 def show_df_html(df, height: int = 450):
@@ -339,32 +359,27 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
 
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
-prog_id = 'TCGA'
-gdc.set_program(prog_id)
-df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
-df_psi = make_streamlit_safe(df_psi)
-
-primary_site = df_psi.iloc[0].primary_site
-gdc.set_primary_site(primary_site=primary_site)
-
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
 # hash error: @st.cache(show_spinner=True)
-def load_primary_site_data(primary_site:str, verbose:bool=False):
 
-    gdc.set_primary_site(primary_site=primary_site)
+@st.cache_data(show_spinner=False)
+def load_primary_site_data( primary_site:str, 
+                           verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
     df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(primary_site=primary_site, verbose=verbose)
 
-    df_cases = make_streamlit_safe(df_cases)
-    df_all_samples = make_streamlit_safe(df_all_samples)
-    df_all_mut = make_streamlit_safe(df_all_mut)
-
-    return df_cases, df_all_samples, df_all_mut, barcode_list
+    return (
+        make_streamlit_safe(df_cases),
+        make_streamlit_safe(df_all_samples),
+        make_streamlit_safe(df_all_mut),
+        barcode_list,
+    )
 
 
 # hash error: @st.cache(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def build_pivot_table(df_all_mut: pd.DataFrame) -> pd.DataFrame:
     """
     Build barcode x gene boolean mutation matrix.
@@ -420,7 +435,10 @@ if "loaded" not in st.session_state:
 with st.sidebar:
     st.header("Controls")
 
-    prog_id = st.text(f"Program {prog_id}")
+    # in the future --> dropdown program selector
+    prog_id = 'TCGA'
+
+    st.text(f"Program {prog_id}")
     force = st.checkbox("Force rebuild", value=False)
     verbose = st.checkbox("Verbose", value=False)
 
@@ -429,12 +447,19 @@ with st.sidebar:
     if load_clicked:
         st.session_state.loaded = True 
 
-st.session_state.loaded = True
 
 # -----------------------------------------------------------------------------
 # MAIN LOAD
 # -----------------------------------------------------------------------------
 if st.session_state.loaded:
+
+    gdc.set_program(prog_id)
+    df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
+    df_psi = make_streamlit_safe(df_psi)
+
+    primary_site = df_psi.iloc[0].primary_site
+    gdc.set_primary_site(primary_site=primary_site)    
+
 
     primary_sites = safe_unique_sorted(df_psi.primary_site)
 
@@ -487,14 +512,14 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     if tab == "Cases":
         st.write(f"Cases {len(df_cases)}")
-        show_df(df_cases, height=450)
+        show_df(df_cases, height=450, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     elif tab == "Tumor Samples":
         st.write("Tumor samples linked to the selected primary site")
-        show_df(df_all_samples, height=450)
+        show_df(df_all_samples, height=450, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
@@ -518,11 +543,11 @@ if st.session_state.loaded:
 
         elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=450)
+            show_df(df_gene_counts, height=450, key=f"gene_counts_{selected_primary_site}")
 
         elif subtab == "Raw Mutation Rows":
             st.write("Mutation rows after barcode filtering")
-            show_df(df_all_mut, height=450)
+            show_df(df_all_mut, height=450, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
