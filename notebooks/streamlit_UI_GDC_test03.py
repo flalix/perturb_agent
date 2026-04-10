@@ -46,9 +46,9 @@ from libs.Basic import *
 
 root0 = ROOT / "data"
 
-print("ROOT:", ROOT)
-print("SRC added:", SRC)
-print("Data:", root0)
+print("root:", ROOT)
+print("src added:", SRC)
+print("data:", root0)
 
 gdc = GDC(root0=root0)
 
