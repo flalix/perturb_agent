@@ -30,11 +30,12 @@ class GDC(object):
 
 		self.prog_id, self.psi_id = '', ''
 
-		self.root0 = root0
+		self.root0 = Path(root0)
 
-		self.root_data = root0
-		self.root_summary = root0
-		self.root_psi = root0
+		# root_data will be: ../data/TCGA
+		self.root_data = ''
+		self.root_summary = ''
+		self.root_psi = ''
 
 		self.clean_gdc_files()
 
@@ -234,7 +235,7 @@ class GDC(object):
 	def set_program(self, prog_id:str):
 		self.prog_id = prog_id
 
-		self.root_data    = self.root0 / prog_id
+		self.root_data    = create_dir(self.root0, prog_id)
 		self.root_summary = create_dir(self.root_data, 'summary')
 		
 		self.clean_gdc_files()
