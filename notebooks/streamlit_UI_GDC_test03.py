@@ -68,6 +68,24 @@ st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
 st.markdown("""
 <style>
+/* Label (title) */
+div[data-baseweb="select"] > label {
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    color: navy !important;
+}
+
+/* Selectbox text */
+div[data-baseweb="select"] div {
+    font-size: 22px !important;
+    font-weight: 500 !important;
+    color: navy !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
 .block-container {
     max-width: 96%;
     padding-top: 0.5rem;
@@ -193,7 +211,7 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def show_df_AgGrid2(df, height=600, page_size=25, key="grid"):
+def show_df_AgGrid2(df, height=800, page_size=25, key="grid"):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -216,7 +234,7 @@ def show_df_AgGrid2(df, height=600, page_size=25, key="grid"):
         # fit_columns_on_grid_load=True,
     )
 
-def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
+def show_df_AgGrid(df, height:int=800, page_size:int=25, key:str="grid"):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -257,11 +275,11 @@ def show_df_AgGrid(df, height:int=600, page_size:int=25, key:str="grid"):
     )
 
 
-def show_df(df, height:int=600, page_size:int=25, key:str="grid"):
+def show_df(df, height:int=800, page_size:int=25, key:str="grid"):
     show_df_AgGrid(df, height=height, page_size=page_size, key=key)
 
 
-def show_df_html(df, height: int = 600):
+def show_df_html(df, height: int = 800):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -316,7 +334,7 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
     st.pyplot(fig)
     plt.close(fig)
 
-def plot_heatmap(dfpiv: pd.DataFrame, figsize:tuple=(14, 10)):
+def plot_heatmap(dfpiv: pd.DataFrame, title:str="", figsize:tuple=(14, 10)):
     # Ensure numeric + binary (important for Jaccard)
     data = dfpiv.fillna(0).astype(int)
 
@@ -328,6 +346,9 @@ def plot_heatmap(dfpiv: pd.DataFrame, figsize:tuple=(14, 10)):
                 cmap="viridis",
                 cbar=False
             )
+
+    if title:
+        cg.figure.suptitle(title, y=1.02)
 
     st.pyplot(cg.figure)
     plt.close(cg.figure)
@@ -355,6 +376,7 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     X = data.to_numpy(dtype=np.uint8)
 
     n_samples = X.shape[0]
+    n_genes = X.shape[1]
 
     if n_samples < 3:
         st.warning("Need at least 3 non-empty samples to compute UMAP + clustering.")
@@ -405,7 +427,7 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
         s=20
     )
 
-    ax.set_title(f"UMAP of Mutation Profiles (k={k})")
+    ax.set_title(f"Clustering using UMAP mutation profiles: (k={k})\nPrimary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes")
     ax.set_xlabel("UMAP1")
     ax.set_ylabel("UMAP2")
 
@@ -519,21 +541,25 @@ if st.session_state.loaded:
     primary_site = df_psi.iloc[0].primary_site
     gdc.set_primary_site(primary_site=primary_site)    
 
-
+    #---------- primary sites ----------------------------
     primary_sites = safe_unique_sorted(df_psi.primary_site)
-
-    st.subheader("Primary site selection")
 
     if len(primary_sites) == 0:
         st.warning("No primary sites found.")
         st.stop()
 
-    selected_primary_site = st.selectbox(
-        "Choose a primary site",
-        options=primary_sites,
-        index=0,
-    )
+    col1, col2 = st.columns([4,10])  # adjust ratio as you like
 
+    with col1:
+        st.markdown("### Choose a primary site")
+
+    with col2:
+        selected_primary_site = st.selectbox(
+            "",
+            options=primary_sites,
+            index=0,
+            label_visibility="collapsed"  # removes empty label spacing
+        )
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
@@ -568,20 +594,33 @@ if st.session_state.loaded:
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
     if tab == "Cases":
-        st.write(f"Cases #{len(df_cases)}")
         cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
        'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
         'tumor_stage', 'stage', 'tumor_class', 'histology',
        'subtype_tissue'] # 'stage_clin', 'figo_stage',
         
-        show_df(df_cases[cols], height=600, key=f"cases_{selected_primary_site}")
+        if len(df_cases) > 200:
+            df_cases2 = df_cases.head(200).copy()
+            st.write(f"Cases #{len(df_cases)} limited to 200")
+        else:
+            df_cases2 = df_cases
+            st.write(f"Cases #{len(df_cases)}")
+        
+        show_df(df_cases2[cols], height=800, key=f"cases_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     elif tab == "Tumor Samples":
-        st.write(f"Tumor samples linked to the selected primary site #{len(df_all_samples)}")
-        show_df(df_all_samples, height=600, key=f"samples_{selected_primary_site}")
+        
+        if len(df_all_samples) > 200:
+            df_all_samples2 = df_all_samples.head(200).copy()
+            st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
+        else:
+            df_all_samples2 = df_all_samples
+            st.write(f"Tumor samples #{len(df_all_samples)}")
+
+        show_df(df_all_samples2, height=800, key=f"samples_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
@@ -605,11 +644,18 @@ if st.session_state.loaded:
 
         elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=600, key=f"gene_counts_{selected_primary_site}")
+            show_df(df_gene_counts, height=800, key=f"gene_counts_{selected_primary_site}")
 
         elif subtab == "Raw Mutation Rows":
-            st.write("Mutation rows after barcode filtering")
-            show_df(df_all_mut, height=600, key=f"mut_rows_{selected_primary_site}")
+            
+            if len(df_all_mut) > 500:
+                df_all_mut2 = df_all_mut.head(500).copy()
+                st.write(f"Mutation rows #{len(df_all_mut)} limited to 500")
+            else:
+                df_all_mut2 = df_all_mut
+                st.write(f"Mutation rows #{len(df_all_mut)}")
+
+            show_df(df_all_mut2, height=800, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
@@ -623,8 +669,10 @@ if st.session_state.loaded:
         else:
 
             if subtab == "Heatmap":
+                n_samples, n_genes = dfpiv.shape
                 st.subheader("Mutation matrix heatmap")
-                plot_heatmap(dfpiv)
+                title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
+                plot_heatmap(dfpiv, title)
 
             elif subtab == "UMAP - cluster":
                 st.subheader("UMAP Clustering")
@@ -647,32 +695,32 @@ if st.session_state.loaded:
         st.write("Export filtered tables")
 
         st.download_button(
-            "Download filtered cases CSV",
-            data=df_cases.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_cases.csv",
-            mime="text/csv",
+            "Download filtered cases TSV",
+            data=df_cases.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_cases.tsv",
+            mime="text/tab-separated-values",
         )
 
         st.download_button(
-            "Download tumor samples CSV",
-            data=df_all_samples.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_tumor_samples.csv",
-            mime="text/csv",
+            "Download tumor samples TSV",
+            data=df_all_samples.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_tumor_samples.tsv",
+            mime="text/tab-separated-values",
         )
 
         st.download_button(
-            "Download filtered mutations CSV",
-            data=df_all_mut.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_mutations.csv",
-            mime="text/csv",
+            "Download filtered mutations TSV",
+            data=df_all_mut.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_mutations.tsv",
+            mime="text/tab-separated-values",
         )
 
         if not dfpiv.empty:
             st.download_button(
-                "Download mutation matrix CSV",
-                data=dfpiv.reset_index().to_csv(index=False).encode("utf-8"),
-                file_name=f"{prog_id}_{selected_primary_site}_mutation_matrix.csv",
-                mime="text/csv",
+                "Download mutation matrix TSV",
+                data=dfpiv.reset_index().to_csv(sep='\t',index=False).encode("utf-8"),
+                file_name=f"{prog_id}_{selected_primary_site}_mutation_matrix.tsv",
+                mime="text/tab-separated-values",
                 use_container_width=True,
             )
     show_profile_box()
