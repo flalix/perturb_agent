@@ -682,32 +682,32 @@ if st.session_state.loaded:
         st.write("Export filtered tables")
 
         st.download_button(
-            "Download filtered cases CSV",
-            data=df_cases.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_cases.csv",
-            mime="text/csv",
+            "Download filtered cases TSV",
+            data=df_cases.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_cases.tsv",
+            mime="text/tab-separated-values",
         )
 
         st.download_button(
-            "Download tumor samples CSV",
-            data=df_all_samples.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_tumor_samples.csv",
-            mime="text/csv",
+            "Download tumor samples TSV",
+            data=df_all_samples.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_tumor_samples.tsv",
+            mime="text/tab-separated-values",
         )
 
         st.download_button(
-            "Download filtered mutations CSV",
-            data=df_all_mut.to_csv(index=False).encode("utf-8"),
-            file_name=f"{prog_id}_{selected_primary_site}_mutations.csv",
-            mime="text/csv",
+            "Download filtered mutations TSV",
+            data=df_all_mut.to_csv(sep='\t',index=False).encode("utf-8"),
+            file_name=f"{prog_id}_{selected_primary_site}_mutations.tsv",
+            mime="text/tab-separated-values",
         )
 
         if not dfpiv.empty:
             st.download_button(
-                "Download mutation matrix CSV",
-                data=dfpiv.reset_index().to_csv(index=False).encode("utf-8"),
-                file_name=f"{prog_id}_{selected_primary_site}_mutation_matrix.csv",
-                mime="text/csv",
+                "Download mutation matrix TSV",
+                data=dfpiv.reset_index().to_csv(sep='\t',index=False).encode("utf-8"),
+                file_name=f"{prog_id}_{selected_primary_site}_mutation_matrix.tsv",
+                mime="text/tab-separated-values",
                 use_container_width=True,
             )
     show_profile_box()
