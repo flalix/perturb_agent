@@ -411,13 +411,10 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     good = np.isfinite(embedding).all(axis=1)
     embedding = embedding[good]
 
-
     labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
-
     fig, ax = plt.subplots(figsize=figsize)
 
     # cmap = plt.cm.get_cmap("tab10", k)
-
     sc = plt.scatter(
         embedding[:, 0],
         embedding[:, 1],
@@ -655,7 +652,11 @@ if st.session_state.loaded:
                 df_all_mut2 = df_all_mut
                 st.write(f"Mutation rows #{len(df_all_mut)}")
 
-            show_df(df_all_mut2, height=800, key=f"mut_rows_{selected_primary_site}")
+            cols = ['barcode_sample', 'symbol', 'refseq_mrna_id', 'entrez_gene_id', 'protein_mut',
+                    'mutation_type', 'ref_allele', 'variant_allele',
+                    'variant_type', 'chr', 'start', 'end', 'mutation_status',]
+
+            show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX

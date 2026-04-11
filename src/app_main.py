@@ -318,6 +318,7 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
     st.pyplot(fig)
     plt.close(fig)
 
+
 def plot_heatmap(dfpiv: pd.DataFrame, title:str="", figsize:tuple=(14, 10)):
     # Ensure numeric + binary (important for Jaccard)
     data = dfpiv.fillna(0).astype(int)
@@ -396,11 +397,9 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     embedding = embedding[good]
 
     labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
-
     fig, ax = plt.subplots(figsize=figsize)
 
     # cmap = plt.cm.get_cmap("tab10", k)
-
     sc = plt.scatter(
         embedding[:, 0],
         embedding[:, 1],
@@ -419,7 +418,6 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
 
     st.pyplot(fig)
     plt.close(fig)
-
 
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
@@ -640,7 +638,11 @@ if st.session_state.loaded:
                 df_all_mut2 = df_all_mut
                 st.write(f"Mutation rows #{len(df_all_mut)}")
 
-            show_df(df_all_mut2, height=800, key=f"mut_rows_{selected_primary_site}")
+            cols = ['barcode_sample', 'symbol', 'refseq_mrna_id', 'entrez_gene_id', 'protein_mut',
+                    'mutation_type', 'ref_allele', 'variant_allele',
+                    'variant_type', 'chr', 'start', 'end', 'mutation_status',]
+
+            show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{selected_primary_site}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
@@ -654,8 +656,10 @@ if st.session_state.loaded:
         else:
 
             if subtab == "Heatmap":
+                n_samples, n_genes = dfpiv.shape
                 st.subheader("Mutation matrix heatmap")
-                plot_heatmap(dfpiv)
+                title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
+                plot_heatmap(dfpiv, title)
 
             elif subtab == "UMAP - cluster":
                 st.subheader("UMAP Clustering")
