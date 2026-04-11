@@ -28,7 +28,6 @@ import pandas as pd
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
-
 import matplotlib.pyplot as plt
 import plotly.express as px
 

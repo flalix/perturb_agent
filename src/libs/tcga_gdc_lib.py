@@ -8,10 +8,19 @@
 
 import glob
 import os, requests, json, re
+import warnings
 from tabnanny import verbose
 import pandas as pd
 from collections import Counter
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import plotly.express as px
+
+import seaborn as sns
+from sklearn.cluster import KMeans
+import umap
 
 from setuptools import glob
 from typing import List, Tuple, Any, Iterable, Optional
@@ -42,6 +51,12 @@ class GDC(object):
 		self.fname_all_cases = '%s_summ_cases.tsv'
 		self.fname_all_samples = '%s_summ_samples.tsv'
 		self.fname_all_mutations = '%s_summ_mutations.tsv'
+
+		self.colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 
+				 	   'tomato', 'lime', 'magenta', 'yellow', 'gray', 'brown', 'olive',
+					   'navy', 'teal', 'maroon', 'silver']
+
+
 
 	def clean_gdc_files(self):
 
@@ -1997,3 +2012,152 @@ class GDC(object):
 			return "-".join([parts[0], parts[1], parts[2], sample_code])
 		
 		return x
+	
+
+	def build_pivot_table(self, df_all_mut: pd.DataFrame) -> pd.DataFrame:
+		"""
+		Build barcode x gene boolean mutation matrix.
+		"""
+		if df_all_mut is None or df_all_mut.empty:
+			return pd.DataFrame()
+
+		dfa = df_all_mut.copy()
+		dfa["value"] = True
+
+		dfpiv = dfa.pivot_table(
+			index="barcode",
+			columns="symbol",
+			values="value",
+			aggfunc="max",
+			fill_value=False,
+		)
+
+		dfpiv = dfpiv.sort_index(axis=0).sort_index(axis=1)
+
+		return dfpiv
+
+
+	def calc_UMAP(self, dfpiv: pd.DataFrame, k:int=8) -> tuple[List, List]:
+		# Binary mutation matrix for Jaccard
+		# Force numeric/binary and remove bad values
+		data = (
+			dfpiv
+			.replace(["NaN", "nan", ""], np.nan)   # catch fake NaNs
+			.apply(pd.to_numeric, errors="coerce")
+			.fillna(0)
+			.astype(bool)
+			.astype(int)
+		)
+
+		# Drop empty genes and empty samples
+		data = data.loc[data.sum(axis=1) > 0, data.sum(axis=0) > 0]
+
+		if data.empty:
+			print("No non-empty mutation matrix after filtering.")
+			return [], []
+		
+		X = data.to_numpy(dtype=np.uint8)
+
+		n_samples = X.shape[0]
+		n_genes = X.shape[1]
+
+		if n_samples < 3:
+			print("Need at least 3 non-empty samples to compute UMAP + clustering.")
+			return [], []
+		
+		if k > n_samples:
+			print(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
+			k = max(2, n_samples - 1)
+
+		if n_genes < 3:
+			print("Need at least 3 non-empty genes to compute UMAP + clustering.")
+			return [], []
+		
+		k = min(k, n_samples)
+
+		n_neighbors = min(15, n_samples - 1)
+		n_neighbors = max(2, n_neighbors)    
+
+		reducer = umap.UMAP(
+			n_neighbors=n_neighbors,
+			min_dist=0.1,
+			metric="jaccard",
+			random_state=42,
+			init="random",      # important
+			output_dens=False   # avoid tuple output
+		)
+
+		with warnings.catch_warnings():
+			warnings.filterwarnings("ignore", category=UserWarning, module="umap")
+			embedding = reducer.fit_transform(X)
+
+		if isinstance(embedding, tuple):
+			print("embedding return as a tuple")
+			embedding = embedding[0]
+
+		embedding = np.asarray(embedding)
+
+		good = np.isfinite(embedding).all(axis=1)
+		embedding = embedding[good]
+
+		if embedding.shape[0] < 3:
+			print("Too few valid embedded samples after filtering.")
+			return [], []
+
+		labels = KMeans(
+			n_clusters=min(k, embedding.shape[0] - 1),
+			random_state=42,
+			n_init=10,
+		).fit_predict(embedding)
+
+		return embedding.tolist(), labels.tolist()
+
+	def plot_umap(self, dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any]:
+
+		n_samples = dfpiv.shape[0]
+		n_genes = dfpiv.shape[1]
+
+		embedding, labels = self.calc_UMAP(dfpiv, k)
+		embedding = np.array(embedding)
+
+		if len(embedding) == 0 or len(labels) == 0:
+			print("No valid UMAP embedding or labels.")
+			return None, None, None
+
+		fig, ax = plt.subplots(figsize=figsize)
+
+		# cmap = plt.cm.get_cmap("tab10", k)
+		sc = plt.scatter(
+			embedding[:, 0],
+			embedding[:, 1],
+			c=[self.colors[label] for label in labels],
+			s=20
+		)
+
+		ax.set_title(f"Clustering using UMAP mutation profiles: (k={k})\nPrimary Site: '{self.primary_site}' #{n_samples} samples and #{n_genes} genes")
+		ax.set_xlabel("UMAP1")
+		ax.set_ylabel("UMAP2")
+
+		counts = Counter(labels)
+
+		legend_handles = []
+
+		for cluster_id in sorted(counts.keys()):
+			color = self.colors[cluster_id]
+			n = counts[cluster_id]
+
+			patch = mpatches.Patch(
+				color=color,
+				label=f"Cluster {cluster_id} (n={n})"
+			)
+			legend_handles.append(patch)
+
+		ax.legend(
+			handles=legend_handles,
+			title="Groups",
+			loc="best"
+		)
+
+		plt.show()
+		return fig, embedding, labels
+
