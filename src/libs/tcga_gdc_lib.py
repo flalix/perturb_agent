@@ -2109,45 +2109,52 @@ class GDC(object):
 		return dfpiv
 
 
-	def calc_HDBSCAN(self, dfpiv: pd.DataFrame, k:int=8) -> tuple[List, List, Any]:
+	def calc_HDBSCAN(self, dfpiv: pd.DataFrame, min_cluster_size:int=8, 
+				     min_samples:int=3) -> tuple[List, List, Any]:
 		"""
 		Cluster with HDBSCAN, not KMeans
 		pairwise_distances with jaccard
 		Multidimensional Scaling (MDS) 
 		If there are a few dense groups plus many ambiguous samples, HDBSCAN can work better.
 
-		input: dfpiv, k (number of clusters)
+		In HDBSCAN:
+			min_cluster_size → minimum size of a cluster
+			min_samples → minimum local neighborhood density
+			A point is considered “core” if it has at least min_samples neighbors nearby.
+
+		input: dfpiv, min_cluster_size (minimum number of samples in a cluster)
 		output: embedding and labels
 		"""
 		
-		X = dfpiv.to_numpy(dtype=np.uint8)
+		X = dfpiv.to_numpy(dtype=bool)
 
 		n_samples = X.shape[0]
 		n_genes = X.shape[1]
 
 		if n_samples < 3:
-			print("Need at least 3 non-empty samples to compute UMAP + clustering.")
+			print("Need at least 3 non-empty samples to compute HDBSCAN + clustering.")
 			return [], [], None
 		
-		if k > n_samples:
-			print(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
-			k = max(2, n_samples - 1)
+		if min_cluster_size > n_samples:
+			print(f"min_cluster_size={min_cluster_size} is larger than number of samples ({X.shape[0]}). Using min_cluster_size={X.shape[0]}.")
+			min_cluster_size = max(2, n_samples - 1)
 
 		if n_genes < 3:
-			print("Need at least 3 non-empty genes to compute UMAP + clustering.")
+			print("Need at least 3 non-empty genes to compute HDBSCAN + clustering.")
 			return [], [], None
 		
-		k = min(k, n_samples)
+		min_cluster_size = min(min_cluster_size, n_samples)
 
-		n_neighbors = min(15, n_samples - 1)
-		n_neighbors = max(2, n_neighbors)    
+		print(">>> calc_HDBSCAN MIN_CLUSTER_SIZE", min_cluster_size)
 
 		D = pairwise_distances(X, metric="jaccard")
 
 		embedding = MDS(
 			n_components=2,
 			dissimilarity="precomputed",
-			random_state=42
+			n_init=8,
+			init='classical_mds',
+			random_state=42,
 		).fit_transform(D)
 
 		if isinstance(embedding, tuple):
@@ -2160,7 +2167,12 @@ class GDC(object):
 			print("Too few valid embedded samples after filtering.")
 			return [], [], None
 
-		clusterer = hdbscan.HDBSCAN(min_cluster_size=k, metric="euclidean")
+
+		clusterer = hdbscan.HDBSCAN(
+			min_cluster_size=min_cluster_size,
+			min_samples=min_samples if min_samples is not None else min_cluster_size,
+			metric="euclidean"
+		)
 		labels = clusterer.fit_predict(embedding)
 
 		return embedding.tolist(), labels.tolist(), D
@@ -2280,24 +2292,56 @@ class GDC(object):
 		return fig, embedding, labels
 
 
-	def plot_HDBSCAN(self, dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any]:
+	def plot_HDBSCAN(self, dfpiv: pd.DataFrame, min_cluster_size:int=8, min_samples:int=3, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any, Any]:
 
-		embedding, labels, d = self.calc_HDBSCAN(dfpiv, k)
+		n_samples = dfpiv.shape[0]
+		n_genes = dfpiv.shape[1]
+
+		embedding, labels, d = self.calc_HDBSCAN(dfpiv=dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples)
 		embedding = np.array(embedding)
 
 		if len(embedding) == 0 or len(labels) == 0:
 			print("No valid HDBSCAN embedding or labels.")
-			return None, None, None
+			return None, None, None, None
 
 		fig, ax = plt.subplots(figsize=figsize)
 
-		plt.hist(d, bins=40)
-		plt.title("Pairwise Jaccard distance distribution")
-		plt.xlabel("Jaccard distance")
-		plt.ylabel("Count")
+		sc = plt.scatter(
+			embedding[:, 0],
+			embedding[:, 1],
+			c=[self.colors[label] for label in labels],
+			s=20
+		)
+
+		stri = f"Clustering using HDBSCAN mutation profiles"
+		stri += f"\nPrimary Site: {self.psi_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
+		stri += f"\nmin_cluster_size={min_cluster_size} and min_samples={min_samples}"
+		ax.set_title(stri)
+		ax.set_xlabel("embedding1")
+		ax.set_ylabel("embedding2")
+
+		counts = Counter(labels)
+
+		legend_handles = []
+
+		for cluster_id in sorted(counts.keys()):
+			color = self.colors[cluster_id]
+			n = counts[cluster_id]
+
+			patch = mpatches.Patch(
+				color=color,
+				label=f"Cluster {cluster_id} (n={n})"
+			)
+			legend_handles.append(patch)
+
+		ax.legend(
+			handles=legend_handles,
+			title="Groups",
+			loc="best"
+		)
 		plt.show()
 
-		return fig, embedding, labels
+		return fig, embedding, labels, d
 	
 	def cluster_mutation_table(self, dfpiv:pd.DataFrame, labels, cluster:int=1,
                            min_barcodes:int=2) -> pd.DataFrame:
@@ -2403,7 +2447,7 @@ class GDC(object):
 			if cluster_type == 'UMAP':
 				_, labels = self.calc_UMAP(dfpiv, k)
 			elif cluster_type == 'HDBSCAN':
-				_, labels = self.calc_HDBSCAN(dfpiv, k)
+				_, labels, _ = self.calc_HDBSCAN(dfpiv, k)
 			else:
 				raise Exception(f"\n---------- Define the cluster_type like UMAP or HDBSCAN, got: {cluster_type}")
 			
@@ -2450,8 +2494,10 @@ class GDC(object):
 
 		dfw['psi_id'] = self.psi_id
 		dfw['primary_site'] = self.primary_site
+		dfw['min_barcodes'] = min_barcodes
+		dfw['min_genes'] = min_genes
 
-		cols = ['psi_id', 'primary_site'] + cols
+		cols = ['psi_id', 'primary_site', 'min_barcodes', 'min_genes'] + cols
 		dfw = dfw[cols]
 
 		return dfw, dfh, dfstat, dfpiv

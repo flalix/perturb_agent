@@ -340,84 +340,21 @@ def plot_heatmap(dfpiv: pd.DataFrame, title:str="", figsize:tuple=(14, 10)):
 
 def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
 
-    # Binary mutation matrix for Jaccard
-    # Force numeric/binary and remove bad values
-    data = (
-        dfpiv
-        .replace(["NaN", "nan", ""], np.nan)   # catch fake NaNs
-        .apply(pd.to_numeric, errors="coerce")
-        .fillna(0)
-        .astype(bool)
-        .astype(int)
-    )
-
-    # Drop empty genes and empty samples
-    data = data.loc[data.sum(axis=1) > 0, data.sum(axis=0) > 0]
-
-    if data.empty:
-        st.warning("No non-empty mutation matrix after filtering.")
-        return
-    
-    X = data.to_numpy(dtype=np.uint8)
-
-    n_samples = X.shape[0]
-    n_genes = X.shape[1]
-
-    if n_samples < 3:
-        st.warning("Need at least 3 non-empty samples to compute UMAP + clustering.")
-        return
-
-    if k > X.shape[0]:
-        st.warning(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
-        k = X.shape[0]
-
-    k = min(k, n_samples)
-
-    n_neighbors = min(15, n_samples - 1)
-    n_neighbors = max(2, n_neighbors)    
-
-    reducer = umap.UMAP(
-        n_neighbors=n_neighbors,
-        min_dist=0.1,
-        metric="jaccard",
-        random_state=42,
-        init="random",      # important
-        output_dens=False   # avoid tuple output
-    )
-
-    embedding = reducer.fit_transform(X)
-
-    if isinstance(embedding, tuple):
-        st.write("embedding return as a tuple")
-        embedding = embedding[0]
-
-    embedding = np.array(embedding)
-
-    good = np.isfinite(embedding).all(axis=1)
-    embedding = embedding[good]
-
-    labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # cmap = plt.cm.get_cmap("tab10", k)
-    sc = plt.scatter(
-        embedding[:, 0],
-        embedding[:, 1],
-        c=[colors[label] for label in labels],
-        # c=labels,
-        # cmap=cmap,
-        s=20
-    )
-
-    ax.set_title(f"Clustering using UMAP mutation profiles: (k={k})\nPrimary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes")
-    ax.set_xlabel("UMAP1")
-    ax.set_ylabel("UMAP2")
-
-    handles, _ = sc.legend_elements()
-    ax.legend(handles, [f"Cluster {i}" for i in range(k)], title="Groups", loc="best")
+    fig, embedding, labels = gdc.plot_UMAP(dfpiv=dfpiv, k=k, figsize=figsize)
 
     st.pyplot(fig)
     plt.close(fig)
+
+def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size:int=10, min_samples:int=3, figsize:tuple=(14, 10)):
+
+    fig, embedding, labels, d = gdc.plot_HDBSCAN(dfpiv=dfpiv, 
+                                                 min_cluster_size=min_cluster_size,
+                                                 min_samples=min_samples, figsize=figsize)
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+
 
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
@@ -501,8 +438,11 @@ with st.sidebar:
     prog_id = 'TCGA'
 
     st.text(f"Program {prog_id}")
-    force = st.checkbox("Force rebuild", value=False)
-    verbose = st.checkbox("Verbose", value=False)
+    # force = st.checkbox("Force rebuild", value=False)
+    # verbose = st.checkbox("Verbose", value=False)
+
+    force=False
+    verbose=False
 
     load_clicked = st.button("Load data", use_container_width=True)
 
@@ -541,7 +481,6 @@ if st.session_state.loaded:
             index=0,
             label_visibility="collapsed"  # removes empty label spacing
         )
-
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
@@ -571,7 +510,6 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
 
-    print(">>>", tab)
 
     # -------------------------------------------------------------------------
     # TAB 1 - CASES
@@ -649,7 +587,7 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     elif tab == "Mutation Matrix":
 
-        subtab = st.radio("Main", ["Heatmap", "UMAP - cluster"], horizontal=True)
+        subtab = st.radio("Main", ["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"], horizontal=True)
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
@@ -674,6 +612,27 @@ if st.session_state.loaded:
                 )
 
                 plot_umap(dfpiv, k=k)
+
+            elif subtab == "HDBSCAN - cluster":
+                st.subheader("HDBSCAN Clustering")
+
+                n_samples = dfpiv.shape[0]
+
+                min_cluster_size = st.slider(
+                    "Minimum cluster size",
+                    min_value = 3,
+                    max_value = min(15, n_samples),
+                    value = 10
+                )
+
+                min_samples = st.slider(
+                    "Minimum samples",
+                    min_value = 3,
+                    max_value = min(10, n_samples),
+                    value = 3
+                )
+
+                plot_hdbscan(dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples)
 
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
@@ -715,3 +674,4 @@ if st.session_state.loaded:
 else:
     st.info("Click **Load data** in the sidebar to start.")
     show_profile_box()
+
