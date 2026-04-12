@@ -111,6 +111,12 @@ st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
 
 
+force=False
+verbose=False
+
+min_barcodes=3
+min_genes=5
+
 # --- FOOTER / BOX BELOW ALL TABS ---
 def show_profile_box():
     st.markdown("""
@@ -340,7 +346,7 @@ def plot_heatmap(dfpiv: pd.DataFrame, title:str="", figsize:tuple=(14, 10)):
 
 def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
 
-    fig, embedding, labels = gdc.plot_UMAP(dfpiv=dfpiv, k=k, figsize=figsize)
+    fig, _, _ = gdc.plot_UMAP(dfpiv=dfpiv, k=k, figsize=figsize)
 
     st.pyplot(fig)
     plt.close(fig)
@@ -379,23 +385,14 @@ def load_primary_site_data( primary_site:str,
 
 # hash error: @st.cache(show_spinner=False)
 @st.cache_data(show_spinner=False)
-def build_pivot_table(df_all_mut: pd.DataFrame) -> pd.DataFrame:
+def st_build_pivot_table(df_all_mut: pd.DataFrame, min_barcodes:int=3, min_genes:int=5) -> pd.DataFrame:
     """
     Build barcode x gene boolean mutation matrix.
     """
     if df_all_mut is None or df_all_mut.empty:
         return pd.DataFrame()
 
-    df_tmp = df_all_mut.copy()
-    df_tmp["value"] = True
-
-    dfpiv = df_tmp.pivot_table(
-        index="barcode",
-        columns="symbol",
-        values="value",
-        aggfunc="max",
-        fill_value=False,
-    )
+    dfpiv = gdc.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
     dfpiv = make_streamlit_safe(dfpiv)
 
     return dfpiv.sort_index(axis=0).sort_index(axis=1)
@@ -440,9 +437,6 @@ with st.sidebar:
     st.text(f"Program {prog_id}")
     # force = st.checkbox("Force rebuild", value=False)
     # verbose = st.checkbox("Verbose", value=False)
-
-    force=False
-    verbose=False
 
     load_clicked = st.button("Load data", use_container_width=True)
 
@@ -498,7 +492,7 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # BUILD MATRIX
     # -------------------------------------------------------------------------
-    dfpiv = build_pivot_table(df_all_mut)
+    dfpiv = st_build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
     # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
     if not dfpiv.empty:
         dfpiv = dfpiv.astype(int)
