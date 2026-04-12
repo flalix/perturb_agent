@@ -991,6 +991,23 @@ wheels = [
 ]
 
 [[package]]
+name = "hdbscan"
+version = "0.8.42"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e3/e1/f0d795e4b015f9e210d1e75a0fc538722a68152044b919d26ff30479aff4/hdbscan-0.8.42.tar.gz", hash = "sha256:3bd749a3df39c7e965bd8b2173c3804cdb11ad73d524a5df1201360814293614", size = 7089885, upload-time = "2026-03-27T19:17:04.367Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/a4/877e2d795924d43230a1140e0402f720728ea1dc0d6d67e0f889bf4a6b36/hdbscan-0.8.42-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:bc428bff42b9ec8ecbaf5d790b6b6de9e2cb120059350d0caecb92311f44b869", size = 1391546, upload-time = "2026-03-27T19:19:15.751Z" },
+    { url = "https://files.pythonhosted.org/packages/78/a0/7a0fda43d4542d268d47f7741bd5e480043cc022cb5e91acef2d4ee1ca6d/hdbscan-0.8.42-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:cd86e30bfe1f1363b9b97a8a84cbeebf761c5ff4262037f9cf0d068b590fe541", size = 4623350, upload-time = "2026-03-27T19:17:23.403Z" },
+    { url = "https://files.pythonhosted.org/packages/78/89/8f851a6506392029e712bae10f5816b21f2f277e1e468bca5dc03d8dfde2/hdbscan-0.8.42-cp311-cp311-win_amd64.whl", hash = "sha256:f265f1ae267713c7a8dfa14ddc530c1ccf87905cf003db65769b9afed519d910", size = 685988, upload-time = "2026-03-27T19:18:25.995Z" },
+]
+
+[[package]]
 name = "hf-gradio"
 version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3395,6 +3412,7 @@ source = { editable = "." }
 dependencies = [
     { name = "altair" },
     { name = "gradio" },
+    { name = "hdbscan" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "jupyterlab" },
@@ -3435,6 +3453,7 @@ dependencies = [
 requires-dist = [
     { name = "altair", specifier = "<6" },
     { name = "gradio" },
+    { name = "hdbscan", specifier = ">=0.8.42" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "jupyterlab" },

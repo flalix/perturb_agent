@@ -19,8 +19,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import plotly.express as px
 
-import seaborn as sns
+# import seaborn as sns
 from sklearn.cluster import KMeans
+from sklearn.manifold import MDS
+from sklearn.metrics import pairwise_distances
+import hdbscan
 import umap
 
 from setuptools import glob
@@ -1031,7 +1034,7 @@ class GDC(object):
 					response = res.json()
 
 					if 'data' not in response.keys():
-						print(f"No data found while searching for '{psi_id}' cases {case_id_list}")
+						print(f"No data found while searching for '{self.psi_id}' cases {case_id_list}")
 						print(">>> response", response)
 						self.df_samples = pd.DataFrame()
 						return self.df_samples
@@ -2015,7 +2018,7 @@ class GDC(object):
 		return x
 	
 
-	def build_pivot_table(self, df_all_mut: pd.DataFrame) -> pd.DataFrame:
+	def build_pivot_table(self, df_all_mut: pd.DataFrame, min_barcodes:int=2, min_genes:int=2) -> pd.DataFrame:
 		"""
 		Build a barcode x gene binary mutation matrix (0/1).
 
@@ -2079,7 +2082,9 @@ class GDC(object):
 		).astype(np.uint8)
 
 		# Remove empty samples and genes
-		dfpiv = dfpiv.loc[dfpiv.sum(axis=1) > 0, dfpiv.sum(axis=0) > 0]
+		dfpiv = dfpiv.loc[dfpiv.sum(axis=1) >= min_genes, :]
+
+		dfpiv = dfpiv.loc[:, dfpiv.sum(axis=0) >= min_barcodes]
 
 		if dfpiv.shape[0] < 3:
 			print("dfpiv has less than 3 samples.")
@@ -2103,6 +2108,62 @@ class GDC(object):
 
 		return dfpiv
 
+
+	def calc_HDBSCAN(self, dfpiv: pd.DataFrame, k:int=8) -> tuple[List, List, Any]:
+		"""
+		Cluster with HDBSCAN, not KMeans
+		pairwise_distances with jaccard
+		Multidimensional Scaling (MDS) 
+		If there are a few dense groups plus many ambiguous samples, HDBSCAN can work better.
+
+		input: dfpiv, k (number of clusters)
+		output: embedding and labels
+		"""
+		
+		X = dfpiv.to_numpy(dtype=np.uint8)
+
+		n_samples = X.shape[0]
+		n_genes = X.shape[1]
+
+		if n_samples < 3:
+			print("Need at least 3 non-empty samples to compute UMAP + clustering.")
+			return [], [], None
+		
+		if k > n_samples:
+			print(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
+			k = max(2, n_samples - 1)
+
+		if n_genes < 3:
+			print("Need at least 3 non-empty genes to compute UMAP + clustering.")
+			return [], [], None
+		
+		k = min(k, n_samples)
+
+		n_neighbors = min(15, n_samples - 1)
+		n_neighbors = max(2, n_neighbors)    
+
+		D = pairwise_distances(X, metric="jaccard")
+
+		embedding = MDS(
+			n_components=2,
+			dissimilarity="precomputed",
+			random_state=42
+		).fit_transform(D)
+
+		if isinstance(embedding, tuple):
+			print("embedding return as a tuple")
+			embedding = embedding[0]
+
+		embedding = np.asarray(embedding)
+
+		if embedding.shape[0] < 3:
+			print("Too few valid embedded samples after filtering.")
+			return [], [], None
+
+		clusterer = hdbscan.HDBSCAN(min_cluster_size=k, metric="euclidean")
+		labels = clusterer.fit_predict(embedding)
+
+		return embedding.tolist(), labels.tolist(), D
 
 	def calc_UMAP(self, dfpiv: pd.DataFrame, k:int=8) -> tuple[List, List]:
 		# Binary mutation matrix for Jaccard
@@ -2169,7 +2230,7 @@ class GDC(object):
 
 		return embedding.tolist(), labels.tolist()
 
-	def plot_umap(self, dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any]:
+	def plot_UMAP(self, dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any]:
 
 		n_samples = dfpiv.shape[0]
 		n_genes = dfpiv.shape[1]
@@ -2218,6 +2279,26 @@ class GDC(object):
 		plt.show()
 		return fig, embedding, labels
 
+
+	def plot_HDBSCAN(self, dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)) -> Tuple[Any, Any, Any]:
+
+		embedding, labels, d = self.calc_HDBSCAN(dfpiv, k)
+		embedding = np.array(embedding)
+
+		if len(embedding) == 0 or len(labels) == 0:
+			print("No valid HDBSCAN embedding or labels.")
+			return None, None, None
+
+		fig, ax = plt.subplots(figsize=figsize)
+
+		plt.hist(d, bins=40)
+		plt.title("Pairwise Jaccard distance distribution")
+		plt.xlabel("Jaccard distance")
+		plt.ylabel("Count")
+		plt.show()
+
+		return fig, embedding, labels
+	
 	def cluster_mutation_table(self, dfpiv:pd.DataFrame, labels, cluster:int=1,
                            min_barcodes:int=2) -> pd.DataFrame:
 
@@ -2296,38 +2377,40 @@ class GDC(object):
 
 		return pd.DataFrame(rows).sort_values("weighted_mean_hnorm", ascending=True)	
 
-	def entropy_analysis_for_primary_site(self, primary_site:str, Kmin:int=2, Kmax:int=10, min_barcodes:int=2, 
-							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+	def entropy_analysis_for_primary_site(self, cluster_type:str, primary_site:str, Kmin:int=2, Kmax:int=10, 
+									      min_barcodes:int=2, min_genes:int=2,
+							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
 		_, _, df_all_mut, _ = self.get_filtered_tables(primary_site=primary_site, verbose=verbose)
 
 		if df_all_mut.empty:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-		dfpiv = self.build_pivot_table(df_all_mut)
+		dfpiv = self.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
 		self.dfpiv = dfpiv
 
 		if dfpiv.shape[0] < 3 or dfpiv.shape[1] < 3:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
 		
 		if Kmax >= dfpiv.shape[0]:
 			Kmax = dfpiv.shape[0] - 1
 
 		if Kmax <= 3:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
 
 		df_list = []
 		for k in range(Kmin, Kmax + 1):
-			_, labels = self.calc_UMAP(dfpiv, k)
-			if labels == []:
+			if cluster_type == 'UMAP':
+				_, labels = self.calc_UMAP(dfpiv, k)
+			elif cluster_type == 'HDBSCAN':
+				_, labels = self.calc_HDBSCAN(dfpiv, k)
+			else:
+				raise Exception(f"\n---------- Define the cluster_type like UMAP or HDBSCAN, got: {cluster_type}")
+			
+			if labels is None or len(labels) == 0:
 				continue
 
-			min_cluster = np.min(labels)
-			max_cluster = np.max(labels)
-
-			unique_labels = np.unique(labels)
-
-			for cluster in range(min_cluster, max_cluster + 1):
+			for cluster in np.unique(labels):
 
 				dfc = self.cluster_mutation_table(
 					dfpiv=dfpiv,
@@ -2338,16 +2421,13 @@ class GDC(object):
 
 				n_cluster = dfc.shape[0]
 
-				if n_cluster < 3:
-					continue
-
-				if dfc.shape[1] < 3:
+				if n_cluster < 3 or dfc.shape[1] < 3:
 					continue
 
 				gene_degree = dfc.sum(axis=0).sort_values(ascending=False)
 				gene_freq = (gene_degree / n_cluster).sort_values(ascending=False)
 
-				df_all_mut = pd.DataFrame(
+				df_cluster_stat = pd.DataFrame(
 				{	"k": k,
 					"cluster": cluster,
 					"gene": gene_degree.index,
@@ -2355,10 +2435,10 @@ class GDC(object):
 					"cluster_size": n_cluster,
 					"freq": gene_freq.values
 				})
-				df_list.append(df_all_mut)
+				df_list.append(df_cluster_stat)
 
 		if len(df_list) == 0:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
 
 		dfstat = pd.concat(df_list, ignore_index=True)
 
@@ -2374,5 +2454,5 @@ class GDC(object):
 		cols = ['psi_id', 'primary_site'] + cols
 		dfw = dfw[cols]
 
-		return dfw, dfh, dfstat
+		return dfw, dfh, dfstat, dfpiv
 	
