@@ -7,6 +7,7 @@
 # @local: Home sweet home
 
 import glob
+from langchain_anthropic import data
 import os, requests, json, re
 import warnings
 from tabnanny import verbose
@@ -2016,22 +2017,88 @@ class GDC(object):
 
 	def build_pivot_table(self, df_all_mut: pd.DataFrame) -> pd.DataFrame:
 		"""
-		Build barcode x gene boolean mutation matrix.
+		Build a barcode x gene binary mutation matrix (0/1).
+
+		Rows represent barcodes (samples), columns represent gene symbols.
+		A value of 1 indicates that at least one mutation was observed for that
+		barcode-gene pair.
+
+		Parameters
+		----------
+		df_all_mut : pd.DataFrame
+			Input mutation table. Must contain at least:
+			- 'barcode': sample identifier
+			- 'symbol': gene symbol
+
+		Returns
+		-------
+		pd.DataFrame
+			Binary mutation matrix with:
+			- index   = barcode
+			- columns = gene symbol
+			- values  = 0 or 1
+
+			Returns an empty DataFrame if the input is empty or required columns
+			are missing.
 		"""
 		if df_all_mut is None or df_all_mut.empty:
 			return pd.DataFrame()
 
-		dfa = df_all_mut.copy()
-		dfa["value"] = True
+		required_cols = {"barcode", "symbol"}
+		missing_cols = required_cols - set(df_all_mut.columns)
+		if missing_cols:
+			raise ValueError(
+				f"build_pivot_table requires columns {sorted(required_cols)}, "
+				f"but is missing {sorted(missing_cols)}."
+			)
+
+		# Keep only the columns needed for the mutation matrix
+		dfa = df_all_mut.loc[:, ["barcode", "symbol"]].copy()
+		dfa["barcode"] = dfa["barcode"].astype(str).str.strip()
+		dfa["symbol"] = dfa["symbol"].astype(str).str.strip()
+
+		dfa = dfa[
+			(dfa["barcode"] != "")
+			& (dfa["symbol"] != "")
+			& (dfa["barcode"].str.lower() != "nan")
+			& (dfa["symbol"].str.lower() != "nan")
+		]
+
+		if dfa.empty:
+			return pd.DataFrame()
+		
+		# Mark presence of at least one mutation per barcode-gene pair
+		dfa["mutated"] = 1
 
 		dfpiv = dfa.pivot_table(
 			index="barcode",
 			columns="symbol",
-			values="value",
+			values="mutated",
 			aggfunc="max",
-			fill_value=False,
-		)
+			fill_value=0,
+		).astype(np.uint8)
 
+		# Remove empty samples and genes
+		dfpiv = dfpiv.loc[dfpiv.sum(axis=1) > 0, dfpiv.sum(axis=0) > 0]
+
+		if dfpiv.shape[0] < 3:
+			print("dfpiv has less than 3 samples.")
+			return pd.DataFrame()
+
+		if dfpiv.shape[1] < 3:
+			print("dfpiv has less than 3 genes.")
+			return pd.DataFrame()
+
+		'''
+		It sorts your matrix in a consistent order:
+
+		axis=0 → sort rows (barcodes)
+		axis=1 → sort columns (genes)
+
+		So after this:
+			barcodes are alphabetically (or lexicographically) ordered
+			genes are alphabetically ordered
+		'''
 		dfpiv = dfpiv.sort_index(axis=0).sort_index(axis=1)
 
 		return dfpiv
@@ -2040,23 +2107,8 @@ class GDC(object):
 	def calc_UMAP(self, dfpiv: pd.DataFrame, k:int=8) -> tuple[List, List]:
 		# Binary mutation matrix for Jaccard
 		# Force numeric/binary and remove bad values
-		data = (
-			dfpiv
-			.replace(["NaN", "nan", ""], np.nan)   # catch fake NaNs
-			.apply(pd.to_numeric, errors="coerce")
-			.fillna(0)
-			.astype(bool)
-			.astype(int)
-		)
-
-		# Drop empty genes and empty samples
-		data = data.loc[data.sum(axis=1) > 0, data.sum(axis=0) > 0]
-
-		if data.empty:
-			print("No non-empty mutation matrix after filtering.")
-			return [], []
 		
-		X = data.to_numpy(dtype=np.uint8)
+		X = dfpiv.to_numpy(dtype=np.uint8)
 
 		n_samples = X.shape[0]
 		n_genes = X.shape[1]
@@ -2161,3 +2213,157 @@ class GDC(object):
 		plt.show()
 		return fig, embedding, labels
 
+	def cluster_mutation_table(self, dfpiv:pd.DataFrame, labels, cluster:int=1,
+                           min_barcodes:int=2) -> pd.DataFrame:
+
+		if len(labels) != dfpiv.shape[0]:
+			stri  = "Error: build_pivot_table filter empty lines."
+			stri += "\nNumber of labels does not match number of samples. "
+			stri += "\n----------- stop execution -----------\n"
+			raise Exception(stri)
+
+		labels = pd.Series(labels, index=dfpiv.index)
+		sel_barcodes = labels[labels == cluster].index
+		dff = dfpiv.loc[sel_barcodes]
+		dff = dff.loc[:, dff.sum(axis=0) >= min_barcodes]
+
+		return dff
+	
+	def calc_shannon_entropy_from_dfstat(self, dfstat: pd.DataFrame) -> pd.DataFrame:
+		rows = []
+
+		for (k, cluster), dfsub in dfstat.groupby(["k", "cluster"]):
+			deg_list = dfsub["degree"].to_list()
+
+			if len(deg_list) == 0:
+				H = np.nan
+				Hmax = np.nan
+				Hnorm = np.nan
+				n_genes = 0
+			else:
+				w = np.array(deg_list, dtype=float)
+				p = w / w.sum()
+				H = -np.sum(p * np.log2(p))
+				n_genes = len(p)
+				Hmax = np.log2(n_genes) if n_genes > 1 else 0.0
+				Hnorm = H / Hmax if Hmax > 0 else 0.0
+
+			rows.append({
+				"k": k,
+				"cluster": cluster,
+				"n_genes": n_genes,
+				"cluster_size": dfsub["cluster_size"].iloc[0],
+				"entropy": H,
+				"entropy_max": Hmax,
+				"entropy_norm": Hnorm
+			})
+
+		return pd.DataFrame(rows)
+	
+	def score_k_from_entropy_table(self, dfh: pd.DataFrame) -> pd.DataFrame:
+		rows = []
+
+		for k, sub in dfh.groupby("k"):
+			total_n = sub["cluster_size"].sum()
+
+			weighted_mean_entropy = (
+				(sub["entropy_norm"] * sub["cluster_size"]).sum() / total_n
+				if total_n > 0 else np.nan
+			)
+
+			mean_entropy = sub["entropy_norm"].mean()
+			std_entropy = sub["entropy_norm"].std()
+			min_cluster_size = sub["cluster_size"].min()
+			max_cluster_size = sub["cluster_size"].max()
+			n_clusters = sub.shape[0]
+			n_small_clusters = (sub["cluster_size"] < 3).sum()
+
+			rows.append({
+				"k": k,
+				"n_clusters": n_clusters,
+				"weighted_mean_hnorm": weighted_mean_entropy,
+				"mean_hnorm": mean_entropy,
+				"std_hnorm": std_entropy,
+				"min_cluster_size": min_cluster_size,
+				"max_cluster_size": max_cluster_size,
+				"n_small_clusters_lt3": n_small_clusters
+			})
+
+		return pd.DataFrame(rows).sort_values("weighted_mean_hnorm", ascending=True)	
+
+	def entropy_analysis_for_primary_site(self, primary_site:str, Kmin:int=2, Kmax:int=10, min_barcodes:int=2, 
+							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+		
+		_, _, df_all_mut, _ = self.get_filtered_tables(primary_site=primary_site, verbose=verbose)
+
+		if df_all_mut.empty:
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+		dfpiv = self.build_pivot_table(df_all_mut)
+		self.dfpiv = dfpiv
+
+		if dfpiv.shape[0] < 3 or dfpiv.shape[1] < 3:
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+		
+		if Kmax >= dfpiv.shape[0]:
+			Kmax = dfpiv.shape[0] - 1
+
+		if Kmax <= 3:
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+		df_list = []
+		for k in range(Kmin, Kmax + 1):
+			_, labels = self.calc_UMAP(dfpiv, k)
+			print(">>> labels", len(labels), dfpiv.shape[0])
+
+			min_cluster = np.min(labels)
+			max_cluster = np.max(labels)
+
+			unique_labels = np.unique(labels)
+
+			for cluster in range(min_cluster, max_cluster + 1):
+				print(f">>> k {k} - {unique_labels} - cluster {cluster}", min_cluster, max_cluster)
+				print("***", len(labels), dfpiv.shape[0])
+				print(">>>", Counter(labels))
+				print("\n--------------\n")
+
+				dfc = self.cluster_mutation_table(
+					dfpiv=dfpiv,
+					labels=labels,
+					cluster=cluster,
+					min_barcodes=min_barcodes
+				)
+
+				n_cluster = dfc.shape[0]
+				gene_degree = dfc.sum(axis=0).sort_values(ascending=False)
+				gene_freq = (gene_degree / n_cluster).sort_values(ascending=False)
+
+				df_all_mut = pd.DataFrame(
+				{	"k": k,
+					"cluster": cluster,
+					"gene": gene_degree.index,
+					"degree": gene_degree.values,
+					"cluster_size": n_cluster,
+					"freq": gene_freq.values
+				})
+				df_list.append(df_all_mut)
+
+		if len(df_list) == 0:
+			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+		dfstat = pd.concat(df_list, ignore_index=True)
+
+		dfh = self.calc_shannon_entropy_from_dfstat(dfstat)
+
+		dfw = self.score_k_from_entropy_table(dfh)
+
+		cols = dfw.columns.to_list()
+
+		dfw['psi_id'] = self.psi_id
+		dfw['primary_site'] = self.primary_site
+
+		cols = ['psi_id', 'primary_site'] + cols
+		dfw = dfw[cols]
+
+		return dfw, dfh, dfstat
+	
