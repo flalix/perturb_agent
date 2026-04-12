@@ -2149,8 +2149,13 @@ class GDC(object):
 
 		embedding = np.asarray(embedding)
 
+		'''
 		good = np.isfinite(embedding).all(axis=1)
 		embedding = embedding[good]
+		'''
+		if not np.isfinite(embedding).all():
+			print("UMAP embedding contains NaN or infinite values.")
+			return [], []
 
 		if embedding.shape[0] < 3:
 			print("Too few valid embedded samples after filtering.")
@@ -2224,7 +2229,7 @@ class GDC(object):
 
 		labels = pd.Series(labels, index=dfpiv.index)
 		sel_barcodes = labels[labels == cluster].index
-		dff = dfpiv.loc[sel_barcodes]
+		dff = dfpiv.loc[sel_barcodes].copy()
 		dff = dff.loc[:, dff.sum(axis=0) >= min_barcodes]
 
 		return dff
@@ -2314,7 +2319,8 @@ class GDC(object):
 		df_list = []
 		for k in range(Kmin, Kmax + 1):
 			_, labels = self.calc_UMAP(dfpiv, k)
-			print(">>> labels", len(labels), dfpiv.shape[0])
+			if labels == []:
+				continue
 
 			min_cluster = np.min(labels)
 			max_cluster = np.max(labels)
@@ -2322,10 +2328,6 @@ class GDC(object):
 			unique_labels = np.unique(labels)
 
 			for cluster in range(min_cluster, max_cluster + 1):
-				print(f">>> k {k} - {unique_labels} - cluster {cluster}", min_cluster, max_cluster)
-				print("***", len(labels), dfpiv.shape[0])
-				print(">>>", Counter(labels))
-				print("\n--------------\n")
 
 				dfc = self.cluster_mutation_table(
 					dfpiv=dfpiv,
@@ -2335,6 +2337,13 @@ class GDC(object):
 				)
 
 				n_cluster = dfc.shape[0]
+
+				if n_cluster < 3:
+					continue
+
+				if dfc.shape[1] < 3:
+					continue
+
 				gene_degree = dfc.sum(axis=0).sort_values(ascending=False)
 				gene_freq = (gene_degree / n_cluster).sort_values(ascending=False)
 
