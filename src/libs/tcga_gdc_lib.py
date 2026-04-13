@@ -23,6 +23,9 @@ import plotly.express as px
 from sklearn.cluster import KMeans
 from sklearn.manifold import MDS
 from sklearn.metrics import pairwise_distances
+
+from scipy.stats import hypergeom
+
 import hdbscan
 import umap
 
@@ -30,6 +33,7 @@ from setuptools import glob
 from typing import List, Tuple, Any, Iterable, Optional
 
 from libs.Basic import *
+from libs.stat_lib import *
 
 class GDC(object):
 	def __init__(self, root0:Path=Path('../data/')):
@@ -59,6 +63,29 @@ class GDC(object):
 		self.colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 
 				 	   'tomato', 'lime', 'magenta', 'yellow', 'gray', 'brown', 'olive',
 					   'navy', 'teal', 'maroon', 'silver']
+		
+
+		self.SUBTYPE_GENES = {'TCGA-BRCA':
+				{
+				"Luminal_A": {
+					"PIK3CA","GATA3","MAP3K1","CDH1","TBX3","RUNX1","FOXA1"
+				},
+				"Luminal_B": {
+					"PIK3CA","TP53","GATA3","RB1","CCND1","ERBB2"
+				},
+				"HER2": {
+					"ERBB2","PIK3CA","TP53","PTEN"
+				},
+				"TNBC_Basal": {
+					"TP53","BRCA1","RB1","PTEN","NF1"
+				},
+				"Lobular": {
+					"CDH1","PIK3CA","FOXA1","TBX3","GATA3","MAP3K1"
+				}
+			}
+		}
+
+
 
 
 
@@ -2423,24 +2450,26 @@ class GDC(object):
 
 	def entropy_analysis_for_primary_site(self, cluster_type:str, primary_site:str, Kmin:int=2, Kmax:int=10, 
 									      min_barcodes:int=2, min_genes:int=2,
-							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
 		_, _, df_all_mut, _ = self.get_filtered_tables(primary_site=primary_site, verbose=verbose)
 
+		dfempty = pd.DataFrame()
+
 		if df_all_mut.empty:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+			return dfempty, dfempty, dfempty, dfempty, dfempty
 
 		dfpiv = self.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
 		self.dfpiv = dfpiv
 
 		if dfpiv.shape[0] < 3 or dfpiv.shape[1] < 3:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
+			return dfempty, dfempty, dfempty, dfpiv, df_all_mut
 		
 		if Kmax >= dfpiv.shape[0]:
 			Kmax = dfpiv.shape[0] - 1
 
 		if Kmax <= 3:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
+			return dfempty, dfempty, dfempty, dfpiv, df_all_mut
 
 		df_list = []
 		for k in range(Kmin, Kmax + 1):
@@ -2482,7 +2511,7 @@ class GDC(object):
 				df_list.append(df_cluster_stat)
 
 		if len(df_list) == 0:
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dfpiv
+			return dfempty, dfempty, dfempty, dfpiv, df_all_mut
 
 		dfstat = pd.concat(df_list, ignore_index=True)
 
@@ -2500,5 +2529,181 @@ class GDC(object):
 		cols = ['psi_id', 'primary_site', 'min_barcodes', 'min_genes'] + cols
 		dfw = dfw[cols]
 
-		return dfw, dfh, dfstat, dfpiv
+		return dfw, dfh, dfstat, dfpiv, df_all_mut
 	
+
+	def buid_purity_table(self, dfpiv: pd.DataFrame, labels:list) -> pd.DataFrame:
+		lab_list = np.unique(labels)
+		pu_list = []
+		n_list = []
+		pairs = []
+
+		for label in lab_list:
+			idx = labels == label
+			X = dfpiv[idx].to_numpy(dtype=bool)
+
+			n_bardodes = len(X)
+			n_list.append(n_bardodes)
+			pairs.append(n_bardodes * (n_bardodes - 1) / 2)
+
+			if len(X) > 1:
+				dist = pairwise_distances(X, metric="jaccard")
+				similarity = 1 - dist
+				purity = similarity[np.triu_indices_from(similarity, k=1)].mean()
+			else:
+				purity = 0
+
+			pu_list.append(np.round(purity, 3))
+
+
+		dfa = pd.DataFrame({
+			"label": lab_list,
+			"n_barcodes": n_list,
+			"purity": pu_list,
+			"n_pairs": pairs
+		})
+
+		max_pairs = dfa["n_pairs"].max()
+		dfa["purity_norm"] = dfa["purity"] * (dfa["n_pairs"] / max_pairs)
+
+		dfa = dfa.sort_values(by="purity_norm", ascending=False)
+
+		return dfa
+	
+
+	def plot_purity(self, dfpur: pd.DataFrame, dfclu:pd.DataFrame, good_clusters: list, min_perc: float = 0.10):
+		
+		# top_n_genes = 30
+
+		ngood = len(good_clusters)
+		nrows = int(np.ceil(ngood / 2))
+		height = 6*nrows
+			
+		fig, axes = plt.subplots(nrows, 2, figsize=(12, height))
+		axes = axes.flatten()
+
+		for ax, label in zip(axes, good_clusters):
+			if label == -1:
+				continue
+			
+			dfb = dfclu[label]
+
+			dfb = dfb[ dfb.values > min_perc]
+			dfb = dfb.sort_values(ascending=False)
+			# dfb = dfb.sort_values(ascending=False).head(top_n_genes)
+			
+			ax.bar(dfb.index, dfb.values)
+
+			stri = f"Label {label} | purity_norm={dfpur.loc[dfpur['label']==label].iloc[0].purity_norm:.3f}"
+
+			ax.set_title(stri)
+			ax.set_ylabel("Representative percentage")
+			ax.set_xlabel("Genes")
+			ax.tick_params(axis="x", rotation=70)
+
+			print(stri, ", ".join(dfb.index.to_list()))
+
+		plt.tight_layout()
+
+
+		return fig
+
+
+	def enrichment_test(self, sample_genes, subtype_genes, background_genes):
+		N = len(background_genes)
+		K = len(subtype_genes)
+		n = len(sample_genes)
+		overlap = len(set(sample_genes) & set(subtype_genes))
+
+		# P(X >= k)
+		pval = hypergeom.sf(overlap - 1, N, K, n)
+
+		return overlap, pval
+
+
+
+
+	def cluster_analysis(self, cluster_type:str, primary_site:str, k:int=5, Kmin:int=2, Kmax:int=10, 
+						 min_barcodes:int=3, min_genes:int=5, pur_threshold:float = 0.05, min_represent_perc = 0.10,
+						 verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, 
+									                  pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+		
+		dfw, dfh, dfstat, dfpiv, df_all_mut = self.entropy_analysis_for_primary_site(cluster_type,  primary_site,
+																		 Kmin, Kmax, 
+																		 min_barcodes, min_genes, verbose)
+
+		dfempty = pd.DataFrame()
+
+		if dfpiv.empty:
+			print("Did not define the pivot table")
+			return dfempty, dfempty, dfempty, dfempty, dfempty, dfempty, dfempty, dfempty
+
+		if cluster_type == 'UMAP':
+			print(f"Chose {cluster_type} with k={k}")
+			_, labels = self.calc_UMAP(dfpiv, k)
+
+		elif cluster_type == 'HDBSCAN':
+			min_cluster_size=5
+			min_samples=3
+			print(f"Chose {cluster_type} with min_cluster_size={min_cluster_size} and min_samples={min_samples}")
+
+			with warnings.catch_warnings():
+				warnings.simplefilter("ignore")
+				_, labels, _ = self.calc_HDBSCAN(dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples)
+		else:
+			print("Did not defined the clustering method")
+			return dfempty, dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+		#----------- cluster ----------------
+		dfpiv2 = dfpiv.copy()
+		dfpiv2["cluster"] = labels
+		dfclu = dfpiv2.groupby("cluster").mean().T
+		del dfpiv2
+
+		dfpur = self.buid_purity_table(dfpiv, labels)
+		if dfpur.empty:
+			return dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
+	
+		good_clusters = dfpur.loc[dfpur["purity_norm"] >= pur_threshold, "label"]
+
+		#------------ hypergeometric statistics ---------------------
+		background_genes = np.unique(df_all_mut.symbol.to_list())
+
+		dic	= self.SUBTYPE_GENES.get(self.psi_id, {})
+
+		if dic=={}:
+			print(f"No subtype genes found for PSI ID: {self.psi_id}")
+			return dfempty, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
+		
+
+		lista = []
+		for label in good_clusters:
+			
+			purity_norm = dfpur.loc[dfpur['label']==label].iloc[0].purity_norm
+					
+			dfb = dfclu[label]
+			
+			dfb = dfb[ dfb.values > min_represent_perc]
+			# dfb = dfb.sort_values(ascending=False)
+
+			sample_genes = dfb.index.to_list()
+		
+
+			for subtype, annotated_genes in dic.items():
+				overlap, pval = self.enrichment_test(sample_genes, annotated_genes, background_genes)
+				# print(f"Subtype: {subtype}, overlap: {overlap}, p-value: {pval}")
+
+				if overlap >= 2:
+					mat = [label, purity_norm, subtype, overlap, pval]
+					lista.append(mat)
+
+
+		if lista == []:
+			df = pd.DataFrame()
+		else:
+			df = pd.DataFrame(lista, columns=["label", "purity_norm", "subtype", "overlap", "pval"])
+			df['fdr'] = fdr(df['pval'])
+		
+		return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+
