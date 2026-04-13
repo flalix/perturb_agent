@@ -2415,7 +2415,13 @@ class GDC(object):
 				"entropy_norm": Hnorm
 			})
 
-		return pd.DataFrame(rows)
+		if rows == []:
+			return pd.DataFrame()
+
+		dfh = pd.DataFrame(rows)
+		dfh = dfh.sort_values("entropy_norm", ascending=True)
+
+		return dfh
 	
 	def score_k_from_entropy_table(self, dfh: pd.DataFrame) -> pd.DataFrame:
 		rows = []
@@ -2613,12 +2619,13 @@ class GDC(object):
 		N = len(background_genes)
 		K = len(subtype_genes)
 		n = len(sample_genes)
-		overlap = len(set(sample_genes) & set(subtype_genes))
+		overlap_genes = set(sample_genes) & set(subtype_genes)
+		overlap = len(overlap_genes)
 
 		# P(X >= k)
 		pval = hypergeom.sf(overlap - 1, N, K, n)
 
-		return overlap, pval
+		return pval, overlap_genes
 
 
 
@@ -2652,13 +2659,12 @@ class GDC(object):
 				_, labels, _ = self.calc_HDBSCAN(dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples)
 		else:
 			print("Did not defined the clustering method")
-			return dfempty, dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
+			return dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
 
 		#----------- cluster ----------------
 		dfpiv2 = dfpiv.copy()
 		dfpiv2["cluster"] = labels
 		dfclu = dfpiv2.groupby("cluster").mean().T
-		del dfpiv2
 
 		dfpur = self.buid_purity_table(dfpiv, labels)
 		if dfpur.empty:
@@ -2682,26 +2688,29 @@ class GDC(object):
 			purity_norm = dfpur.loc[dfpur['label']==label].iloc[0].purity_norm
 					
 			dfb = dfclu[label]
+
+			n_barcodes = len(dfpiv2[dfpiv2["cluster"] == label])
 			
 			dfb = dfb[ dfb.values > min_represent_perc]
 			# dfb = dfb.sort_values(ascending=False)
 
 			sample_genes = dfb.index.to_list()
 		
-
 			for subtype, annotated_genes in dic.items():
-				overlap, pval = self.enrichment_test(sample_genes, annotated_genes, background_genes)
+				pval, overlap_genes = self.enrichment_test(sample_genes, annotated_genes, background_genes)
 				# print(f"Subtype: {subtype}, overlap: {overlap}, p-value: {pval}")
 
+				overlap = len(overlap_genes)
+
 				if overlap >= 2:
-					mat = [label, purity_norm, subtype, overlap, pval]
+					mat = [cluster_type, k, n_barcodes, label, purity_norm, subtype, overlap, len(sample_genes), len(annotated_genes), len(background_genes), pval, overlap_genes]
 					lista.append(mat)
 
 
 		if lista == []:
 			df = pd.DataFrame()
 		else:
-			df = pd.DataFrame(lista, columns=["label", "purity_norm", "subtype", "overlap", "pval"])
+			df = pd.DataFrame(lista, columns=["cluster_type", "k", "n_barcodes", "label", "purity_norm", "subtype", "overlap", "sample_genes", "annotated_genes", "background_genes", "pval", "overlap_genes"])
 			df['fdr'] = fdr(df['pval'])
 		
 		return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
