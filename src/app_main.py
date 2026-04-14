@@ -545,17 +545,18 @@ if st.session_state.loaded:
         subtab = st.radio("Main", ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"], horizontal=True)
 
         if subtab == "Barplot: top Mutated Genes":
-            st.write("Most frequently mutated genes across filtered barcodes")
+            st.write(f"Most frequently mutated genes across filtered barcodes {dfpiv.shape[0]} samples and {dfpiv.shape[1]} genes")
 
-            top_n = st.slider(
-                "Top N genes",
-                min_value=5,
-                max_value=min(100, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
-                value=min(20, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
-                step=5,
-            )
+            if dfpiv.shape[0] > 1:
+                top_n = st.slider(
+                    "Top N genes",
+                    min_value=5,
+                    max_value=min(100, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
+                    value=min(20, max(5, dfpiv.shape[1] if not dfpiv.empty else 5)),
+                    step=5,
+                )
 
-            plot_top_mutated_genes(dfpiv, top_n=top_n)
+                plot_top_mutated_genes(dfpiv, top_n=top_n)
 
         elif subtab == "Mutated Genes":
             st.write("Number of patients/barcodes mutated per gene")
