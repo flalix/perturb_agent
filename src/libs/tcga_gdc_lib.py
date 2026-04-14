@@ -65,7 +65,7 @@ class GDC(object):
 					   'navy', 'teal', 'maroon', 'silver']
 		
 
-		self.SUBTYPE_GENES = {'TCGA-BRCA':
+		self.SUBTYPE_GENES2 = {'TCGA-BRCA':
 				{
 				"Luminal_A": {
 					"PIK3CA","GATA3","MAP3K1","CDH1","TBX3","RUNX1","FOXA1"
@@ -85,6 +85,237 @@ class GDC(object):
 			}
 		}
 
+
+		# Curated starter dictionaries for mutation-based enrichment / labeling
+		# Not official TCGA subtype definitions.
+		# Use as a practical rule-based layer on top of your clustering.
+
+		self.SUBTYPE_GENES = {
+			"TCGA-ACC": {
+				"WNT_beta_catenin": {"CTNNB1", "ZNRF3", "APC"},
+				"TP53_cell_cycle": {"TP53", "RB1", "CDKN2A"},
+				"Chromatin_remodeling": {"MEN1", "DAXX", "ATRX", "TERT"}
+			},
+
+			"TCGA-PCPG": {
+				"Pseudohypoxia": {"VHL", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "EPAS1"},
+				"Kinase_signaling": {"RET", "NF1", "HRAS", "MAX", "TMEM127"},
+				"WNT_or_other": {"CSDE1", "ATRX", "SETD2", "KMT2D"}
+			},
+
+			"TCGA-BLCA": {
+				"Luminal_papillary_like": {"FGFR3", "KDM6A", "STAG2", "PIK3CA", "ELF3"},
+				"Basal_squamous_like": {"TP53", "RB1", "NFE2L2", "KEAP1", "FAT1", "KMT2D"},
+				"Neuronal_like": {"TP53", "RB1", "ERCC2"}
+			},
+
+			"TCGA-LGG": {
+				"IDH_mut_astrocytoma_like": {"IDH1", "IDH2", "TP53", "ATRX"},
+				"IDH_mut_1p19q_oligodendroglioma_like": {"IDH1", "IDH2", "CIC", "FUBP1", "TERT"},
+				"IDH_wildtype_progressive": {"EGFR", "PTEN", "NF1", "TERT", "PDGFRA"}
+			},
+
+			"TCGA-GBM": {
+				"RTK_EGFR_like": {"EGFR", "PTEN", "TERT", "MDM4"},
+				"PDGFRA_proneural_like": {"PDGFRA", "IDH1", "TP53", "ATRX"},
+				"Mesenchymal_NF1_like": {"NF1", "PTEN", "RB1", "TP53"}
+			},
+
+			"TCGA-BRCA": {
+				"Luminal_A": {"PIK3CA", "GATA3", "MAP3K1", "FOXA1", "TBX3", "RUNX1", "CBFB"},  # "PIK3CA","GATA3","MAP3K1","CDH1","TBX3","RUNX1","FOXA1"
+				"Luminal_B": {"TP53", "RB1", "CCND1", "MYC", "ERBB2", "PTEN"}, #  {"TP53", "RB1", "CCND1", "MYC", "ERBB2", "PTEN"},
+				"HER2": {"ERBB2", "GRB7", "PIK3CA", "PTEN", "TP53"}, # "ERBB2","PIK3CA","TP53","PTEN"
+				"Basal": {"TP53", "BRCA1", "RB1", "PTEN", "NF1"} # "TP53","BRCA1","RB1","PTEN","NF1"
+			},
+
+			"TCGA-LUAD": {
+				"EGFR_driven": {"EGFR", "ERBB2", "RBM10"},
+				"KRAS_STK11_KEAP1_like": {"KRAS", "STK11", "KEAP1", "SMARCA4"},
+				"TP53_proximal_inflammatory_like": {"TP53", "NF1", "BRAF", "RIT1"},
+				"RTK_fusion_or_MAPK": {"ALK", "ROS1", "RET", "MET", "BRAF"}
+			},
+
+			"TCGA-LUSC": {
+				"Oxidative_stress_like": {"NFE2L2", "KEAP1", "CUL3"},
+				"PI3K_squamous_like": {"PIK3CA", "PTEN", "SOX2", "TP63"},
+				"Cell_cycle_like": {"TP53", "CDKN2A", "RB1", "FBXW7"}
+			},
+
+			"TCGA-MESO": {
+				"BAP1_chromatin_like": {"BAP1", "SETD2", "PBRM1"},
+				"Hippo_pathway_like": {"NF2", "LATS1", "LATS2"},
+				"DNA_damage_or_other": {"TP53", "SETDB1", "DDX3X"}
+			},
+
+			"TCGA-CESC": {
+				"PI3K_squamous_like": {"PIK3CA", "EP300", "FBXW7", "KMT2C"},
+				"TGF_beta_or_EMT_like": {"FAT1", "PTEN", "ARID1A"},
+				"Adenocarcinoma_like": {"KRAS", "ERBB2", "ELF3"}
+			},
+
+			"TCGA-COAD": {
+				"Canonical_CIN_like": {"APC", "TP53", "KRAS", "SMAD4", "PIK3CA"},
+				"MSI_like": {"BRAF", "RNF43", "ARID1A", "PIK3CA", "ACVR2A"},
+				"WNT_or_TGFbeta_like": {"APC", "CTNNB1", "FBXW7", "SMAD4", "TGFBR2"}
+			},
+
+			"TCGA-READ": {
+				"Canonical_CIN_like": {"APC", "TP53", "KRAS", "SMAD4", "PIK3CA"},
+				"MSI_like": {"BRAF", "RNF43", "ARID1A", "PIK3CA", "ACVR2A"},
+				"WNT_or_TGFbeta_like": {"APC", "CTNNB1", "FBXW7", "SMAD4", "TGFBR2"}
+			},
+
+			"TCGA-DLBC": {
+				"ABC_like": {"MYD88", "CD79B", "CARD11", "PIM1", "PRDM1"},
+				"GCB_like": {"EZH2", "BCL2", "CREBBP", "KMT2D", "MEF2B", "TNFRSF14"},
+				"Other_BCR_or_NFkB_like": {"TNFAIP3", "NFKBIE", "B2M", "SOCS1"}
+			},
+
+			"TCGA-SKCM": {
+				"BRAF_like": {"BRAF", "PTEN", "MAP2K1"},
+				"NRAS_like": {"NRAS", "PPP6C", "RAC1"},
+				"NF1_like": {"NF1", "RASA2"},
+				"Triple_wildtype_like": {"KIT", "GNAQ", "GNA11", "SF3B1"}
+			},
+
+			"TCGA-ESCA": {
+				"EAC_like": {"TP53", "CDKN2A", "SMAD4", "ERBB2", "KRAS", "ARID1A"},
+				"ESCC_like": {"TP53", "NFE2L2", "NOTCH1", "PIK3CA", "FAT1", "KMT2D"}
+			},
+
+			"TCGA-UVM": {
+				"Galphaq_pathway": {"GNAQ", "GNA11", "CYSLTR2", "PLCB4"},
+				"BAP1_high_risk_like": {"BAP1"},
+				"SF3B1_intermediate_like": {"SF3B1"},
+				"EIF1AX_low_risk_like": {"EIF1AX"}
+			},
+
+			"TCGA-LAML": {
+				"NPM1_FLT3_like": {"NPM1", "FLT3", "DNMT3A", "IDH1", "IDH2"},
+				"RUNX1_spliceosome_like": {"RUNX1", "ASXL1", "SRSF2", "U2AF1", "STAG2"},
+				"TP53_complex_karyotype_like": {"TP53", "PPM1D"},
+				"CEBPA_like": {"CEBPA", "GATA2"}
+			},
+
+			"TCGA-KICH": {
+				"TP53_PTEN_like": {"TP53", "PTEN"},
+				"TERT_mitochondrial_or_other": {"TERT", "MT-ND5", "MT-ND1"},
+				"Chromatin_like": {"SETD2", "KMT2C", "ARID1A"}
+			},
+
+			"TCGA-KIRP": {
+				"Type1_MET_like": {"MET", "KRAS", "EGFR"},
+				"Type2_CDKN2A_SETD2_like": {"CDKN2A", "SETD2", "BAP1", "TFE3", "FH"},
+				"Chromatin_or_mTOR_like": {"KDM6A", "PBRM1", "MTOR"}
+			},
+
+			"TCGA-KIRC": {
+				"VHL_PBRM1_like": {"VHL", "PBRM1", "SETD2", "KDM5C"},
+				"BAP1_aggressive_like": {"BAP1", "TP53"},
+				"mTOR_pathway_like": {"MTOR", "TSC1", "TSC2", "PTEN", "PIK3CA"}
+			},
+
+			"TCGA-HNSC": {
+				"HPV_positive_like": {"PIK3CA", "TRAF3", "CYLD", "E2F1"},
+				"HPV_negative_classic": {"TP53", "CDKN2A", "FAT1", "NOTCH1", "CASP8"},
+				"NSD1_differentiated_like": {"NSD1", "HRAS", "KMT2D"}
+			},
+
+			"TCGA-LIHC": {
+				"CTNNB1_WNT_like": {"CTNNB1", "AXIN1", "APC"},
+				"TP53_proliferative_like": {"TP53", "RB1", "CCNE1"},
+				"Chromatin_remodeling_like": {"ARID1A", "ARID2", "BAP1"},
+				"TERT_telomere_like": {"TERT", "TERF2"}
+			},
+
+			"TCGA-CHOL": {
+				"IDH_FGFR_like": {"IDH1", "IDH2", "FGFR2", "BAP1"},
+				"KRAS_TP53_like": {"KRAS", "TP53", "SMAD4"},
+				"Chromatin_or_MAPK_like": {"ARID1A", "BRAF", "PBRM1"}
+			},
+
+			"TCGA-PAAD": {
+				"KRAS_core": {"KRAS", "TP53", "CDKN2A", "SMAD4"},
+				"DNA_repair_deficient_like": {"BRCA1", "BRCA2", "PALB2", "ATM", "ATR"},
+				"Chromatin_or_other": {"ARID1A", "KDM6A", "RNF43", "GNAS"}
+			},
+
+			"TCGA-PRAD": {
+				"ETS_fusion_like": {"ERG", "ETV1", "ETV4", "PTEN"},
+				"SPOP_FOXA1_like": {"SPOP", "FOXA1", "CHD1"},
+				"DNA_repair_like": {"BRCA2", "ATM", "CDK12", "PALB2"},
+				"IDH1_mutant_like": {"IDH1"}
+			},
+
+			"TCGA-SARC": {
+				"Leiomyosarcoma_like": {"TP53", "RB1", "ATRX"},
+				"Dedifferentiated_liposarcoma_like": {"MDM2", "CDK4", "HMGA2"},
+				"Undifferentiated_pleomorphic_like": {"TP53", "NF1", "RB1"}
+			},
+
+			"TCGA-OV": {
+				"HR_deficient_like": {"BRCA1", "BRCA2", "RAD51C", "RAD51D", "PALB2"},
+				"CCNE1_amplified_like": {"CCNE1", "TP53"},
+				"RB1_NF1_like": {"RB1", "NF1", "TP53"},
+				"Other_HGSOC_core": {"TP53", "CDK12", "PTEN"}
+			},
+
+			"TCGA-STAD": {
+				"EBV_like": {"PIK3CA", "ARID1A", "BCOR"},
+				"MSI_like": {"PIK3CA", "ARID1A", "KRAS", "RNF43"},
+				"Genomically_stable_diffuse_like": {"CDH1", "RHOA", "CLDN18"},
+				"CIN_like": {"TP53", "ERBB2", "EGFR", "MET", "FGFR2"}
+			},
+
+			"TCGA-TGCT": {
+				"Seminoma_like": {"KIT", "KRAS", "NRAS"},
+				"Nonseminoma_like": {"TP53", "MDM2", "KRAS"},
+				"Fusion_or_chromatin_like": {"NANOG", "SOX17", "BCOR"}
+			},
+
+			"TCGA-THYM": {
+				"GTF2I_indolent_like": {"GTF2I"},
+				"Aggressive_TP53_like": {"TP53", "CYLD"},
+				"RAS_or_epigenetic_like": {"HRAS", "NRAS", "BAP1"}
+			},
+
+			"TCGA-THCA": {
+				"BRAF_like": {"BRAF", "RET", "NTRK1", "NTRK3"},
+				"RAS_like": {"NRAS", "HRAS", "KRAS", "EIF1AX", "PPARG"},
+				"Advanced_dedifferentiated_like": {"TERT", "TP53", "PIK3CA", "AKT1"}
+			},
+
+			"TCGA-UCS": {
+				"Serous_like": {"TP53", "PIK3CA", "PPP2R1A", "FBXW7"},
+				"PI3K_pathway_like": {"PTEN", "PIK3CA", "PIK3R1"},
+				"Chromatin_like": {"ARID1A", "ARID1B", "KMT2D"}
+			},
+
+			"TCGA-UCEC": {
+				"POLE_ultramutated": {"POLE"},
+				"MSI_hypermutated": {"MMR", "MLH1", "MSH2", "MSH6", "PMS2", "KRAS", "ARID1A"},
+				"Copy_number_low_endometrioid_like": {"PTEN", "CTNNB1", "PIK3CA", "ARID1A", "KRAS"},
+				"Copy_number_high_serous_like": {"TP53", "PPP2R1A", "FBXW7", "ERBB2"}
+			}
+		}
+
+		self.HISTOLOGY_GENES = {
+			"TCGA-BRCA": {
+				# Histology axis, not molecular subtype
+				"Lobular": {"CDH1", "PIK3CA", "FOXA1", "TBX3", "GATA3", "MAP3K1"}
+				# Ductal_like = default / absence of lobular signal
+			},
+
+			"TCGA-ESCA": {
+				"Adenocarcinoma": {"TP53", "CDKN2A", "SMAD4", "ERBB2", "KRAS", "ARID1A"},
+				"Squamous": {"TP53", "NFE2L2", "NOTCH1", "PIK3CA", "FAT1", "KMT2D", "ZNF750"}
+			},
+
+			"TCGA-TGCT": {
+				"Seminoma": {"KIT", "KRAS", "NRAS", "RAC1"},
+				"Nonseminoma": {"TP53", "MDM2"}
+			}
+		}
 
 
 
