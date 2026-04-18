@@ -42,6 +42,7 @@ class GDC(object):
 		self.url_gdc_cases = "https://api.self.cancer.gov/cases"
 		self.url_gdc_files = "https://api.self.cancer.gov/files"
 		self.url_gdc_data  = "https://api.self.cancer.gov/data/%s"
+		self.url_data      = "https://api.gdc.cancer.gov/data"
 
 		self.url_cbioportal = "https://www.cbioportal.org/api"
 
@@ -340,7 +341,8 @@ class GDC(object):
 
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
-		self.fname_fileid   = '%s_for_%s_case_%s_sample_type_%s_stage_%s_fileid_%s.tsv'
+		# fname = self.fname_fileid%(file_type, self.psi_id, case_id, file_id)
+		self.fname_fileid   = '%s_for_%s_case_%s_file_%s.%s'
 		self.fname_mut_anal0 = 'mutations_anal_for_study_%s.tsv'
 		self.fname_mut_summ0 = 'mutations_summ_for_study_%s.tsv'
 
@@ -1370,14 +1372,12 @@ class GDC(object):
 
 		return df_samples
 
-	def get_table_given_fileID(self, psi_id:str, case_id:str, 
-								sample_type:str, stage:str,
-								file_type:str, file_id:str,
-								force:bool=False, verbose:bool=False) -> pd.DataFrame:
+	def get_table_given_fileID(self, file_type:str, case_id:str, file_id:str,
+							   timeout:int=120, force:bool=False, verbose:bool=False) -> Any:
 		"""
-		Retrieve table like: RNA or Proteomic expression
-		input: file_id
-		output: dataframe
+		Retrieve any kind of table like: RNA or Proteomic expression
+		input: case_id and file_id
+		output: the desired file
 		"""
 
 		if not file_id and not isinstance(file_id, str):
@@ -1385,28 +1385,50 @@ class GDC(object):
 
 			self.df_table = pd.DataFrame()
 			return self.df_table
+		
+		is_expression = False
+		file_type = file_type.strip()
 
-		fname = self.fname_fileid%(file_type, psi_id, case_id, sample_type, stage, file_id)
+		if file_type == 'Gene Expression Quantification':
+			is_expression = True
+			type_of_file = 'tsv'
+		elif file_type == 'Raw Simple Somatic Mutation':
+			is_expression = True
+			type_of_file = 'tar.gz'
+		else:
+			print(f"Develope the method for this file type {file_type}")
+			raise Exception("\n------------ stop ---------------\n")
+
+		fname = self.fname_fileid%(file_type, self.psi_id, case_id, file_id, type_of_file)
 		fname = title_replace(fname)
 		filename = os.path.join(self.root_psi, fname)
 
 		if os.path.exists(filename) and not force:
-			df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
-			self.df_table = df_table
 
-			return df_table
+			if is_expression:
+				df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
+				self.df_table = df_table
+				return df_table
+			else:
+				return filename
+	
 
-		is_expression = True if file_type == 'Gene Expression Quantification' else False
-
-		if verbose: print("Searching: ", end='')
+		if verbose: print("Downloading: ", end='')
 		try:
-			url_file = f"https://api.self.cancer.gov/data/{file_id}"
+			url_file = self.url_gdc_data%(file_id)
 
-			res = requests.get(url_file)
-			data = res.content
+			with requests.get(url_file, stream=True, timeout=timeout) as r:
+				if r.status_code != 200:
+					print("Error:", r.status_code)
+					try:
+						print(r.text[:500])
+					except Exception:
+						pass
+					return None
 
-			with open(filename, "wb") as f:
-				f.write(data)
+				with open(filename, "wb") as f:
+					for chunk in r.iter_content(chunk_size=8192):
+						f.write(chunk)
 
 			if is_expression:
 				df_table = pd.read_csv(filename, sep="\t", comment="#")
@@ -1418,18 +1440,21 @@ class GDC(object):
 
 				_ = pdwritecsv(df_table, fname, self.root_psi, verbose=verbose)
 			else:
-				df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
-
-			if verbose: print(f"found {len(df_table)} files in selected samples.")
+				return filename
 
 		except Exception as e:
-			print(f"Error for '{psi_id}', '{file_type}', and {file_id}: {e}")
-			self.df_table = pd.DataFrame()
-			return self.df_table
+			print(f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}")
+			if is_expression:
+				self.df_table = pd.DataFrame()
+				return self.df_table
+			else:
+				return "Error: " + filename
 
-		self.df_table = df_table
-
-		return df_table
+		if is_expression:
+			self.df_table = df_table
+			return df_table
+		
+		return filename
 	
 	def clean_expression_table(self, df:pd.DataFrame) -> pd.DataFrame:
 		
@@ -1596,7 +1621,7 @@ class GDC(object):
 		return dfa_normal, dfa_tumor
 
 
-	def get_case_uuid(self, barcode:str) -> str:
+	def get_case_id(self, barcode:str) -> str:
 
 		self.clean_gdc_files()
 
@@ -1634,14 +1659,21 @@ class GDC(object):
 		return hits[0]["case_id"]
 
 
-	def get_files(self, case_uuid:str, data_type:str="Gene Expression Quantification") -> List:
-		lista = self.get_expression_files_by_uuid(case_uuid, data_type="Gene Expression Quantification")
+	#======= dummy - remove soon =================
+	def get_files(self, case_id:str, data_type:str="Gene Expression Quantification") -> List:
+		lista = self.get_expression_files_by_case(case_id, data_type="Gene Expression Quantification")
 		return lista
 
-	def get_expression_files_by_uuid(self, case_uuid:str, data_type:str="Gene Expression Quantification") -> List:
+	def get_expression_files(self, case_id:str, data_type:str="Gene Expression Quantification") -> List:
+		lista = self.get_expression_files_by_case(case_id, data_type="Gene Expression Quantification")
+		return lista
 
-		if not isinstance(case_uuid, str) or len(case_uuid) < 3:
-			print(f"UUID bad formated {case_uuid}.")
+
+	def get_expression_files_by_case(self, case_id:str, exp_unit:str='TPM',
+								     data_type:str="Gene Expression Quantification") -> List:
+
+		if not isinstance(case_id, str) or len(case_id) < 3:
+			print(f"UUID bad formated {case_id}.")
 			return []
 
 
@@ -1656,7 +1688,7 @@ class GDC(object):
 					"op": "in",
 					"content": {
 						"field": "cases.case_id",
-						"value": [case_uuid]
+						"value": [case_id]
 					}
 				},
 				{
@@ -1681,7 +1713,7 @@ class GDC(object):
 			data = response.json()
 
 		except Exception as e:
-			print(f"No data found for {case_uuid}. error: {e}")
+			print(f"No data found for {case_id}. error: {e}")
 			return []
 
 		response = data["data"]["hits"]
@@ -1691,35 +1723,34 @@ class GDC(object):
 			if isinstance(dic, str):
 				dic = eval(dic)
 
-			self.build_gdc_filenames(dic)
+			self.gdc_file_name = dic['file_name']
+			self.gdc_file_id = dic['file_id']
+			self.gdc_data_type = dic['data_type']
+
+			fname = f"{self.gdc_file_id}.dat"
+			self.gdc_fname = fname.replace(".dat", ".tsv")
+
+			self.gdc_filename = os.path.join(self.root_psi, fname)
+
+			if exp_unit == 'TPM':
+				self.exp_unit = exp_unit
+				self.value_col ="tpm_unstranded"
+			else:
+				self.exp_unit = "???"
+				self.value_col ="???"
+				raise Exception("Error in which count col, define as TPM.")
+
+
+			self.gdc_ouptut_fname = f"{fname.replace('.dat', '')}_{exp_unit}.tsv"
+			self.gdc_ouptut_filename = os.path.join(self.root_psi, self.gdc_ouptut_fname)
+
 
 		except Exception as e:
 			print(f"No response. error: {e}")
 
 		return response
 	
-	def build_gdc_filenames(self, dic:dict, exp_unit:str='TPM'):
 
-		self.gdc_file_name = dic['file_name']
-		self.gdc_file_id = dic['file_id']
-		self.gdc_data_type = dic['data_type']
-
-		fname = f"{self.gdc_file_id}.dat"
-		self.gdc_fname = fname.replace(".dat", ".tsv")
-
-		self.gdc_filename = os.path.join(self.root_psi, fname)
-
-		if exp_unit == 'TPM':
-			self.exp_unit = exp_unit
-			self.value_col ="tpm_unstranded"
-		else:
-			self.exp_unit = "???"
-			self.value_col ="???"
-			raise Exception("Error in which count col, define as TPM.")
-
-
-		self.gdc_ouptut_fname = f"{fname.replace('.dat', '')}_{exp_unit}.tsv"
-		self.gdc_ouptut_filename = os.path.join(self.root_psi, self.gdc_ouptut_fname)
 
 
 
