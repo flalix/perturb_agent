@@ -2061,22 +2061,13 @@ class GDC(object):
 		return df_all_cases, df_all_samples, df_all_mutations
 
 
-	def get_filtered_tables(self, primary_site:str, sample_type_term:str='tumor',
+	def get_filtered_tables(self, psi_id:str, sample_type_term:str='tumor',
 						    verbose: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
-		dfa = self.df_psi[self.df_psi.primary_site == primary_site]
-
-		if dfa.empty:
-			self.psi_id = ''
-			print("No primary site information found for:", primary_site)
-			return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
-		
-		row = dfa.iloc[0]
-		self.set_primary_site(psi_id = row.psi_id)
+		self.set_primary_site(psi_id=psi_id)
 
 		df_cases, df_all_samples, df_all_mut, all_barcode_list = \
 			self.get_filtered_tables_subtypes(sample_type_term=sample_type_term, do_filter=True, verbose=verbose)
-		
 
 		if df_cases.empty:
 			print("No cases found for primary site:", self.primary_site)
@@ -2622,11 +2613,12 @@ class GDC(object):
 
 		return pd.DataFrame(rows).sort_values("weighted_mean_hnorm", ascending=True)	
 
-	def entropy_analysis_for_primary_site(self, cluster_type:str, primary_site:str, Kmin:int=2, Kmax:int=10, 
+	def entropy_analysis_for_primary_site(self, cluster_type:str, psi_id:str, sample_type_term:str='tumor', 
+									      Kmin:int=2, Kmax:int=10, 
 									      min_barcodes:int=2, min_genes:int=2,
 							    		  verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 		
-		_, _, df_all_mut, _ = self.get_filtered_tables(primary_site=primary_site, verbose=verbose)
+		_, _, df_all_mut, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term=sample_type_term, verbose=verbose)
 
 		dfempty = pd.DataFrame()
 
