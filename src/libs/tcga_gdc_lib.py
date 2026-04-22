@@ -1569,56 +1569,7 @@ class GDC(object):
 
 		return self.df_normal, self.df_tumor
 
-	def merge_normal_tumor_tables(self, psi_id:str, df_normal:pd.DataFrame, df_tumor:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
-		cols = ["gene_id", "symbol", "gene_type", "counts"]
-		common_cols = ["gene_id", "symbol", "gene_type"]
-
-
-		dfa_normal = pd.DataFrame()
-
-		for i, row in df_normal.iterrows():
-			data_type = row.data_type
-			sample_type = row.sample_type
-			file_id = row.file_id
-			
-			dft = self.get_table_searching_for_fileID(psi_id=psi_id, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
-
-			if dft.empty:
-				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
-				continue
-
-			dft = dft[cols]
-			dft = dft.rename(columns={"counts": f"counts_{i+1}"})
-
-			if dfa_normal.empty:
-				dfa_normal = dft
-			else:
-				dfa_normal = dfa_normal.merge(dft, on=common_cols, how="outer") 
-
-
-		dfa_tumor = pd.DataFrame()
-
-		for i, row in df_tumor.iterrows():
-			data_type = row.data_type
-			sample_type = row.sample_type
-			file_id = row.file_id
-			
-			dft = self.get_table_searching_for_fileID(psi_id=psi_id, data_type=data_type, sample_type=sample_type, file_id=file_id, verbose=False)
-
-			if dft.empty:
-				print(f"No data found for file_id: {i} {file_id} {data_type} and {sample_type}")
-				continue
-
-			dft = dft[cols]
-			dft = dft.rename(columns={"counts": f"counts_{i+1}"})
-
-			if dfa_tumor.empty:
-				dfa_tumor = dft
-			else:
-				dfa_tumor = dfa_tumor.merge(dft, on=common_cols, how="outer") 
-
-		return dfa_normal, dfa_tumor
 
 
 	def get_case_id(self, barcode:str) -> str:
