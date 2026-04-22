@@ -33,7 +33,7 @@ tcga/
 reactome/
 vector_store/
 data/
-
+reactome_db/
 
 
 # PyInstaller
