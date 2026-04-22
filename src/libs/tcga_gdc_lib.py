@@ -41,8 +41,7 @@ class GDC(object):
 		self.url_gdc_project = "https://api.self.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.self.cancer.gov/cases"
 		self.url_gdc_files = "https://api.self.cancer.gov/files"
-		self.url_gdc_data  = "https://api.self.cancer.gov/data/%s"
-		self.url_data      = "https://api.gdc.cancer.gov/data"
+		self.url_gdc_data  = "https://api.gdc.cancer.gov/data/%s"
 
 		self.url_cbioportal = "https://www.cbioportal.org/api"
 
@@ -341,8 +340,7 @@ class GDC(object):
 
 		self.fname_cases_deprecated = 'cases_for_PS_%s_Subtype_%s_Stage_%s.tsv'
 
-		# fname = self.fname_fileid%(file_type, self.psi_id, case_id, file_id)
-		self.fname_fileid   = '%s_for_%s_case_%s_file_%s.%s'
+		self.fname_fileid   = '%s_%s_for_%s_case_%s_file_%s.%s'
 		self.fname_mut_anal0 = 'mutations_anal_for_study_%s.tsv'
 		self.fname_mut_summ0 = 'mutations_summ_for_study_%s.tsv'
 
@@ -1372,7 +1370,7 @@ class GDC(object):
 
 		return df_samples
 
-	def get_table_given_fileID(self, file_type:str, case_id:str, file_id:str,
+	def get_table_given_fileID(self, case_id:str, file_id:str, sample_type:str, file_type:str, 
 							   timeout:int=120, force:bool=False, verbose:bool=False) -> Any:
 		"""
 		Retrieve any kind of table like: RNA or Proteomic expression
@@ -1399,7 +1397,7 @@ class GDC(object):
 			print(f"Develope the method for this file type {file_type}")
 			raise Exception("\n------------ stop ---------------\n")
 
-		fname = self.fname_fileid%(file_type, self.psi_id, case_id, file_id, type_of_file)
+		fname = self.fname_fileid%(file_type, sample_type, self.psi_id, case_id, file_id, type_of_file)
 		fname = title_replace(fname)
 		filename = os.path.join(self.root_psi, fname)
 
@@ -1420,15 +1418,17 @@ class GDC(object):
 			with requests.get(url_file, stream=True, timeout=timeout) as r:
 				if r.status_code != 200:
 					print("Error:", r.status_code)
+					print("URL:", url_file)
+					print("Content-Type:", r.headers.get("Content-Type"))
 					try:
-						print(r.text[:500])
+						print("Preview:", r.text[:500])
 					except Exception:
-						pass
+						print("Could not decode error body as text for file:", file_id)
 					return None
 
 				with open(filename, "wb") as f:
 					for chunk in r.iter_content(chunk_size=8192):
-						f.write(chunk)
+						if chunk: f.write(chunk)
 
 			if is_expression:
 				df_table = pd.read_csv(filename, sep="\t", comment="#")
@@ -1657,101 +1657,6 @@ class GDC(object):
 			return ''
 
 		return hits[0]["case_id"]
-
-
-	#======= dummy - remove soon =================
-	def get_files(self, case_id:str, data_type:str="Gene Expression Quantification") -> List:
-		lista = self.get_expression_files_by_case(case_id, data_type="Gene Expression Quantification")
-		return lista
-
-	def get_expression_files(self, case_id:str, data_type:str="Gene Expression Quantification") -> List:
-		lista = self.get_expression_files_by_case(case_id, data_type="Gene Expression Quantification")
-		return lista
-
-
-	def get_expression_files_by_case(self, case_id:str, exp_unit:str='TPM',
-								     data_type:str="Gene Expression Quantification") -> List:
-
-		if not isinstance(case_id, str) or len(case_id) < 3:
-			print(f"UUID bad formated {case_id}.")
-			return []
-
-
-		if not isinstance(data_type, str) or len(data_type) < 3:
-			print(f"Data Type bad formated {data_type}.")
-			return []
-
-		filters = {
-			"op": "and",
-			"content": [
-				{
-					"op": "in",
-					"content": {
-						"field": "cases.case_id",
-						"value": [case_id]
-					}
-				},
-				{
-					"op": "in",
-					"content": {
-						"field": "data_type",
-						"value": [data_type]
-					}
-				}
-			]
-		}
-
-		try:
-			params = {
-				"filters": json.dumps(filters),
-				"fields": "file_id,file_name,data_type",
-				"format": "JSON",
-				"size": 100
-			}
-
-			response = requests.get(self.url_gdc_files, params=params)
-			data = response.json()
-
-		except Exception as e:
-			print(f"No data found for {case_id}. error: {e}")
-			return []
-
-		response = data["data"]["hits"]
-
-		try:
-			dic = response[0]
-			if isinstance(dic, str):
-				dic = eval(dic)
-
-			self.gdc_file_name = dic['file_name']
-			self.gdc_file_id = dic['file_id']
-			self.gdc_data_type = dic['data_type']
-
-			fname = f"{self.gdc_file_id}.dat"
-			self.gdc_fname = fname.replace(".dat", ".tsv")
-
-			self.gdc_filename = os.path.join(self.root_psi, fname)
-
-			if exp_unit == 'TPM':
-				self.exp_unit = exp_unit
-				self.value_col ="tpm_unstranded"
-			else:
-				self.exp_unit = "???"
-				self.value_col ="???"
-				raise Exception("Error in which count col, define as TPM.")
-
-
-			self.gdc_ouptut_fname = f"{fname.replace('.dat', '')}_{exp_unit}.tsv"
-			self.gdc_ouptut_filename = os.path.join(self.root_psi, self.gdc_ouptut_fname)
-
-
-		except Exception as e:
-			print(f"No response. error: {e}")
-
-		return response
-	
-
-
 
 
 	def resolve_mutation_profile(self, study_id: str) -> str:
@@ -2156,7 +2061,7 @@ class GDC(object):
 		return df_all_cases, df_all_samples, df_all_mutations
 
 
-	def get_filtered_tables(self, primary_site: str, 
+	def get_filtered_tables(self, primary_site:str, sample_type_term:str='tumor',
 						    verbose: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
 		dfa = self.df_psi[self.df_psi.primary_site == primary_site]
@@ -2170,7 +2075,7 @@ class GDC(object):
 		self.set_primary_site(psi_id = row.psi_id)
 
 		df_cases, df_all_samples, df_all_mut, all_barcode_list = \
-			self.get_filtered_tables_subtypes(sample_type='tumor', do_filter=True, verbose=verbose)
+			self.get_filtered_tables_subtypes(sample_type_term=sample_type_term, do_filter=True, verbose=verbose)
 		
 
 		if df_cases.empty:
@@ -2189,7 +2094,7 @@ class GDC(object):
 		return df_cases, df_all_samples, df_all_mut, all_barcode_list
 
 
-	def get_filtered_tables_subtypes(self, sample_type:str='tumor', do_filter:bool=True,
+	def get_filtered_tables_subtypes(self, sample_type_term:str='tumor', do_filter:bool=True,
 								     verbose:bool=True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
 		self.df_cases   = pd.DataFrame()
@@ -2251,11 +2156,11 @@ class GDC(object):
 				print("Error: could not read samples file:", filename)
 				continue
 
-			df_samples = df_samples[ (df_samples.case_id.isin(case_id_list)) & (df_samples.sample_type.str.contains(sample_type, case=False)) ]
+			df_samples = df_samples[ (df_samples.case_id.isin(case_id_list)) & (df_samples.sample_type.str.contains(sample_type_term, case=False)) ]
 			self.df_samples = df_samples
 
 			if df_samples.empty:
-				print("Error: could not filter df_samples")
+				if verbose: print("Error: could not filter df_samples")
 				continue
 			
 			df_samples = df_samples.copy().reset_index(drop=True)
