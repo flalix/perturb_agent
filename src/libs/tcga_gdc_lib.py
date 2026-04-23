@@ -30,18 +30,19 @@ import hdbscan
 import umap
 
 from setuptools import glob
-from typing import List, Tuple, Any, Iterable, Optional
+from typing import List, Tuple, Any, Iterable, Optional, Literal
 
 from libs.Basic import *
 from libs.stat_lib import *
+from libs.calc_degs_lib import CALC_DEGS
 
 class GDC(object):
-	def __init__(self, root0:Path=Path('../data/')):
+	def __init__(self, root0:Path):
 		
 		self.url_gdc_project = "https://api.self.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.self.cancer.gov/cases"
 		self.url_gdc_files = "https://api.self.cancer.gov/files"
-		self.url_gdc_data  = "https://api.gdc.cancer.gov/data/%s"
+		self.url_gdc_data  = "https://api.self.cancer.gov/data/%s"
 
 		self.url_cbioportal = "https://www.cbioportal.org/api"
 
@@ -59,6 +60,10 @@ class GDC(object):
 		self.fname_all_cases = '%s_summ_cases.tsv'
 		self.fname_all_samples = '%s_summ_samples.tsv'
 		self.fname_all_mutations = '%s_summ_mutations.tsv'
+
+		self.fname_lfc = 'lfc_%s.tsv'
+		self.fname_degs = 'degs_%s.tsv'
+		self.fname_degs_txt = 'degs_%s.txt'
 
 		self.colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 
 				 	   'tomato', 'lime', 'magenta', 'yellow', 'gray', 'brown', 'olive',
@@ -1443,7 +1448,7 @@ class GDC(object):
 				return filename
 
 		except Exception as e:
-			print(f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}")
+			if verbose: print(f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}")
 			if is_expression:
 				self.df_table = pd.DataFrame()
 				return self.df_table
@@ -1493,83 +1498,81 @@ class GDC(object):
 
 		return df_table
 
-	def get_tumor_normal_tables(self, df_samples:pd.DataFrame, case_id_list:List[str], data_type:str, 
-							    verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
-		'''
-		Retrieve tumor and normal tables for a given case ID and data type.
 
-		input:
-			df_samples: DataFrame containing sample information
-			case_id_list: List[str], list of case IDs to filter
-			data_type: str, data type to filter
-			verbose: bool, whether to print verbose messages
-		output:
-			Tuple[pd.DataFrame, pd.DataFrame]: normal and tumor tables
+	def get_file_expression_tumor_and_normal(self, psi_id:str, force:bool=False, verbose:bool = False) -> Tuple[dict, dict]:
 
-		'''
+		_, df_tumor_samples, _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Primary Tumor', verbose=verbose)
+		_, df_normal_samples, _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Solid Tissue Normal', verbose=verbose)
 
-		self.df_samples = df_samples
-		df2 = df_samples[df_samples.data_type == data_type]
+		if df_tumor_samples is None or df_tumor_samples.empty:
+			print(f"No tumor expression data found for {psi_id}.")
+			return {}, {}
 		
-		if df2.empty:
-			print(f"No data found for data type='{data_type}'.")
-			self.df_normal = pd.DataFrame()
-			self.df_tumor = pd.DataFrame()
-			return self.df_normal, self.df_tumor
+		if df_normal_samples is None or df_normal_samples.empty:
+			print(f"No normal expression data found for {psi_id}.")
+			return {}, {}
+
+		self.file_type_list = np.unique(df_tumor_samples.data_type)
+
+		dff_normal = df_normal_samples[df_normal_samples.data_type == 'Gene Expression Quantification']
+		dff_normal.reset_index(drop=True, inplace=True)
+
+		case_id_list = np.unique(dff_normal.case_id)
+
+		dff_tumor = df_tumor_samples[df_tumor_samples.case_id.isin(case_id_list)].copy()
+		dff_tumor = dff_tumor[dff_tumor.data_type == 'Gene Expression Quantification']
+		dff_tumor.reset_index(drop=True, inplace=True)
+
+		if verbose: print(f"There are {len(dff_tumor)} tumor and {len(dff_normal)} normal Gene Expression tables")
+
+		if len(dff_tumor) == 0 or len(dff_normal) == 0:
+			if verbose: print(f"No valid expression data found for {psi_id}.")
+			return {}, {}
 		
-		df2 = df2[df2.case_id.isin(case_id_list)]
+		if verbose: print("Dowloading normal files: ", end='')
+		cols = ['gene_id', 'symbol', 'gene_type', 'counts']
 
-		if df2.empty:
-			print(f"No cases found for data type='{data_type}'.")
-			self.df_normal = pd.DataFrame()
-			self.df_tumor = pd.DataFrame()
-			return self.df_normal, self.df_tumor
-
-		case_id_list = np.unique(df2.case_id)
-		if verbose: print(f"There are {len(case_id_list)} unique case IDs")
-
-		def return_normal_tumor(x:Any, term:str):
-			if not isinstance(x,str):
-				return False
-			
-			x = x.lower()
-
-			if 'blood' in x:
-				return False
-
-			if term in x:
-				return True
-
-			return False
-
-
-		df_normal = df2[ [return_normal_tumor(x, 'normal') for x in df2.sample_type] ]
-
-		if df_normal.empty:
-
-			df3 = df_samples[df_samples.data_type == data_type]
-			df_normal = df3[ [return_normal_tumor(x, 'normal') for x in df3.sample_type] ]
-
-			if df_normal.empty:
-				print(f"No normal samples found for case ID {case_id_list} and data type {data_type}.")
-				self.df_normal = pd.DataFrame()
+		dic_normal = {}
+		for i, row in dff_normal.iterrows():
+			if int(i)%10==0:
+				print(i, end='')
 			else:
-				self.df_normal = df_normal
+				print(".", end='')
+			case_id = row.case_id
+			file_id = row.file_id
 
-		df_tumor  = df2[ [return_normal_tumor(x, 'tumor') for x in df2.sample_type] ]
+			dfexp = self.get_table_given_fileID(case_id=case_id, file_id=file_id, sample_type='normal', 
+									   			file_type='Gene Expression Quantification', force=False, verbose=False)
+			if dfexp is None or dfexp.empty:
+				continue
+		
+			dfexp = dfexp[cols]
+			dic_normal[f"normal_{i}"] = dfexp
 
-		if df_tumor.empty:
-			print(f"No tumor samples found for case ID {case_id_list} and data type {data_type}.")
-			self.df_tumor = pd.DataFrame()
-			return self.df_normal, self.df_tumor
-
-		cols = ['file_id', 'data_type', 'sample_type']
-		self.df_tumor  = df_tumor[cols].copy().reset_index(drop=True)
-		self.df_normal = df_normal[cols].copy().reset_index(drop=True)
-
-		return self.df_normal, self.df_tumor
+		print("")
 
 
+		print("Dowloading tumor files: ", end='')
+		dic_tumor = {}
+		for i, row in dff_tumor.iterrows():
+			if int(i)%10==0:
+				print(i, end='')
+			else:
+				print(".", end='')
+			case_id = row.case_id
+			file_id = row.file_id
+
+			dfexp = self.get_table_given_fileID(case_id=case_id, file_id=file_id, sample_type='tumor', 
+									   			file_type='Gene Expression Quantification', force=False, verbose=False)
+			if dfexp is None or dfexp.empty:
+				continue
+
+			dfexp = dfexp[cols]
+			dic_tumor[f"tumor_{case_id}"] = dfexp
+
+		print("")
+
+		return dic_tumor, dic_normal
 
 
 	def get_case_id(self, barcode:str) -> str:
@@ -1608,6 +1611,80 @@ class GDC(object):
 			return ''
 
 		return hits[0]["case_id"]
+
+
+
+	def merge_normal_tumor_tables(self, dic_tumor:dict, dic_normal:dict, 
+							 	imax_tumor:int=12, imax_normal:int=12, 
+								verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+		'''
+		Process tumor and normal dictionary expression data.
+
+		input:
+			dic_tumor
+			dic_normal
+			verbose: bool, whether to print verbose messages
+		output:
+			Tuple[pd.DataFrame, pd.DataFrame]: df_tumor and df_normal tables
+
+		'''
+
+		cols = ["gene_id", "symbol", "gene_type", "counts"]
+		common_cols = ["gene_id", "symbol", "gene_type"]
+
+		#----------- Normal tissue ----------------
+		dfa_normal = pd.DataFrame()
+		print(">>> Processing normal data:", len(dic_normal))
+		i = 0
+		for _, dfa in dic_normal.items():
+			if dfa is None or dfa.empty:
+				continue
+
+			i += 1
+			print(i, end=' ')
+
+			dfa = dfa[cols]
+			dfa = dfa.rename(columns={"counts": f"normal_{i}"})
+
+			if dfa_normal.empty:
+				dfa_normal = dfa
+			else:
+				if i <= imax_normal:
+					dfa_normal = dfa_normal.merge(dfa, on=common_cols, how="outer")
+				else:
+					if verbose: 
+						print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
+					else:
+						break
+
+		print("")
+
+		#----------- tumor ----------------
+		dfa_tumor = pd.DataFrame()
+		print(">>> Processing tumor data:", len(dic_tumor))
+		i = 0
+		for _, dfa in dic_tumor.items():
+			if dfa is None or dfa.empty:
+				continue
+
+			i += 1
+			print(i, end=' ')
+			
+			dfa = dfa[cols]
+			dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
+
+			if dfa_tumor.empty:
+				dfa_tumor = dfa
+			else:
+				if i <= imax_tumor:
+					dfa_tumor = dfa_tumor.merge(dfa, on=common_cols, how="outer")
+				else:
+					if verbose: 
+						print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
+					else:
+						break
+
+		return dfa_tumor, dfa_normal
 
 
 	def resolve_mutation_profile(self, study_id: str) -> str:
@@ -1689,8 +1766,9 @@ class GDC(object):
 
 		data = resp.json()
 		if not data:
-			print(f"Error: cBioPortal URL: {url}")
-			print(f"No mutations found for molecular profile '{molecular_profile_id}' barcodes: {barcode_sample_list}.")
+			if verbose:
+				print(f"Error: cBioPortal URL: {url}")
+				print(f"No mutations found for molecular profile '{molecular_profile_id}' barcodes: {barcode_sample_list}.")
 			return pd.DataFrame()
 
 		df = pd.DataFrame(data)
@@ -1958,7 +2036,8 @@ class GDC(object):
 				print(f'{isubt}) {self.s_case}')
 				
 				if df_samples.empty:
-					print("No samples found for PSI_ID:", psi_id)
+					if verbose:
+						print(f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
 					continue
 
 				df_list_samples.append(df_samples)
@@ -2020,18 +2099,18 @@ class GDC(object):
 		df_cases, df_all_samples, df_all_mut, all_barcode_list = \
 			self.get_filtered_tables_subtypes(sample_type_term=sample_type_term, do_filter=True, verbose=verbose)
 
-		if df_cases.empty:
-			print("No cases found for primary site:", self.primary_site)
-		
-		if df_all_samples.empty:
-			print("No samples found for primary site:", self.primary_site)
+		if verbose:
+			if df_cases.empty:
+				print("No cases found for primary site:", self.primary_site)
+			
+			if df_all_samples.empty:
+				print("No samples found for primary site:", self.primary_site)
+			
+			if df_all_mut.empty:
+				print("No mutations found for primary site:", self.primary_site)
 
-		
-		if df_all_mut.empty:
-			print("No mutations found for primary site:", self.primary_site)
-
-		if len(all_barcode_list) == 0:
-			print("No barcodes found for primary site:", self.primary_site)
+			if len(all_barcode_list) == 0:
+				print("No barcodes found for primary site:", self.primary_site)
 
 		return df_cases, df_all_samples, df_all_mut, all_barcode_list
 
@@ -2113,7 +2192,7 @@ class GDC(object):
 			if os.path.exists(self.filename_mutsumm):
 				df_mut = pdreadcsv(self.fname_mut_anal, self.root_psi, verbose=verbose)
 			else:
-				print("No mutation analysis file found for:", self.s_case)
+				if verbose: print("No mutation analysis file found for:", self.s_case)
 				df_mut = pd.DataFrame()
 			
 			df_list_samples.append(df_samples)
@@ -3014,3 +3093,92 @@ class GDC(object):
 		self.df_vcf = df_vcf
 
 		return df_vcf
+
+
+	def calc_degs(self, psid_id:str, root_src:Path, 
+			      lfc_cutoff:float=1.0, fdr_cutoff:float=0.05, method:str="edger", 
+				  verbose:bool=False, force:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
+		
+		self.set_primary_site(psi_id=psid_id)
+
+		fname_degs = self.fname_degs % self.psi_id
+		fname_lfc = self.fname_lfc % self.psi_id
+		fname_degs_txt = self.fname_degs_txt % self.psi_id
+
+		filename_degs = self.root_psi / fname_degs
+		filename_lfc = self.root_psi / fname_lfc
+		filename_degs_txt = self.root_psi / fname_degs_txt
+
+		if filename_degs.exists() and filename_lfc.exists() and filename_degs_txt.exists() and not force:
+			df_degs = pdreadcsv(fname_degs, self.root_psi, verbose=verbose)
+			df_lfc = pdreadcsv(fname_lfc, self.root_psi, verbose=verbose)
+			degs_txt = read_txt(fname_degs_txt, self.root_psi, verbose=verbose)
+
+			return df_degs, df_lfc, degs_txt
+		
+
+		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psid_id, force=force, verbose=verbose)
+
+		if dic_tumor=={} or dic_normal=={}:
+			if verbose: print("Error: Normal expression data for tumor or normal.")
+			return pd.DataFrame(), pd.DataFrame(), ""
+
+		dfa_tumor, dfa_normal = self.merge_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
+		self.dfa_normal = dfa_normal
+		self.dfa_tumor = dfa_tumor
+
+		if dfa_normal is None or dfa_normal.empty:
+			print("Error: Normal expression data is empty or None.")
+			return pd.DataFrame(), pd.DataFrame(), ""
+
+		if dfa_tumor is None or dfa_tumor.empty:
+			print("Error: Tumor expression data is empty or None.")
+			return pd.DataFrame(), pd.DataFrame(), ""
+
+		cdegs = CALC_DEGS(root_psi=self.root_psi, src_dir=root_src)
+
+		dfa_normal = cdegs.deduplicate_by_max_reads(dfa_normal)
+		self.dfa_normal = dfa_normal
+
+		if dfa_normal is None or dfa_normal.empty:
+			print("Error: Normal expression data is empty or None.")
+			return pd.DataFrame(), pd.DataFrame(), ""
+		
+		dfa_tumor  = cdegs.deduplicate_by_max_reads(dfa_tumor)
+		self.dfa_tumor = dfa_tumor
+
+		if dfa_tumor is None or dfa_tumor.empty:
+			print("Error: Tumor expression data is empty or None.")
+			return pd.DataFrame(), pd.DataFrame(), ""
+
+
+		if method=="edger":
+			if len(dfa_tumor) < 2:
+				print("Error: Tumor expression data has fewer than 2 samples.")
+				return pd.DataFrame(), pd.DataFrame(), ""
+			
+			if len(dfa_normal) < 2:
+				print("Error: Normal expression data has fewer than 2 samples.")
+				return pd.DataFrame(), pd.DataFrame(), ""
+		
+
+		df_lfc = cdegs.run_deg_rscript(df_tumor=dfa_tumor, df_normal=dfa_normal,
+                                method=method,  manual_dispersion=0.1, min_total_count=10, 
+                                merge_how="inner", keep_temp=False)
+		
+		df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+
+		df_degs = df_lfc[ (df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
+		df_degs.reset_index(drop=True, inplace=True)
+
+		_ = pdwritecsv(df_lfc, fname_lfc, self.root_psi)
+		_ = pdwritecsv(df_degs, fname_degs, self.root_psi)
+
+		degs_txt = "\n".join(df_degs.symbol)
+		_ = write_txt(degs_txt, fname_degs_txt, self.root_psi)
+
+		return df_degs, df_lfc, degs_txt
+
+
+
+

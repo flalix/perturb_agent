@@ -110,23 +110,24 @@ def full_replace_lower(stri):
 	return full_replace(stri).lower()
 
 
-def write_txt(text, filename, path="./", to_append=False, verbose=False): # encondig = 'utf-8',
-	if not exists(path):
+def write_txt(text, filename, path=Path("./"), to_append=False, verbose=False) -> bool:
+	if not path.exists():
 		os.mkdir(path)
 
-	filename = osjoin(path, filename)
+	filename = path / filename
+	h = None
 	try:
 		ret = True
 		if to_append:
-			h = open(filename, mode = "a+")
+			h = open(filename, mode = "a+") # encondig = 'utf-8',
 		else:
-			h = open(filename, mode = "w")
+			h = open(filename, mode = "w") # encondig = 'utf-8',
 		h.write(text)
 	except ValueError:
 		print(f"Error '{ValueError}', writing in '{filename}'")
 		ret = False
 	finally:
-		h.close()
+		if h: h.close()
 
 	if not ret:
 		return False
@@ -137,8 +138,8 @@ def write_txt(text, filename, path="./", to_append=False, verbose=False): # enco
 '''
 https://thispointer.com/5-different-ways-to-read-a-file-line-by-line-in-python/
 '''
-def read_txt(filename, path="./", iniLine=None, endLine=None, verbose=False):  # encondig = 'utf-8',
-	filename = osjoin(path, filename)
+def read_txt(filename, path=Path("./"), iniLine=None, endLine=None, verbose=False):  # encondig = 'utf-8',
+	filename = path / filename
 	text = []
 
 	try:

@@ -19,14 +19,13 @@ import pandas as pd
 
 
 class CALC_DEGS(object):
-    def __init__(self, root_data:str='../data/'):
+    def __init__(self, root_psi:Path, src_dir:Path):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
             
-        self.root_data = Path(root_data).resolve()
+        self.root_psi = Path(root_psi)
 
-        # resolve project structure robustly
-        self.src_dir = Path(__file__).resolve().parent.parent
+        self.src_dir = src_dir
         self.libs_dir = self.src_dir / "libs"
 
         # R script path
