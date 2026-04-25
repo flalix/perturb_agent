@@ -1505,11 +1505,11 @@ class GDC(object):
 		_, df_normal_samples, _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Solid Tissue Normal', verbose=verbose)
 
 		if df_tumor_samples is None or df_tumor_samples.empty:
-			print(f"No tumor expression data found for {psi_id}.")
+			if verbose: print(f"No tumor expression data found for {psi_id}.")
 			return {}, {}
 		
 		if df_normal_samples is None or df_normal_samples.empty:
-			print(f"No normal expression data found for {psi_id}.")
+			if verbose: print(f"No normal expression data found for {psi_id}.")
 			return {}, {}
 
 		self.file_type_list = np.unique(df_tumor_samples.data_type)
@@ -1549,8 +1549,7 @@ class GDC(object):
 			dfexp = dfexp[cols]
 			dic_normal[f"normal_{i}"] = dfexp
 
-		print("")
-
+		print(f" -> {len(dff_normal)}")
 
 		print("Dowloading tumor files: ", end='')
 		dic_tumor = {}
@@ -1570,7 +1569,7 @@ class GDC(object):
 			dfexp = dfexp[cols]
 			dic_tumor[f"tumor_{case_id}"] = dfexp
 
-		print("")
+		print(f" -> {len(dff_tumor)}")
 
 		return dic_tumor, dic_normal
 
@@ -3152,7 +3151,7 @@ class GDC(object):
 			return pd.DataFrame(), pd.DataFrame(), ""
 
 
-		if method=="edger":
+		if method=="deseq2":
 			if len(dfa_tumor) < 2:
 				print("Error: Tumor expression data has fewer than 2 samples.")
 				return pd.DataFrame(), pd.DataFrame(), ""

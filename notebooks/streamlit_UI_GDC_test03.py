@@ -387,10 +387,9 @@ def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size:int=10, min_samples:int=3
 # hash error: @st.cache(show_spinner=True)
 
 @st.cache_data(show_spinner=False)
-def load_primary_site_data( primary_site:str, 
-                           verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
+def load_primary_site_data(psi_id:str, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
-    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(primary_site=primary_site, verbose=verbose)
+    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(psi_id=psi_id, sample_type_term='tumor', verbose=verbose)
 
     return (
         make_streamlit_safe(df_cases),
@@ -474,7 +473,8 @@ if st.session_state.loaded:
     gdc.set_primary_site(primary_site=primary_site)    
 
     #---------- primary sites ----------------------------
-    primary_sites = safe_unique_sorted(df_psi.primary_site)
+    primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]
+    primary_sites.sort()
 
     if len(primary_sites) == 0:
         st.warning("No primary sites found.")
@@ -495,8 +495,9 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
+    psi_id = str(selected_primary_site).split(" - ")[0]
     with st.spinner("Loading primary site data..."):
-        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(selected_primary_site, verbose=False)
+        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
 
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
