@@ -43,6 +43,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
+root_css = SRC / 'styles'
+
 from libs.calc_degs_lib import CALC_DEGS
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
@@ -65,51 +67,13 @@ colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', '
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
-st.markdown("""
-<style>
-/* Label (title) */
-div[data-baseweb="select"] > label {
-    font-size: 22px !important;
-    font-weight: 700 !important;
-    color: navy !important;
-}
+def load_css(fname:str):
+    filename = root_css / fname
+    
+    with open(filename) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-/* Selectbox text */
-div[data-baseweb="select"] div {
-    font-size: 22px !important;
-    font-weight: 500 !important;
-    color: navy !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-.block-container {
-    max-width: 96%;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-div.stButton > button {
-    width: 100%;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-div[data-testid="stHorizontalBlock"] {
-    align-items: center;
-}
-</style>
-""", unsafe_allow_html=True)
+load_css("main.css")
 
 st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
@@ -460,6 +424,9 @@ with st.sidebar:
     # in the future --> dropdown program selector
     prog_id = 'TCGA'
 
+    import streamlit
+    st.text(f"Streamlit {streamlit.__version__}")
+
     st.text(f"Program {prog_id}")
     # force = st.checkbox("Force rebuild", value=False)
     # verbose = st.checkbox("Verbose", value=False)
@@ -676,13 +643,25 @@ if st.session_state.loaded:
                 if labels:
                     st.subheader("DEGs")
 
-                    col1, col2 = st.columns([3, 1])  # label wide, input narrow
+                    col1, col2 = st.columns([1, 7])  # label wide, input narrow
 
                     with col1:
-                        st.markdown("**Enter a cluster number**")
+                        st.markdown("**Cluster:**")
 
                     with col2:
-                        value = st.radio("", [1, 2, 3], horizontal=True)
+                        lista = np.unique(labels)
+                        if -1 in lista:
+                            n_labels = len(lista)-1
+                        else:
+                            n_labels = len(lista)
+
+                        value = st.radio(
+                                        "",
+                                        np.arange(n_labels),
+                                        horizontal=True,
+                                        label_visibility="collapsed",
+                                        key="cluster_radio"
+                                    )
 
                     st.write("You entered:", value)
 

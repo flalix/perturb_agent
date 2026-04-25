@@ -1,0 +1,44 @@
+/* ===== Selectbox styling ===== */
+div[data-baseweb="select"] > label {
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    color: navy !important;
+}
+
+div[data-baseweb="select"] div {
+    font-size: 22px !important;
+    font-weight: 500 !important;
+    color: navy !important;
+}
+
+/* ===== Layout ===== */
+.block-container {
+    max-width: 96%;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+}
+
+/* ===== Buttons ===== */
+div.stButton > button {
+    width: 100%;
+}
+
+/* ===== Horizontal alignment ===== */
+div[data-testid="stHorizontalBlock"] {
+    align-items: center;
+}
+
+div[data-testid="stRadio"] {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+div[data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex !important;
+    justify-content: flex-start !important;
+    gap: 0.75rem !important;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
