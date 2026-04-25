@@ -602,10 +602,7 @@ if st.session_state.loaded:
                     min(15, n_samples),
                     min(8, n_samples)
                 )
-
                 plot_umap(dfpiv, k=k)
-
-
 
     with tab_head_diff_exp:
 

@@ -2,7 +2,7 @@
 #!python
 # -*- coding: utf-8 -*-
 # Created on 2026/03/19
-# Updated  on 2026/03/20
+# Updated  on 2026/04/24
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
@@ -46,6 +46,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
+root_css = SRC / 'styles'
+
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
@@ -69,46 +71,18 @@ colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', '
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
-st.markdown("""
-<style>
-/* Label (title) */
-div[data-baseweb="select"] > label {
-    font-size: 22px !important;
-    font-weight: 700 !important;
-    color: navy !important;
-}
 
-/* Selectbox text */
-div[data-baseweb="select"] div {
-    font-size: 22px !important;
-    font-weight: 500 !important;
-    color: navy !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-.block-container {
-    max-width: 96%;
-    padding-top: .5rem;
-    padding-bottom: .5rem;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-div.stButton > button {
-    width: 100%;
-}
-</style>
-""", unsafe_allow_html=True)
 
 st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
+
+def load_css(fname:str):
+    filename = root_css / fname
+    
+    with open(filename) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+load_css("main.css")
 
 
 force=False
@@ -357,8 +331,11 @@ def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size:int=10, min_samples:int=3
                                                  min_cluster_size=min_cluster_size,
                                                  min_samples=min_samples, figsize=figsize)
 
-    st.pyplot(fig)
-    plt.close(fig)
+    if fig:
+        st.pyplot(fig)
+        plt.close(fig)
+
+    return fig, embedding, labels
 
 
 
@@ -370,10 +347,9 @@ def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size:int=10, min_samples:int=3
 # hash error: @st.cache(show_spinner=True)
 
 @st.cache_data(show_spinner=False)
-def load_primary_site_data( primary_site:str, 
-                           verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
+def load_primary_site_data(psi_id:str, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
-    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(primary_site=primary_site, verbose=verbose)
+    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(psi_id=psi_id, sample_type_term='tumor', verbose=verbose)
 
     return (
         make_streamlit_safe(df_cases),
@@ -434,6 +410,9 @@ with st.sidebar:
     # in the future --> dropdown program selector
     prog_id = 'TCGA'
 
+    import streamlit
+    st.text(f"Streamlit {streamlit.__version__}")
+
     st.text(f"Program {prog_id}")
     # force = st.checkbox("Force rebuild", value=False)
     # verbose = st.checkbox("Verbose", value=False)
@@ -457,7 +436,8 @@ if st.session_state.loaded:
     gdc.set_primary_site(primary_site=primary_site)    
 
     #---------- primary sites ----------------------------
-    primary_sites = safe_unique_sorted(df_psi.primary_site)
+    primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]
+    primary_sites.sort()
 
     if len(primary_sites) == 0:
         st.warning("No primary sites found.")
@@ -478,8 +458,9 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
+    psi_id = str(selected_primary_site).split(" - ")[0]
     with st.spinner("Loading primary site data..."):
-        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(selected_primary_site, verbose=False)
+        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
 
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
@@ -502,13 +483,13 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
-
+    # tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Diff.Expression', 'Downloads'], horizontal=True)
+    tab_cases, tab_samples, tab_head_mutations, tab_head_cluster, tab_head_diff_exp, tab_donwload = st.tabs(["Cases", "Tumor Samples", "Mutations", "Clusterization", "Diff.Expression", "Downloads"]) 
 
     # -------------------------------------------------------------------------
     # TAB 1 - CASES
     # -------------------------------------------------------------------------
-    if tab == "Cases":
+    with tab_cases:
         cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
        'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
         'tumor_stage', 'stage', 'tumor_class', 'histology',
@@ -526,8 +507,8 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
-    elif tab == "Tumor Samples":
-        
+    with tab_samples:
+
         if len(df_all_samples) > 200:
             df_all_samples2 = df_all_samples.head(200).copy()
             st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
@@ -540,11 +521,12 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
     # -------------------------------------------------------------------------
-    elif tab == "Mutations":
+    with tab_head_mutations:
 
-        subtab = st.radio("Main", ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"], horizontal=True)
+        # subtab = st.radio("Main", ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"], horizontal=True)
+        tab_mut_barplot, tab_mut_genes, tab_mut_raw_data = st.tabs(["Barplot", "Mutated Genes", "Raw Mutation Rows"])
 
-        if subtab == "Barplot: top Mutated Genes":
+        with tab_mut_barplot:
             st.write(f"Most frequently mutated genes across filtered barcodes {dfpiv.shape[0]} samples and {dfpiv.shape[1]} genes")
 
             if dfpiv.shape[0] > 1:
@@ -558,11 +540,11 @@ if st.session_state.loaded:
 
                 plot_top_mutated_genes(dfpiv, top_n=top_n)
 
-        elif subtab == "Mutated Genes":
+        with tab_mut_genes:
             st.write("Number of patients/barcodes mutated per gene")
             show_df(df_gene_counts, height=800, key=f"gene_counts_{selected_primary_site}")
 
-        elif subtab == "Raw Mutation Rows":
+        with tab_mut_raw_data:
             
             if len(df_all_mut) > 500:
                 df_all_mut2 = df_all_mut.head(500).copy()
@@ -580,21 +562,22 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
     # -------------------------------------------------------------------------
-    elif tab == "Mutation Matrix":
+    with tab_head_cluster:
 
-        subtab = st.radio("Main", ["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"], horizontal=True)
+        # subtab = st.radio("Main", ["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"], horizontal=True)
+        tab_heatmap, tab_umap = st.tabs(["Heatmap", "UMAP - cluster"])
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
         else:
 
-            if subtab == "Heatmap":
+            with tab_heatmap:
                 n_samples, n_genes = dfpiv.shape
                 st.subheader("Mutation matrix heatmap")
                 title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
                 plot_heatmap(dfpiv, title)
 
-            elif subtab == "UMAP - cluster":
+            with tab_umap:
                 st.subheader("UMAP Clustering")
 
                 n_samples = dfpiv.shape[0]
@@ -605,34 +588,71 @@ if st.session_state.loaded:
                     min(15, n_samples),
                     min(8, n_samples)
                 )
-
                 plot_umap(dfpiv, k=k)
 
-            elif subtab == "HDBSCAN - cluster":
+    with tab_head_diff_exp:
+
+        tab_cluster, tab_degs, tab_compare = st.tabs(["HDBSCAN - cluster", "DEGs", "Comparison"])
+
+        labels = []
+
+        if dfpiv.empty:
+            st.info("No mutation matrix available for this primary site.")
+        else:
+
+            with tab_cluster:
                 st.subheader("HDBSCAN Clustering")
 
                 n_samples = dfpiv.shape[0]
 
-                min_cluster_size = st.slider(
+                min_cluster_size2 = st.slider(
                     "Minimum cluster size",
                     min_value = 3,
                     max_value = min(15, n_samples),
-                    value = 10
+                    value = 5
                 )
 
-                min_samples = st.slider(
+                min_samples2 = st.slider(
                     "Minimum samples",
                     min_value = 3,
                     max_value = min(10, n_samples),
                     value = 3
                 )
 
-                plot_hdbscan(dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples)
+                fig, embedding, labels = plot_hdbscan(dfpiv, min_cluster_size=min_cluster_size2, min_samples=min_samples2)
+
+
+            with tab_degs:
+                if labels:
+                    st.subheader("DEGs")
+
+                    col1, col2 = st.columns([1, 7])  # label wide, input narrow
+
+                    with col1:
+                        st.markdown("**Cluster:**")
+
+                    with col2:
+                        lista = np.unique(labels)
+                        if -1 in lista:
+                            n_labels = len(lista)-1
+                        else:
+                            n_labels = len(lista)
+
+                        value = st.radio(
+                                        "",
+                                        np.arange(n_labels),
+                                        horizontal=True,
+                                        label_visibility="collapsed",
+                                        key="cluster_radio"
+                                    )
+
+                    st.write("You entered:", value)
+
 
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
     # -------------------------------------------------------------------------
-    elif tab == "Downloads":
+    with tab_donwload:
         st.write("Export filtered tables")
 
         st.download_button(
