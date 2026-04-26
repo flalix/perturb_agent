@@ -69,7 +69,7 @@ from libs.tcga_gdc_lib import *
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
 
-gdc = GDC(root0=ROOT0)
+gdc = GDC(ROOT_DATA0=ROOT_DATA)
 
 verbose = True
 colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
@@ -442,8 +442,8 @@ if st.session_state.loaded:
     df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
     df_psi = make_streamlit_safe(df_psi)
 
-    primary_site = df_psi.iloc[0].primary_site
-    gdc.set_primary_site(primary_site=primary_site)    
+    psi_id = df_psi.iloc[0].psi_id
+    gdc.set_primary_site(psi_id=psi_id)    
 
     #---------- primary sites ----------------------------
     primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]

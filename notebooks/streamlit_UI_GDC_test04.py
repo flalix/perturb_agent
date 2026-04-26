@@ -25,6 +25,8 @@ from collections import defaultdict
 
 #----------- fix incompatibilities ---------------------
 import pandas as pd
+
+from app_main import ROOT_DATA
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
@@ -37,25 +39,23 @@ import umap
 
 from pathlib import Path
 
-ROOT = Path().resolve().parent
-SRC = ROOT / "src"
+ROOT0 = Path(os.environ.get("ROOT0", Path().resolve().parent)).resolve()
+ROOT_DATA = Path(os.environ.get("ROOT_DATA", "../data")).resolve()
+ROOT_SRC = ROOT0 / "src"
+ROOT_CSS = ROOT_SRC / "styles"
 
-if str(SRC) not in sys.path:
-    sys.path.append(str(SRC))
+if str(ROOT_SRC) not in sys.path:
+    sys.path.insert(0, str(ROOT_SRC))
 
-root_css = SRC / 'styles'
+print("ROOT0:", ROOT0)
+print("ROOT_SRC:", ROOT_SRC)
+print("ROOT_DATA:", ROOT_DATA)
 
 from libs.calc_degs_lib import CALC_DEGS
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
 
-root0 = ROOT / "data"
-
-print("root:", ROOT)
-print("src added:", SRC)
-print("data:", root0)
-
-gdc = GDC(root0=root0)
+gdc = GDC(ROOT_DATA0=ROOT_DATA)
 
 verbose = True
 colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
@@ -68,7 +68,7 @@ colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', '
 st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
 def load_css(fname:str):
-    filename = root_css / fname
+    filename = ROOT_CSS / fname
     
     with open(filename) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
@@ -446,8 +446,8 @@ if st.session_state.loaded:
     df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
     df_psi = make_streamlit_safe(df_psi)
 
-    primary_site = df_psi.iloc[0].primary_site
-    gdc.set_primary_site(primary_site=primary_site)    
+    psi_id = df_psi.iloc[0].psi_id
+    gdc.set_primary_site(psi_id=psi_id)    
 
     #---------- primary sites ----------------------------
     primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]

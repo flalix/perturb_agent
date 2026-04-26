@@ -37,7 +37,7 @@ from libs.stat_lib import *
 from libs.calc_degs_lib import CALC_DEGS
 
 class GDC(object):
-	def __init__(self, root0:Path):
+	def __init__(self, ROOT_DATA0:Path):
 		
 		self.url_gdc_project = "https://api.self.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.self.cancer.gov/cases"
@@ -48,7 +48,7 @@ class GDC(object):
 
 		self.prog_id, self.psi_id = '', ''
 
-		self.root0 = Path(root0)
+		self.ROOT_DATA0 = Path(ROOT_DATA0)
 
 		# root_data will be: ../data/TCGA
 		self.root_data = Path()
@@ -518,7 +518,7 @@ class GDC(object):
 	def set_program(self, prog_id:str):
 		self.prog_id = prog_id
 
-		self.root_data    = create_dir(self.root0, prog_id)
+		self.root_data    = create_dir(self.ROOT_DATA0, prog_id)
 		self.root_summary = create_dir(self.root_data, 'summary')
 		
 		self.clean_gdc_files()
@@ -624,7 +624,7 @@ class GDC(object):
 
 	def get_gdc_progams(self, force:bool=False, verbose:bool=False) -> List:
 
-		filename = os.path.join(self.root0, self.fname_programs)
+		filename = os.path.join(self.ROOT_DATA0, self.fname_programs)
 
 		if os.path.exists(filename) and not force:
 			txt = read_txt(filename, verbose=verbose)
