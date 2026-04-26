@@ -6,10 +6,11 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "streamlit==1.25.0",
     "protobuf==3.20.*",
-    "streamlit-aggrid==0.3.3",
+    "streamlit-aggrid==0.3.4.post3",
     "altair<6",
     "ipykernel",
-    "pandas",
+    "pandas==2.3.3",
+    "pyarrow==22.0.0",
     "langchain",
     "langchain-core",
     "langchain-openai",
@@ -44,7 +45,6 @@ dependencies = [
     "scikit-posthocs>=0.12.0",
     "pygwasvcf>=0.0.4",
     "path>=17.1.1",
-    "pathlib>=1.0.1",
     "pysam>=0.23.3",
 ]
 

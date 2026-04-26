@@ -186,6 +186,18 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
+9. Docker config:
+
+    1. Given a primary site, a subtype, and stage
+        * are all samples similar?
+        * what kind of info returns a clusterization?
+    2. For each clusterization, are they similar to:
+        * EXCEPTIONAL_RESPONDERS?
+        * Organoids?
+
+---
+
+
 ## ⚙️  Under development
 
 > PhD Flavio Lichtenstein  

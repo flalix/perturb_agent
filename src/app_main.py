@@ -39,6 +39,13 @@ import tempfile
 
 # Project root (works locally + Render)
 # ROOT = Path(__file__).resolve().parent
+
+def get_storage_dir() -> Tuple[Path, Path]:
+    root0 = Path(os.environ.get("ROOT0", 'src/'))
+    root_data = Path(os.environ.get("STORAGE_DIR", "./data"))
+    return root0, root_data
+
+
 ROOT = Path('/opt/render/project/src/')
 
 # Add src to path

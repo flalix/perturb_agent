@@ -35,6 +35,12 @@ class CALC_DEGS(object):
             raise FileNotFoundError(f"R script not found: {self.rscript_path}")
 
 
+    def running_on_render(self) -> bool:
+        return "RENDER" in os.environ or "PORT" in os.environ
+
+    def has_conda(self):
+        return shutil.which("conda") is not None
+
     def deduplicate_by_max_reads(self, df: pd.DataFrame) -> pd.DataFrame:
         count_cols = [c for c in df.columns if c not in self.GENE_COLS]
         if not count_cols:
@@ -177,15 +183,17 @@ class CALC_DEGS(object):
             df_meta.to_csv(meta_file, sep="\t", index=False)
 
             cmd = [
-                "conda", "run", "-n", conda_env,
                 "Rscript", str(self.rscript_path),
                 "--counts", str(counts_file),
                 "--meta", str(meta_file),
                 "--out", str(out_file),
                 "--method", method,
-            "--manual-dispersion", str(manual_dispersion),
-            "--min-total-count", str(min_total_count),
+                "--manual-dispersion", str(manual_dispersion),
+                "--min-total-count", str(min_total_count),
             ]
+            
+            # if not self.running_on_render() and self.has_conda():
+            #     cmd = ["conda", "run", "-n", conda_env,] + cmd
 
             proc = subprocess.run(
                 cmd,
