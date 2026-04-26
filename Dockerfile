@@ -2,7 +2,14 @@ FROM rocker/r-ver:4.3.2
 
 ENV PYTHONUNBUFFERED=1
 ENV UV_SYSTEM_PYTHON=1
-ENV STORAGE_DIR=/opt/render/data
+
+# ENV STORAGE_DIR=... → just an environment variable
+# It does not define physical storage
+# /opt/render/storage/... → ❌ not persistent
+# /opt/render/data → ✅ real persistent disk
+
+ENV ROOT_DATA=/opt/render/project/src/storage/data
+ENV ROOT0=/opt/render/project/src/
 ENV RENV_PATHS_CACHE=/opt/renv/cache
 
 RUN apt-get update && apt-get install -y \
@@ -37,8 +44,6 @@ COPY scripts/setup_renv.R scripts/setup_renv.R
 RUN Rscript scripts/setup_renv.R
 
 COPY . .
-
-RUN mkdir -p ${STORAGE_DIR}
 
 EXPOSE 10000
 

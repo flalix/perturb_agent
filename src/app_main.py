@@ -40,33 +40,36 @@ import tempfile
 # Project root (works locally + Render)
 # ROOT = Path(__file__).resolve().parent
 
-def get_storage_dir() -> Tuple[Path, Path]:
-    root0 = Path(os.environ.get("ROOT0", 'src/'))
-    root_data = Path(os.environ.get("STORAGE_DIR", "./data"))
-    return root0, root_data
+"""
+/opt/render/project/src/
+├── src/
+│   ├── app_main.py
+│   ├── libs/
+│   └── styles/
+└── storage/
+    └── data/
+        └── TCGA/
 
 
-ROOT = Path('/opt/render/project/src/')
+"""
 
-# Add src to path
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.append(str(SRC))
+ROOT0 = Path(os.environ.get("ROOT0", ".")).resolve()
+ROOT_DATA = Path(os.environ.get("ROOT_DATA", "data")).resolve()
+ROOT_SRC = ROOT0 / "src"
+ROOT_CSS = ROOT_SRC / "styles"
 
-root_css = SRC / 'styles'
+if str(ROOT_SRC) not in sys.path:
+    sys.path.insert(0, str(ROOT_SRC))
+
+print("ROOT0:", ROOT0)
+print("ROOT_SRC:", ROOT_SRC)
+print("ROOT_DATA:", ROOT_DATA)
 
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
 
-# root_data will be: /opt/render/project/src/storage/data/TCGA
-root0 = Path('/opt/render/project/src/storage/data')
-
-print("root:", ROOT)
-print("src added:", SRC)
-print("root0:", root0)
-
-gdc = GDC(root0=root0)
+gdc = GDC(root0=ROOT0)
 
 verbose = True
 colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
@@ -84,7 +87,7 @@ st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
 
 def load_css(fname:str):
-    filename = root_css / fname
+    filename = ROOT_CSS / fname
     
     with open(filename) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)

@@ -35,11 +35,13 @@ class CALC_DEGS(object):
             raise FileNotFoundError(f"R script not found: {self.rscript_path}")
 
 
+    """
     def running_on_render(self) -> bool:
         return "RENDER" in os.environ or "PORT" in os.environ
 
     def has_conda(self):
         return shutil.which("conda") is not None
+    """
 
     def deduplicate_by_max_reads(self, df: pd.DataFrame) -> pd.DataFrame:
         count_cols = [c for c in df.columns if c not in self.GENE_COLS]
@@ -135,8 +137,7 @@ class CALC_DEGS(object):
         min_total_count: int = 10,
         merge_how: Literal["inner", "outer"] = "inner",
         keep_temp: bool = False,
-        conda_env: str = "renv",
-    ) -> pd.DataFrame:
+        conda_env: str = "renv") -> pd.DataFrame:
         """
         Run DEG analysis in R using DESeq2 or edgeR through a conda environment.
 
