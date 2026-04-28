@@ -3477,11 +3477,12 @@ class GDC(object):
 		self.df_meta_ctrl = self.df_meta_ctrl.sort_values("SMRIN", ascending=False)
 		samples = self.df_meta_ctrl.head(Nsamples*3)["SAMPID"].to_list()
 
-		cols = ["Name", "Description"] + list(samples)
+		cols = list(samples)
 		good_cols = [x for x in cols if x in self.df_counts.columns]
-
 		if len(good_cols) > Nsamples:
 			good_cols = good_cols[:Nsamples]
+
+		good_cols = ["Name", "Description"] + good_cols
 
 		df_normal = self.df_counts.loc[:, good_cols].copy()
 		df_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
