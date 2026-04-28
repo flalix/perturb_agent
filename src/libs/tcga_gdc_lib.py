@@ -6,9 +6,8 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-import glob
 from langchain_anthropic import data
-import os, requests, json, re
+import os, requests, json, re, time
 import warnings
 from tabnanny import verbose
 import pandas as pd
@@ -50,6 +49,23 @@ class GDC(object):
 
 		self.ROOT_DATA0 = Path(ROOT_DATA0)
 		self.root_gtex = create_dir(self.ROOT_DATA0, 'GTEx')
+
+		self.fname_gtex = 'tcga_primary_site_to_gtex_ids.tsv'
+		self.df_gtex_to_tcga = pd.DataFrame()
+		self.gtex_id = ''
+		self.fname_gtex_exp_counts = "gtex_expression_counts_%s.tsv"
+
+		self.fname_tpm_exp = "gtex_TPM_%s.tsv"
+		self.fname_GTEx_counts = "GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_reads.gct.gz"
+		self.fname_GTEx_meta   = "GTEx_Analysis_v11_Annotations_SampleAttributesDS.tsv"
+		self.fname_GTEx_pheno  = "GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.tsv"
+
+		self.GTEX_API = "https://gtexportal.org/api/v2"
+
+		self.df_counts = pd.DataFrame()
+		self.df_pheno = pd.DataFrame()
+		self.df_meta = pd.DataFrame()
+		self.df_meta_ctrl = pd.DataFrame()
 
 		# root_data will be: ../data/TCGA
 		self.root_data = Path()
@@ -1498,6 +1514,19 @@ class GDC(object):
 		self.df_table = df_table
 
 		return df_table
+
+	def get_file_expression_both_tumor_and_normal(self, psi_id:str, verbose:bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psi_id, force=False, verbose=verbose)
+
+		if len(dic_tumor) == 0 or len(dic_normal) == 0:
+			if verbose: print(f"Insufficient expression data found for {psi_id}.")
+			return pd.DataFrame(), pd.DataFrame()
+
+		df_tumor, df_normal   = self.merge_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
+
+		return df_tumor, df_normal
+
 
 
 	def get_file_expression_tumor_and_normal(self, psi_id:str, force:bool=False, verbose:bool = False) -> Tuple[dict, dict]:
@@ -3184,3 +3213,294 @@ class GDC(object):
 
 
 
+	def read_GTEx_to_TCGA_table(self, verbose:bool=False) -> pd.DataFrame:
+		'''
+		read self.fname_gtex = 'tcga_primary_site_to_gtex_ids.tsv'
+		output: df_gtex_to_tcga
+		'''
+
+		self.df_gtex_to_tcga = pdreadcsv(self.fname_gtex, self.root_gtex, verbose=verbose)
+
+		return self.df_gtex_to_tcga
+	
+	def find_GTEx_to_TCGA_row(self, psi_id:str, verbose:bool=False) -> str:
+
+		self.gtex_id = ''
+
+		if self.df_gtex_to_tcga.empty:
+			print("GTEx to TCGA table is empty.")
+			return ''
+
+		dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == psi_id]
+
+		gtex_id = ''
+
+		if len(dfa) == 1:
+			row = dfa.iloc[0]
+
+			gtex_id = row.preferred_gtex_id
+			gtex_tissue_ids = row.gtex_tissue_site_detail_ids
+			if verbose: print(f"Found '{gtex_id}' tissue '{gtex_tissue_ids}'")
+		
+		elif len(dfa) == 0:
+			if verbose:print("Not found")
+		
+		else:
+			if verbose: print("Multiple matches found")
+			for i, row in dfa.iterrows():
+				gtex_id = row.preferred_gtex_id
+				gtex_tissue_ids = row.gtex_tissue_site_detail_ids
+
+				print(f"{row.tcga_project_id} -> '{gtex_id}' tissue '{gtex_tissue_ids}'")
+
+		self.gtex_id = gtex_id
+		return gtex_id
+	
+
+	def add_entropy(self, df, read_limit:int=50, min_read:int=200, n_quantiles:int=10):
+		# select tumor columns
+		cols = [c for c in df.columns if c.startswith("tumor_")]
+
+		def row_entropy(values):
+			values = np.asarray(values, dtype=float)
+
+			# remove NaNs
+			values = values[np.isfinite(values)]
+
+			if len(values) == 0:
+				return np.nan
+
+			# all equal → entropy = 0
+			if np.allclose(values, values[0]):
+				return 0.0
+
+			# shift to positive (important if negative values exist)
+			values = values - values.min()
+
+			# avoid all zeros
+			if np.allclose(values.sum(), 0):
+				return 0.0
+
+			probs = values / values.sum()
+
+			# avoid log(0)
+			probs = probs[probs > 0]
+
+			entropy = -np.sum(probs * np.log2(probs))
+			return entropy
+
+		min_cols = int(len(cols) * 0.4)
+		good = (df[cols] < read_limit).sum(axis=1) <= min_cols
+		df = df[good].copy()
+
+		df["total_sum"] = df[cols].sum(axis=1)
+
+		df = df[df.total_sum > len(cols)*min_read]
+
+		df["entropy"] = df[cols].apply(lambda row: row_entropy(row.values), axis=1)
+
+		df["entropy_q"] = pd.qcut(df["entropy"], q=n_quantiles, labels=False, duplicates="drop" )
+
+		return df
+
+	def select_top_entropy(self, df:pd.DataFrame, q:float=0.1):
+
+		df = df[df.entropy_q <= q].copy()
+		df = df.sort_values('entropy', ascending=True)
+		df.reset_index(drop=True, inplace=True)
+
+		return df
+	
+
+
+
+	def resolve_gtex_gencode_id(self, gene_id:str, datasetId:str="gtex_v8", timeout:int=60) -> str:
+		gene_base = str(gene_id).split(".")[0]
+
+		url = f"{self.GTEX_API}/reference/gene"
+
+		params = {
+			"geneId": gene_base,
+			"datasetId": datasetId,
+		}
+
+		r = requests.get(url, params=params, timeout=timeout)
+		r.raise_for_status()
+
+		data = r.json().get("data", [])
+
+		if not data:
+			return ''
+
+		return data[0].get("gencodeId")
+	
+	def get_gtex_TPM_expression_for_geneid_list(self, geneid_list:List[str], datasetId:str="gtex_v8",
+									page_size:int=1000, sleep: float = 0.1,
+									timeout:int=60, force:bool=False, verbose:bool=False,	) -> pd.DataFrame:
+		"""
+		Download GTEx normal tissue expression for selected genes.
+		Returns long-format dataframe:
+		geneSymbol | gencodeId | tissueSiteDetailId | sampleId | tpm | log2Tpm
+		"""
+
+		fname = self.fname_tpm_exp%(self.gtex_id)
+		filename = self.root_gtex / fname
+
+		if filename.exists() and not force:
+			return pdreadcsv(fname, self.root_gtex)
+
+		all_rows = []
+
+		print(">>>", len(geneid_list))
+		for i, geneid in enumerate(geneid_list):
+			page = 0
+
+			while True:
+
+				gencode_id = self.resolve_gtex_gencode_id(geneid)
+				print(">>>", gencode_id, end=" ")
+
+				if gencode_id is None:
+					print("?")
+					if verbose: print(f"Nothing found for {geneid}")
+					break
+				
+				url = f"{self.GTEX_API}/expression/geneExpression"
+
+				params = {
+					"datasetId": datasetId,
+					"gencodeId": gencode_id,
+					"tissueSiteDetailId": self.gtex_id,
+					"page": page,
+					"itemsPerPage": page_size,
+				}
+
+				r = requests.get(url, params=params, timeout=timeout)
+				r.raise_for_status()
+
+				js = r.json()
+				data = js.get("data", [])
+
+				if not data:
+					print("x")
+					if verbose: print(f"Error: could not retrieve data for {self.gtex_id} for geneid '{geneid}'")
+					break
+
+				print("Ok")
+
+				all_rows.extend(data)
+
+				paging = js.get("paging_info", {})
+				n_pages = paging.get("numberOfPages", 1)
+
+				page += 1
+				if page >= n_pages:
+					break
+
+				time.sleep(sleep)
+
+		print("")
+		df_gtex = pd.DataFrame(all_rows)
+
+		df_gtex.reset_index(drop=True, inplace=True)
+
+		_ = pdwritecsv(df_gtex, fname, self.root_gtex, verbose=verbose)
+
+		return df_gtex		
+
+
+
+	def read_GTEx_counts(self, verbose:bool=False):
+		# load matrix'1
+		print("Waiting for GTEx counts... be patient.")
+		df_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
+		self.df_counts = df_counts
+		return df_counts
+
+	def read_GTEx_pheno(self, verbose:bool=False):
+		# load phenotype
+		df_pheno = pdreadcsv(self.fname_GTEx_pheno, self.root_gtex, verbose=verbose)
+		self.df_pheno = df_pheno
+		return df_pheno
+	
+	def read_GTEx_metadata(self, verbose:bool=False):
+		# load metadata
+		df_meta = pdreadcsv(self.fname_GTEx_meta, self.root_gtex, verbose=verbose)
+		self.df_meta = df_meta
+		return df_meta
+	
+	def prepare_df_control(self) -> pd.DataFrame:
+
+		if self.df_meta.empty:
+			print("Metadata DataFrame is empty.")
+			return pd.DataFrame()
+
+		if self.df_pheno.empty:
+			print("Phenotype DataFrame is empty.")
+			return pd.DataFrame()
+
+		# 1. Filter for Lung
+		df_meta_ctrl = self.df_meta[self.df_meta["SMTSD"] == self.gtex_id].copy()
+
+		df_meta_ctrl["SUBJID"] = df_meta_ctrl["SAMPID"].str.split("-").str[:2].str.join("-")
+		df_meta_ctrl = df_meta_ctrl.merge(self.df_pheno, on="SUBJID", how="left")
+
+		# 2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
+		# DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
+		df_meta_ctrl = df_meta_ctrl[df_meta_ctrl["DTHHRDY"].isin([1, 2])]
+
+		# 3. Sort by RIN score (SMRIN) to get the best preserved RNA
+		# Then take the top 15
+		df_meta_ctrl = df_meta_ctrl.sort_values("SMRIN", ascending=False)
+		df_meta_ctrl.reset_index(drop=True, inplace=True)
+
+		self.df_meta_ctrl = df_meta_ctrl
+
+		return df_meta_ctrl
+	
+	def prepare_count_table(self, Nsamples=15, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+
+		if self.df_counts.empty:
+			print("Count DataFrame is empty.")
+			return pd.DataFrame()
+
+		if self.df_counts.empty:
+			print("Count DataFrame is empty.")
+			return pd.DataFrame()
+
+		fname = self.fname_gtex_exp_counts%(self.gtex_id)
+		filename = self.root_gtex / fname
+
+		if filename.exists() and not force:
+			return pdreadcsv(fname, self.root_gtex, verbose=verbose)
+
+		self.df_meta_ctrl = self.df_meta_ctrl.sort_values("SMRIN", ascending=False)
+		samples = self.df_meta_ctrl.head(Nsamples*3)["SAMPID"].to_list()
+
+		cols = ["Name", "Description"] + list(samples)
+		good_cols = [x for x in cols if x in self.df_counts.columns]
+
+		if len(good_cols) > Nsamples:
+			good_cols = good_cols[:Nsamples]
+
+		df_normal = self.df_counts.loc[:, good_cols].copy()
+		df_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
+		df_normal.reset_index(drop=True, inplace=True)
+
+		self.df_normal = df_normal
+
+		_ = pdwritecsv(df_normal, fname, self.root_gtex, verbose=verbose)
+
+		return df_normal
+
+
+	def download_file(self, url:str, filename_out:str):
+		with requests.get(url, stream=True) as r:
+			r.raise_for_status()
+
+			try:
+				with open(filename_out, "wb") as f:
+					for chunk in r.iter_content(chunk_size=8192):
+						f.write(chunk)
+			except Exception as e:
+				print(f"Error: as writing file {filename_out}: {e}")
