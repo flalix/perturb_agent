@@ -15,7 +15,7 @@ The pipeline integrates:
    > protobuf==3.20.3  
    > click==8.0.4  
 
-2. **Docker** for reproducibility and R interface
+2. **[Docker](https://docker-curriculum.com/)** for reproducibility and R interface
 3. **[Nextflow](https://www.nextflow.io/)** for scalable, reproducible data processing  
 4. **Python (ML/AI layer)** — pathway scoring, feature attribution, and target prioritization
 5. **[uv](https://docs.astral.sh/uv/)** Python project and dependency management

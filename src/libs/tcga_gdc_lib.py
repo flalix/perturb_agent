@@ -49,7 +49,7 @@ class GDC(object):
 		self.prog_id, self.psi_id = '', ''
 
 		self.ROOT_DATA0 = Path(ROOT_DATA0)
-		self.root_gtex = create_dir(self.ROOT_DATA0, 'gtex')
+		self.root_gtex = create_dir(self.ROOT_DATA0, 'GTEx')
 
 		# root_data will be: ../data/TCGA
 		self.root_data = Path()
