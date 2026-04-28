@@ -49,6 +49,7 @@ class GDC(object):
 		self.prog_id, self.psi_id = '', ''
 
 		self.ROOT_DATA0 = Path(ROOT_DATA0)
+		self.root_gtex = create_dir(self.ROOT_DATA0, 'gtex')
 
 		# root_data will be: ../data/TCGA
 		self.root_data = Path()
@@ -2093,6 +2094,8 @@ class GDC(object):
 	def get_filtered_tables(self, psi_id:str, sample_type_term:str='tumor',
 						    verbose: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
+		self.psi_id = psi_id
+		print(">>>", psi_id)
 		self.set_primary_site(psi_id=psi_id)
 
 		df_cases, df_all_samples, df_all_mut, all_barcode_list = \
