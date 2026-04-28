@@ -3223,38 +3223,37 @@ class GDC(object):
 
 		return self.df_gtex_to_tcga
 	
-	def find_GTEx_to_TCGA_row(self, psi_id:str, verbose:bool=False) -> str:
+	def find_GTEx_to_TCGA_row(self, psi_id:str, verbose:bool=False) -> Tuple[str, str]:
 
 		self.gtex_id = ''
+		self.gtex_tissue_ids = ''
 
 		if self.df_gtex_to_tcga.empty:
 			print("GTEx to TCGA table is empty.")
-			return ''
+			return '', ''
 
 		dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == psi_id]
-
-		gtex_id = ''
 
 		if len(dfa) == 1:
 			row = dfa.iloc[0]
 
-			gtex_id = row.preferred_gtex_id
-			gtex_tissue_ids = row.gtex_tissue_site_detail_ids
-			if verbose: print(f"Found '{gtex_id}' tissue '{gtex_tissue_ids}'")
+			self.gtex_id = row.preferred_gtex_id
+			self.gtex_tissue_ids = row.gtex_tissue_site_detail_ids
+
+			if verbose: print(f"Found '{self.gtex_id}' tissue '{self.gtex_tissue_ids}'")
 		
 		elif len(dfa) == 0:
 			if verbose:print("Not found")
 		
 		else:
-			if verbose: print("Multiple matches found")
+			print("Multiple matches found")
 			for i, row in dfa.iterrows():
 				gtex_id = row.preferred_gtex_id
 				gtex_tissue_ids = row.gtex_tissue_site_detail_ids
 
 				print(f"{row.tcga_project_id} -> '{gtex_id}' tissue '{gtex_tissue_ids}'")
 
-		self.gtex_id = gtex_id
-		return gtex_id
+		return self.gtex_id, self.gtex_tissue_ids
 	
 
 	def add_entropy(self, df, read_limit:int=50, min_read:int=200, n_quantiles:int=10):
@@ -3429,7 +3428,31 @@ class GDC(object):
 		self.df_meta = df_meta
 		return df_meta
 	
+	def calc_df_normal(self, psi_id:str, Nsamples:int=15,
+					   force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+		gtex_id, gtex_tissue_ids = self.find_GTEx_to_TCGA_row(psi_id=psi_id, verbose=verbose)
+
+		if gtex_id == '':
+			print(f"Error: could not find GTEx ID for TCGA ID '{psi_id}'")
+			return pd.DataFrame(), pd.DataFrame()
+		
+		df_meta_ctrl = self.prepare_df_control()
+
+		df_normal = self.prepare_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
+
+		return df_normal, df_meta_ctrl
+
+		
 	def prepare_df_control(self) -> pd.DataFrame:
+		'''
+		1. Filter for Tissue
+		2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
+		  . DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
+		3. Sort by RIN score (SMRIN) to get the best preserved RNA - Then take the top 15
+
+		output: df_meta_ctrl
+		'''
 
 		if self.df_meta.empty:
 			print("Metadata DataFrame is empty.")
@@ -3439,7 +3462,7 @@ class GDC(object):
 			print("Phenotype DataFrame is empty.")
 			return pd.DataFrame()
 
-		# 1. Filter for Lung
+		# 1. Filter for Tissue
 		df_meta_ctrl = self.df_meta[self.df_meta["SMTSD"] == self.gtex_id].copy()
 
 		df_meta_ctrl["SUBJID"] = df_meta_ctrl["SAMPID"].str.split("-").str[:2].str.join("-")
