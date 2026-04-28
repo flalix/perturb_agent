@@ -1517,21 +1517,21 @@ class GDC(object):
 
 	def get_file_expression_both_tumor_and_normal(self, psi_id:str, verbose:bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
-		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psi_id, force=False, verbose=verbose)
+		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psi_id, verbose=verbose)
 
 		if len(dic_tumor) == 0 or len(dic_normal) == 0:
 			if verbose: print(f"Insufficient expression data found for {psi_id}.")
 			return pd.DataFrame(), pd.DataFrame()
 
-		df_tumor, df_normal   = self.merge_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
+		df_tumor, df_normal = self.merge_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
 
 		return df_tumor, df_normal
 
 
 
-	def get_file_expression_tumor_and_normal(self, psi_id:str, force:bool=False, verbose:bool = False) -> Tuple[dict, dict]:
+	def get_file_expression_tumor_and_normal(self, psi_id:str, verbose:bool = False) -> Tuple[dict, dict]:
 
-		_, df_tumor_samples, _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Primary Tumor', verbose=verbose)
+		_, df_tumor_samples,  _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Primary Tumor', verbose=verbose)
 		_, df_normal_samples, _, _ = self.get_filtered_tables(psi_id=psi_id, sample_type_term='Solid Tissue Normal', verbose=verbose)
 
 		if df_tumor_samples is None or df_tumor_samples.empty:
@@ -1577,7 +1577,7 @@ class GDC(object):
 				continue
 		
 			dfexp = dfexp[cols]
-			dic_normal[f"normal_{i}"] = dfexp
+			dic_normal[f"normal_{file_id}"] = dfexp
 
 		print(f" -> {len(dff_normal)}")
 
@@ -1597,7 +1597,7 @@ class GDC(object):
 				continue
 
 			dfexp = dfexp[cols]
-			dic_tumor[f"tumor_{case_id}"] = dfexp
+			dic_tumor[f"tumor_{file_id}"] = dfexp
 
 		print(f" -> {len(dff_tumor)}")
 
@@ -2162,7 +2162,6 @@ class GDC(object):
 		if 'pid' in df_cases.columns:
 			df_cases = df_cases.rename(columns={'pid': 'psi_id'})
 			pdwritecsv(df_cases, self.fname_cases, self.root_psi)
-
 
 		if do_filter:
 			df_cases = self.apply_filter_cases(df_cases)
@@ -3148,7 +3147,7 @@ class GDC(object):
 			return df_degs, df_lfc, degs_txt
 		
 
-		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psid_id, force=force, verbose=verbose)
+		dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(psi_id=psid_id, verbose=verbose)
 
 		if dic_tumor=={} or dic_normal=={}:
 			if verbose: print("Error: Normal expression data for tumor or normal.")
