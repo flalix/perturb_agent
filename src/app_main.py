@@ -429,6 +429,11 @@ with st.sidebar:
 
     load_clicked = st.button("Load data", use_container_width=True)
 
+    st.text(f"ROOT0 {ROOT0}")
+    st.text(f"ROOT_DATA {ROOT_DATA}")
+    st.text(f"ROOT_SRC {ROOT_SRC}")
+    st.text(f"ROOT_CSS {ROOT_CSS}")
+    
     if load_clicked:
         st.session_state.loaded = True 
 
@@ -474,6 +479,11 @@ if st.session_state.loaded:
 
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
+
+        st.text(f"ROOT0 {ROOT0}")
+        st.text(f"ROOT_DATA {ROOT_DATA}")
+        st.text(f"ROOT_SRC {ROOT_SRC}")
+        st.text(f"ROOT_CSS {ROOT_CSS}")
 
         st.text(f"Cases {len(df_cases)}")
         st.text(f"Tumor samples {len(df_all_samples)}")

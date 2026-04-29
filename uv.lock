@@ -2442,15 +2442,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pathlib"
-version = "1.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ac/aa/9b065a76b9af472437a0059f77e8f962fe350438b927cb80184c32f075eb/pathlib-1.0.1.tar.gz", hash = "sha256:6940718dfc3eff4258203ad5021090933e5c04707d5ca8cc9e73c94a7894ea9f", size = 49298, upload-time = "2014-09-03T15:41:57.18Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/f9/690a8600b93c332de3ab4a344a4ac34f00c8f104917061f779db6a918ed6/pathlib-1.0.1-py3-none-any.whl", hash = "sha256:f35f95ab8b0f59e6d354090350b44a80a80635d22efdedfa84c7ad1cf0a74147", size = 14363, upload-time = "2022-05-04T13:37:20.585Z" },
-]
-
-[[package]]
 name = "patsy"
 version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3501,16 +3492,16 @@ wheels = [
 
 [[package]]
 name = "streamlit-aggrid"
-version = "0.3.3"
+version = "0.3.4.post3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "python-decouple" },
     { name = "streamlit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f4/ff/5635f6e00976a963db20ab91d4decf47fc88fa4ae7f21e7963b10e638b23/streamlit-aggrid-0.3.3.tar.gz", hash = "sha256:d96edb102df98450f3b6bcf5a52b64e6ceef9678e82e2dba9cfef074e7f134ab", size = 3204332, upload-time = "2022-08-27T15:33:41.492Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/d8/caae3dd2e7682d265ff24a2b178c6555e93ad0bdd003401a3dc281c96c23/streamlit-aggrid-0.3.4.post3.tar.gz", hash = "sha256:0cb9332199e7735289a673efabc913e1a3466cc188bc025bec2c50c32ab1989a", size = 3362878, upload-time = "2023-03-09T17:58:31.003Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/dd/2cfd7a11b8c80069d5da9812fdee9fbdf2e58f3767a6082d9843d7c5ee93/streamlit_aggrid-0.3.3-py3-none-any.whl", hash = "sha256:c5202347b1257c4246ef3541b233866f57bc930b97040be58b059093c4fee22e", size = 3234006, upload-time = "2022-08-27T15:33:45.587Z" },
+    { url = "https://files.pythonhosted.org/packages/86/88/dfec35e43a4704c20ce094d7420cd23003bbdf3e8579a20ada63f5f60103/streamlit_aggrid-0.3.4.post3-py3-none-any.whl", hash = "sha256:b909117eb90cfdb855b1c74e694e9ec97554c101baaafb7339eaf885d1f4e49c", size = 3395413, upload-time = "2023-03-09T17:58:33.636Z" },
 ]
 
 [[package]]
@@ -3563,9 +3554,9 @@ dependencies = [
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "path" },
-    { name = "pathlib" },
     { name = "plotly" },
     { name = "protobuf" },
+    { name = "pyarrow" },
     { name = "pygwasvcf" },
     { name = "pypdf" },
     { name = "pysam" },
@@ -3607,11 +3598,11 @@ requires-dist = [
     { name = "langgraph-cli" },
     { name = "langsmith" },
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "pandas" },
+    { name = "pandas", specifier = "==2.3.3" },
     { name = "path", specifier = ">=17.1.1" },
-    { name = "pathlib", specifier = ">=1.0.1" },
     { name = "plotly", specifier = ">=6.6.0" },
     { name = "protobuf", specifier = "==3.20.*" },
+    { name = "pyarrow", specifier = "==22.0.0" },
     { name = "pygwasvcf", specifier = ">=0.0.4" },
     { name = "pypdf" },
     { name = "pysam", specifier = ">=0.23.3" },
@@ -3623,7 +3614,7 @@ requires-dist = [
     { name = "setuptools", specifier = ">=82.0.1" },
     { name = "sounddevice" },
     { name = "streamlit", specifier = "==1.25.0" },
-    { name = "streamlit-aggrid", specifier = "==0.3.3" },
+    { name = "streamlit-aggrid", specifier = "==0.3.4.post3" },
     { name = "tavily" },
     { name = "tavily-python" },
     { name = "umap-learn", specifier = ">=0.5.11" },
