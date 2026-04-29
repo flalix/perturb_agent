@@ -3506,6 +3506,10 @@ class GDC(object):
 
 		return df_gtex_meta
 	
+
+	def running_on_render(self) -> bool:
+		return "RENDER_SERVICE_ID" in os.environ
+	
 	def prepare_gtex_count_table(self, Nsamples=15, force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
 		fname = self.fname_gtex_exp_counts%(self.gtex_id)
@@ -3516,7 +3520,8 @@ class GDC(object):
 
 		if self.df_counts.empty:
 			# Reading GTEx count super-file
-			_ = self.read_GTEx_counts(verbose=verbose)
+			if not self.running_on_render:
+				_ = self.read_GTEx_counts(verbose=verbose)
 
 			if self.df_counts.empty:
 				print("Count DataFrame is empty.")
