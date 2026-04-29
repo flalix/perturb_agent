@@ -53,8 +53,8 @@ import tempfile
 
 """
 
-ROOT0 = Path(os.environ.get("ROOT0", ".")).resolve()
-ROOT_DATA = Path(os.environ.get("ROOT_DATA", "data")).resolve()
+ROOT0 = Path(os.environ.get("ROOT0", "."))
+ROOT_DATA = Path(os.environ.get("ROOT_DATA", "data"))
 ROOT_SRC = ROOT0 / "src"
 ROOT_CSS = ROOT_SRC / "styles"
 

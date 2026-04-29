@@ -8,8 +8,8 @@ ENV UV_SYSTEM_PYTHON=1
 # /opt/render/storage/... → ❌ not persistent
 # /opt/render/data → ✅ real persistent disk
 
-ENV ROOT_DATA=/opt/render/project/src/storage/data
 ENV ROOT0=/opt/render/project/src/
+ENV ROOT_DATA=/opt/render/project/src/storage/data
 ENV RENV_PATHS_CACHE=/opt/renv/cache
 
 RUN apt-get update && apt-get install -y \
