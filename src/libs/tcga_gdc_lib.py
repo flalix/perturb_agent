@@ -67,7 +67,12 @@ class GDC(object):
 		self.df_meta = pd.DataFrame()
 		self.df_gtex_meta = pd.DataFrame()
 
-		# root_data will be: ../data/TCGA
+		self.df_gtex_ctrl = pd.DataFrame()
+		self.df_gtex_meta = pd.DataFrame()
+
+		self.df_normal = pd.DataFrame()
+		self.df_tumor  = pd.DataFrame()
+	
 		self.root_data = Path()
 		self.root_summary = Path()
 		self.root_psi = Path()
@@ -1526,7 +1531,7 @@ class GDC(object):
 			if verbose: print(f"Insufficient expression data found for {psi_id}.")
 			return pd.DataFrame(), pd.DataFrame()
 
-		df_tumor, df_normal = self.merge_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
+		df_tumor, df_normal = self.prepare_normal_tumor_tables(dic_tumor, dic_normal,  imax_tumor=12, imax_normal=12, verbose=verbose)
 
 		return df_tumor, df_normal
 
@@ -1646,7 +1651,7 @@ class GDC(object):
 
 		return hits[0]["case_id"]
 
-	def merge_normal_tumor_tables(self, dic_tumor:dict, dic_normal:dict, 
+	def prepare_normal_tumor_tables(self, dic_tumor:dict, dic_normal:dict, 
 							 	imax_tumor:int=12, imax_normal:int=12, 
 								verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 		'''
@@ -1712,6 +1717,9 @@ class GDC(object):
 					if verbose: print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
 					break
 		# print("")
+
+		self.df_tumor  = df_tumor
+		self.df_normal = df_normal
 
 		return df_tumor, df_normal
 
@@ -3137,11 +3145,19 @@ class GDC(object):
 		return df_gtex_ctrl
 		
 
-	def calc_degs(self, psi_id:str, root_src:Path, 
+	def calc_degs(self, psi_id:str, root_scr:Path, run_conda:bool=False,
 			      lfc_cutoff:float=1.0, fdr_cutoff:float=0.05, method:str="edger", 
 				  force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
 		
 		self.set_primary_site(psi_id=psi_id)
+
+
+		df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(psi_id=psi_id, verbose=verbose)
+		if df_tumor.empty:
+			if verbose: print(f"No tumor expression data found for {psi_id}")
+			return pd.DataFrame(), pd.DataFrame(), "", ""
+		
+		df_gtex_ctrl, _ = self.calc_gtex_control(psi_id=psi_id, Nsamples=15, force=False, verbose=verbose)
 
 		fname_degs = self.fname_degs % self.psi_id
 		fname_lfc = self.fname_lfc % self.psi_id
@@ -3154,20 +3170,16 @@ class GDC(object):
 		# filename_sample_txt = self.root_psi / fname_sample_txt
 
 		if filename_degs.exists() and filename_lfc.exists() and not force:
-			df_degs  = pdreadcsv(fname_degs, self.root_psi, verbose=verbose)
-			df_lfc   = pdreadcsv(fname_lfc, self.root_psi, verbose=verbose)
-			degs_txt   = read_txt(fname_degs_txt, self.root_psi, verbose=verbose)
-			sample_txt = read_txt(fname_sample_txt, self.root_psi, verbose=verbose)
+			try:
+				df_degs  = pdreadcsv(fname_degs, self.root_psi, verbose=verbose)
+				df_lfc   = pdreadcsv(fname_lfc, self.root_psi, verbose=verbose)
+				degs_txt   = read_txt(fname_degs_txt, self.root_psi, verbose=verbose)
+				sample_txt = read_txt(fname_sample_txt, self.root_psi, verbose=verbose)
 
-			return df_degs, df_lfc, degs_txt, sample_txt
+				return df_degs, df_lfc, degs_txt, sample_txt
+			except:
+				pass
 		
-
-		df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(psi_id=psi_id, verbose=verbose)
-		if df_tumor.empty:
-			if verbose: print(f"No tumor expression data found for {psi_id}")
-			return pd.DataFrame(), pd.DataFrame(), "", ""
-		
-		df_gtex_ctrl, _ = self.calc_gtex_control(psi_id=psi_id, Nsamples=15, force=force, verbose=verbose)
 
 		# geneid, symbol, type, samples
 		min_N_cols = 3+2
@@ -3175,7 +3187,7 @@ class GDC(object):
 			msg = "Error: Normal samples and GTEx control do not have enough samples."
 			return pd.DataFrame(), pd.DataFrame(), "", msg
 		
-		cdegs = CALC_DEGS(root_psi=self.root_psi, root_src=root_src)
+		cdegs = CALC_DEGS(root_psi=self.root_psi, root_scr=root_scr, run_conda=run_conda)
 
 		df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
@@ -3437,6 +3449,9 @@ class GDC(object):
 	def calc_gtex_control(self, psi_id:str, Nsamples:int=15,
 					      force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
+		self.df_gtex_ctrl = pd.DataFrame()
+		self.df_gtex_meta = pd.DataFrame()
+
 		gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=psi_id, verbose=verbose)
 
 		if gtex_id == '':
@@ -3446,6 +3461,9 @@ class GDC(object):
 		df_gtex_meta = self.prepare_gtex_df_control()
 
 		df_gtex_ctrl = self.prepare_gtex_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
+
+		self.df_gtex_ctrl = df_gtex_ctrl
+		self.df_gtex_meta = df_gtex_meta
 
 		return df_gtex_ctrl, df_gtex_meta
 

@@ -19,14 +19,16 @@ import pandas as pd
 
 
 class CALC_DEGS(object):
-    def __init__(self, root_psi:Path, root_scr:Path):
+    def __init__(self, root_psi:Path, root_scr:Path, run_conda:bool=False):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
             
         self.root_psi = Path(root_psi)
 
         self.root_scr = root_scr
-        self.libs_dir = self.root_scr / "libs"
+        self.libs_dir = root_scr / "libs"
+
+        self.run_conda = run_conda
 
         # R script path
         self.rscript_path = self.libs_dir / "calc_degs.R"
@@ -38,10 +40,10 @@ class CALC_DEGS(object):
     """
     def running_on_render(self) -> bool:
         return "RENDER" in os.environ or "PORT" in os.environ
+    """
 
     def has_conda(self):
         return shutil.which("conda") is not None
-    """
 
     def deduplicate_by_max_reads(self, df: pd.DataFrame) -> pd.DataFrame:
         count_cols = [c for c in df.columns if c not in self.GENE_COLS]
@@ -193,8 +195,8 @@ class CALC_DEGS(object):
                 "--min-total-count", str(min_total_count),
             ]
             
-            # if not self.running_on_render() and self.has_conda():
-            #     cmd = ["conda", "run", "-n", conda_env,] + cmd
+            if self.run_conda and self.has_conda():
+                cmd = ["conda", "run", "-n", conda_env,] + cmd
 
             proc = subprocess.run(
                 cmd,
