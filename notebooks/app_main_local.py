@@ -10,7 +10,7 @@
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 #
-# uv run streamlit run streamlit_UI_GDC_test03.py 
+# uv run streamlit run app_main_local.py 
 #
 #============================================
 
@@ -39,23 +39,28 @@ import umap
 
 from pathlib import Path
 
-ROOT0 = Path(os.environ.get("ROOT0", Path().resolve().parent)).resolve()
-ROOT_DATA = Path(os.environ.get("ROOT_DATA", "../data")).resolve()
-ROOT_SRC = ROOT0 / "src"
+ROOT = Path('/home/flavio/uv/perturb_agent/')
+ROOT_SRC = ROOT / "src"
 ROOT_CSS = ROOT_SRC / "styles"
+
+if str(ROOT_SRC) not in sys.path:
+    sys.path.append(str(ROOT_SRC))
+
+print("ROOT:", ROOT)
+print("ROOT_SRC added:", ROOT_SRC)
 
 if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
-print("ROOT0:", ROOT0)
 print("ROOT_SRC:", ROOT_SRC)
+print("ROOT_CSS:", ROOT_CSS)
 print("ROOT_DATA:", ROOT_DATA)
 
 from libs.calc_degs_lib import CALC_DEGS
 from libs.tcga_gdc_lib import *
 from libs.Basic import *
 
-gdc = GDC(ROOT_DATA0=ROOT_DATA)
+gdc = GDC(ROOT_DATA0=ROOT_DATA, ROOT_SRC=ROOT_SRC)
 
 verbose = True
 colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
@@ -516,7 +521,7 @@ if st.session_state.loaded:
             df_cases2 = df_cases
             st.write(f"Cases #{len(df_cases)}")
         
-        show_df(df_cases2[cols], height=800, key=f"cases_{selected_primary_site}")
+        show_df(df_cases2[cols], height=800, key=f"cases_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
@@ -530,7 +535,7 @@ if st.session_state.loaded:
             df_all_samples2 = df_all_samples
             st.write(f"Tumor samples #{len(df_all_samples)}")
 
-        show_df(df_all_samples2, height=800, key=f"samples_{selected_primary_site}")
+        show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
@@ -556,7 +561,7 @@ if st.session_state.loaded:
 
         with tab_mut_genes:
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=800, key=f"gene_counts_{selected_primary_site}")
+            show_df(df_gene_counts, height=800, key=f"gene_counts_{psi_id}")
 
         with tab_mut_raw_data:
             
@@ -571,7 +576,7 @@ if st.session_state.loaded:
                     'mutation_type', 'ref_allele', 'variant_allele',
                     'variant_type', 'chr', 'start', 'end', 'mutation_status',]
 
-            show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{selected_primary_site}")
+            show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
@@ -662,6 +667,18 @@ if st.session_state.loaded:
 
                     st.write("You entered:", value)
 
+                    lfc_cutoff=1.0
+                    fdr_cutoff=0.05
+                    method="deseq2"
+
+                    df_degs, df_lfc, degs_txt, msg = gdc.calc_degs(psi_id=psi_id, root_scr=gdc.root_src, run_conda=True,
+                                                                   lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, method=method, 
+                                                                   verbose=False, force=False)
+                    
+                    st.write(msg)
+
+                    st.write(f"DEGs - lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}")
+                    show_df(df_degs, height=800, key=f"degs_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS

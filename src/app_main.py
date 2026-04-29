@@ -69,7 +69,7 @@ from libs.tcga_gdc_lib import *
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
 
-gdc = GDC(ROOT_DATA0=ROOT_DATA)
+gdc = GDC(ROOT_DATA0=ROOT_DATA, ROOT_SRC=ROOT_SRC)
 
 verbose = True
 colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
@@ -657,6 +657,19 @@ if st.session_state.loaded:
                                     )
 
                     st.write("You entered:", value)
+
+                    lfc_cutoff=1.0
+                    fdr_cutoff=0.05
+                    method="deseq2"
+
+                    df_degs, df_lfc, degs_txt, msg = gdc.calc_degs(psi_id=psi_id, root_scr=gdc.root_src, run_conda=True,
+                                                                   lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, method=method, 
+                                                                   verbose=False, force=False)
+                    
+                    st.write(msg)
+
+                    st.write(f"DEGs - lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}")
+                    show_df(df_degs, height=800, key=f"degs_{psi_id}")
 
 
     # -------------------------------------------------------------------------

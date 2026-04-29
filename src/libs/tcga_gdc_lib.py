@@ -36,7 +36,7 @@ from libs.stat_lib import *
 from libs.calc_degs_lib import CALC_DEGS
 
 class GDC(object):
-	def __init__(self, ROOT_DATA0:Path):
+	def __init__(self, ROOT_DATA0:Path, ROOT_SRC:Path):
 		
 		self.url_gdc_project = "https://api.self.cancer.gov/projects"
 		self.url_gdc_cases = "https://api.self.cancer.gov/cases"
@@ -48,6 +48,7 @@ class GDC(object):
 		self.prog_id, self.psi_id = '', ''
 
 		self.ROOT_DATA0 = Path(ROOT_DATA0)
+		self.root_src  = ROOT_SRC
 		self.root_gtex = create_dir(self.ROOT_DATA0, 'GTEx')
 
 		self.fname_gtex = 'tcga_primary_site_to_gtex_ids.tsv'
