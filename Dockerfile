@@ -40,6 +40,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen
 
+RUN mkdir -p /opt/renv/cache
+
 COPY scripts/setup_renv.R scripts/setup_renv.R
 RUN Rscript scripts/setup_renv.R
 
