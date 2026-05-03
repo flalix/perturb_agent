@@ -19,6 +19,7 @@ from typing import Any, Iterable, List, Optional, Tuple
 import hdbscan
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import requests
 import umap
@@ -29,9 +30,9 @@ from sklearn.cluster import KMeans
 from sklearn.manifold import MDS
 from sklearn.metrics import pairwise_distances
 
-from libs.Basic import pdreadcsv, pdwritecsv, read_txt, write_txt
+from libs.Basic import create_dir, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
 from libs.calc_degs_lib import CALC_DEGS
-from libs.stat_lib import *
+from libs.stat_lib import fdr
 
 
 class GDC(object):
@@ -669,7 +670,7 @@ class GDC(object):
 
             if isinstance(deas_type_list, str):
                 deas_type_list = eval(deas_type_list)
-        except:
+        except ValueError:
             print("No disease types were found.")
             deas_type_list = []
 
@@ -881,7 +882,7 @@ class GDC(object):
             return df
 
         # -------------------------- batch loop ---------------------------
-        filters = {"op": "in", "content": {"field": "cases.project.project_id", "value": [psi_id]}}
+        filters = {"op": "in", "content": {"field": "cases.project.project_id", "value": [self.psi_id]}}
 
         all_hits = []
         from_ = 0
@@ -917,7 +918,7 @@ class GDC(object):
                 response = res.json()
 
                 if "data" not in response.keys():
-                    print(f"No data found while searching for '{psi_id}'")
+                    print(f"No data found while searching for '{self.psi_id}'")
                     print(">>> response", response)
                     self.df_cases = pd.DataFrame()
                     self.df_subt = pd.DataFrame()
@@ -938,7 +939,7 @@ class GDC(object):
             print("\n")
 
             if all_hits == []:
-                print(f"No subtypes found for {psi_id} ")
+                print(f"No subtypes found for {self.psi_id} ")
                 self.df_cases = response
                 self.df_subt = pd.DataFrame()
                 self.df_prof = pd.DataFrame()
@@ -1026,7 +1027,7 @@ class GDC(object):
             _ = pdwritecsv(df_subt, self.fname_subt, self.root_psi, verbose=verbose)
 
         except Exception as e:
-            print(f"Error for searching diags for '{psi_id}'. error: {e}")
+            print(f"Error for searching diags for '{self.psi_id}'. error: {e}")
             self.df_cases = df_cases
             self.df_subt = pd.DataFrame()
             self.df_prof = pd.DataFrame()
@@ -1329,7 +1330,7 @@ class GDC(object):
                 # print("\n")
 
                 if all_hits == []:
-                    print(f"No files were found for {psi_id} cases {case_id_list}")
+                    print(f"No files were found for {self.psi_id} cases {case_id_list}")
                     self.df_samples = pd.DataFrame()
                     return self.df_samples
 
@@ -1369,7 +1370,7 @@ class GDC(object):
                 cols = list(df_samples.columns)
 
                 # 🔹 Metadata
-                df_samples["psi_id"] = psi_id
+                df_samples["psi_id"] = self.psi_id
                 df_samples["subtype_global"] = subtype_global
                 df_samples["tumor_class"] = tumor_class
                 df_samples["subtype_tissue"] = subtype_tissue
@@ -1558,7 +1559,7 @@ class GDC(object):
 
         if len(dic_tumor) == 0 or len(dic_normal) == 0:
             if verbose:
-                print(f"Insufficient expression data found for {psi_id}.")
+                print(f"Insufficient expression data found for {self.psi_id}.")
             return pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
@@ -1580,12 +1581,12 @@ class GDC(object):
 
         if df_tumor_samples is None or df_tumor_samples.empty:
             if verbose:
-                print(f"No tumor expression data found for {psi_id}.")
+                print(f"No tumor expression data found for {self.psi_id}.")
             return {}, {}
 
         if df_normal_samples is None or df_normal_samples.empty:
             if verbose:
-                print(f"No normal expression data found for {psi_id}.")
+                print(f"No normal expression data found for {self.psi_id}.")
             return {}, {}
 
         self.file_type_list = np.unique(df_tumor_samples.data_type)
@@ -1608,7 +1609,7 @@ class GDC(object):
 
         if len(dff_tumor) == 0 or len(dff_normal) == 0:
             if verbose:
-                print(f"No valid expression data found for {psi_id}.")
+                print(f"No valid expression data found for {self.psi_id}.")
             return {}, {}
 
         print("Dowloading normal files:", end=" ")
@@ -2138,7 +2139,7 @@ class GDC(object):
 
         df_psi = self.get_primary_sites(prog_id=prog_id, force=force, verbose=verbose)
 
-        df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
         fname_all_cases = self.fname_all_cases % (self.prog_id)
         filename_cases = os.path.join(self.root_summary, fname_all_cases)
@@ -2210,7 +2211,7 @@ class GDC(object):
                 if df_samples.empty:
                     if verbose:
                         print(
-                            f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}"
+                            f"No samples found for PSI_ID: {self.psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}"
                         )
                     continue
 
@@ -2665,7 +2666,7 @@ class GDC(object):
         fig, ax = plt.subplots(figsize=figsize)
 
         # cmap = plt.cm.get_cmap("tab10", k)
-        sc = plt.scatter(
+        plt.scatter(
             embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
         )
 
@@ -2713,7 +2714,7 @@ class GDC(object):
 
         fig, ax = plt.subplots(figsize=figsize)
 
-        sc = plt.scatter(
+        plt.scatter(
             embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
         )
 
@@ -3335,7 +3336,7 @@ class GDC(object):
                     print("status:", res.status_code)
                     print("content-type:", res.headers.get("Content-Type"))
                     print("text:", res.text[:500])  # inspect response before parsing
-                except:
+                except ValueError:
                     print("Could not access http response.")
 
                 return df_vcf
@@ -3378,7 +3379,7 @@ class GDC(object):
         )
         if df_tumor.empty:
             if verbose:
-                print(f"No tumor expression data found for {psi_id}")
+                print(f"No tumor expression data found for {self.psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
         df_gtex_ctrl, _ = self.calc_gtex_control(
@@ -3403,7 +3404,7 @@ class GDC(object):
                 sample_txt = read_txt(fname_sample_txt, self.root_psi, verbose=verbose)
 
                 return df_degs, df_lfc, degs_txt, sample_txt
-            except:
+            except ValueError:
                 pass
 
         # geneid, symbol, type, samples
@@ -3694,7 +3695,7 @@ class GDC(object):
         gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=psi_id, verbose=verbose)
 
         if gtex_id == "":
-            print(f"Error: could not find GTEx ID for TCGA ID '{psi_id}'")
+            print(f"Error: could not find GTEx ID for TCGA ID '{self.psi_id}'")
             return pd.DataFrame(), pd.DataFrame()
 
         df_gtex_meta = self.prepare_gtex_df_control()

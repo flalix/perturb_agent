@@ -9,6 +9,7 @@ Created on 2010/06/10
 @local:  Instituto Butantan / CENTD / Molecular Biology / Bioinformatics & Systems Biology
 """
 
+import os
 from typing import List, Tuple  # Optional, Iterable, Set, Any, List
 
 import numpy as np
@@ -258,13 +259,18 @@ def chisquare_2series(df1: pd.DataFrame, df2: pd.DataFrame, measure, alpha=0.05,
         add5 = True
 
     # statistic, pvalue = stats.chisquare(np.array([dfgender.iloc[0].to_list(), dfgender.iloc[1].to_list()]), axis=None)
-    statistic, pvalue, dof, _ = stats.chi2_contingency(
-        [dfgender.iloc[0].to_list(), dfgender.iloc[1].to_list()]
-    )
+    lista0 = dfgender.iloc[0].to_list()
+    lista1 =  dfgender.iloc[1].to_list()
+    res = stats.chi2_contingency([lista0, lista1])
     typetest = "chi-square"
 
     # statistic, pvalue = fisher_exact( [dfgender.iloc[0].to_list(), dfgender.iloc[1].to_list()] )  # statistic is oddsratio
     # typetest = 'fisher exact test'
+
+
+    statistic= res.statistic
+    pvalue = res.pvalue
+    dof = len(lista0) - 1
 
     if pvalue < alpha:
         ret = True
@@ -416,7 +422,7 @@ def ttest_2series(
         res = stats.ttest_ind(vals1, vals2)
         statistic = float(res.statistic)
         pvalue = float(res.pvalue)
-        # dof = int(res.df)
+        dof = int(res.df)
     except ValueError:
         s_error = f"Error: ttest {vals1} {vals2}"
         print(s_error)
@@ -427,16 +433,16 @@ def ttest_2series(
     else:
         ret = False
 
-    stri_stat = "p-value %.2e<br>%s" % (pvalue, stat_asteristics(pvalue))
+    sig = stat_asteristics(pvalue)
+    stri_stat = f'p-value {pvalue:.2e} significance = "{sig} dof = {dof}"'
 
     if verbose:
         if pvalue < alpha:
-            sig = stat_asteristics(pvalue)
             print("Null hypothesis is rejected, both distributions may be different.")
-            print(f"p-value {pvalue:.2e} significance = {sig} dof = {df}")
         else:
             print("fail to reject the null hypothesis, both distributions may be similar.")
-            print("p-value %.2e" % (pvalue))
+
+        print(stri_stat)
 
     return ret, [vals1, vals2], [n1, n2], statistic, pvalue, stri_stat
 
@@ -458,7 +464,7 @@ def ttest_2vals(
         res = stats.ttest_ind(vals1, vals2)
         statistic = float(res.statistic)
         pvalue = float(res.pvalue)
-        df = int(res.df)
+        dof = int(res.df)
     except ValueError:
         s_error = f"Error: ttest {vals1} {vals2}"
         print(s_error)
@@ -466,15 +472,18 @@ def ttest_2vals(
 
     ret = True if pvalue < alpha else False
 
-    stri_stat = "p-value %.2e<br>%s" % (pvalue, stat_asteristics(pvalue))
+    sig = stat_asteristics(pvalue)
+
+    stri_stat = f'p-value {pvalue:.2e} significance = "{sig} dof = {dof}"'
+
 
     if verbose:
         if pvalue < alpha:
             print("Null hypothesis is rejected, both distributions may be different.")
-            print('p-value %.2e significance = "%s"' % (pvalue, stat_asteristics(pvalue)))
         else:
-            print("fail to reject the null hypothesis, both distributions may be similar.")
-            print("p-value %.2e" % (pvalue))
+            print("Fail to reject the null hypothesis, both distributions may be similar.")
+        
+        print(stri_stat)
 
     return ret, [vals1, vals2], [n1, n2], statistic, pvalue, stri_stat
 
@@ -497,7 +506,7 @@ def ttest_1val(
         print(s_error)
         return -1, -1, 0, mu, std, s_error
 
-    msg = f"mean={mu:.3f} and std={std:.3f}, pval = {pvalue:.3e} and dof={df}"
+    msg = f"mean={mu:.3f} and std={std:.3f}, pval = {pvalue:.3e} and dof={dof}"
 
     return statistic, pvalue, dof, mu, std, msg
 
@@ -524,9 +533,9 @@ def ttest_gender01_female_male(
         res = stats.ttest_ind(valsf, valsm)
         statistic = float(res.statistic)
         pvalue = float(res.pvalue)
-        df = int(res.df)
+        # dof = int(res.df)
     except ValueError:
-        s_error = f"Error: ttest {vals1} {vals2}"
+        s_error = f"Error: ttest {valsf} {valsm}"
         print(s_error)
         return False, [valsf, valsm], [nfemales, nmales], -1, -1, s_error
 
@@ -704,15 +713,23 @@ def calc_confidence_interval_param(
     return error, cinf, csup, SEM, stri
 
 
-def test_one_way_ANOVA(ser1, ser2, alpha=0.05):
-    # teste de variancias de Fisher - one way ANOVA (analysis of variance)
-    statistic, pvalue = stats.f_oneway(samp1, samp2)
+def test_one_way_ANOVA(samples:List, alpha=0.05) -> Tuple[bool, str, str, float, float]:
+    '''
+    one way anova
+    input: List
+    '''
+
+    if len(samples) < 3:
+        print("Error: at least 3 samples.")
+        return False, "Error: at least 3 samples.", "Error: at least 3 samples.", -1., -1.
+    
+    statistic, pvalue = stats.f_oneway(*samples)
 
     if pvalue > alpha:
-        text = "As distribuições têm variâncias similares (não se rejeita a H0)"
+        text = "The distributions have similar variances (H0 is not rejected)"
         ret = True
     else:
-        text = "As distribuições não têm variâncias similares (rejeita-se a H0)"
+        text = "The distributions do not have similar variances (H0 is rejected)"
         ret = False
 
     text_stat = "p-value %.2e (%s)" % (pvalue, stat_asteristics(pvalue))
@@ -1153,13 +1170,13 @@ def calc_params(vals, name=None, type=None, canNeg=False, ndig=2):
         qinfs.append(qinf)
 
         if len(vals) > 2 and std > 0 and type == "continuous":
-            normal, statistic, pvalue, stri_stat = test_normality(vals)
+            normal, _, pvalue, stri_stat = test_normality(vals)
             stri_stat = stri_stat.replace("<br>", " ")
         else:
-            ret = None
-            statistic = None
+            # statistic = None
             pvalue = None
             stri_stat = ""
+            normal=False
 
         meds.append(med)
         mus.append(mu)
@@ -1168,7 +1185,7 @@ def calc_params(vals, name=None, type=None, canNeg=False, ndig=2):
         ns.append(n)
         minis.append(mini)
         maxis.append(maxi)
-        normals.append(ret)
+        normals.append(normal)
         pvalues.append(pvalue)
         normalities.append(stri_stat)
 
@@ -1648,7 +1665,7 @@ def calc_normal_dist_errors(
         except ValueError:
             error = None
     else:
-        if normal == True:
+        if normal:
             # if normal distributed
             try:
                 error = stats.t.ppf(1 - alpha2, n - 1) * SEM
