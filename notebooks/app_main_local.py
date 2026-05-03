@@ -10,7 +10,7 @@
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 #
-# uv run streamlit run app_main_local.py 
+# uv run streamlit run  notebooks/app_main_local.py
 #
 #============================================
 
@@ -20,13 +20,11 @@ from pprint import pprint
 # from marshmallow import pprint, Schema, fields
 import numpy as np
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 from collections import defaultdict
 
 #----------- fix incompatibilities ---------------------
 import pandas as pd
-
-from app_main import ROOT_DATA
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
@@ -35,26 +33,24 @@ import plotly.express as px
 
 import seaborn as sns
 from sklearn.cluster import KMeans
-import umap
+# import umap
 
 from pathlib import Path
 
-ROOT = Path('/home/flavio/uv/perturb_agent/')
-ROOT_SRC = ROOT / "src"
+ROOT0 = Path('/home/flavio/uv/perturb_agent/')
+ROOT_DATA = ROOT0 / "data"
+ROOT_SRC = ROOT0 / "src"
 ROOT_CSS = ROOT_SRC / "styles"
 
 if str(ROOT_SRC) not in sys.path:
     sys.path.append(str(ROOT_SRC))
 
-print("ROOT:", ROOT)
-print("ROOT_SRC added:", ROOT_SRC)
+print("ROOT0:", ROOT0)
+print("ROOT_SRC:", ROOT_SRC)
+print("ROOT_DATA:", ROOT_DATA)
 
 if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
-
-print("ROOT_SRC:", ROOT_SRC)
-print("ROOT_CSS:", ROOT_CSS)
-print("ROOT_DATA:", ROOT_DATA)
 
 from libs.calc_degs_lib import CALC_DEGS
 from libs.tcga_gdc_lib import *
@@ -193,31 +189,16 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
+# xxxx
+# def show_df_AgGrid2(df, height=800, page_size=25, key="grid"):
 
-def show_df_AgGrid2(df, height=800, page_size=25, key="grid"):
-    if df is None or df.empty:
-        st.info("Empty dataframe")
-        return
+def show_df(df, height:int=800, page_size:int=25, key:str="grid", selectable:bool=False):
+    show_df_AgGrid(df, height=height, page_size=page_size, key=key, selectable=selectable)
 
-    df = make_aggrid_safe(df).copy()
-
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(sortable=True, filter=True, resizable=True)
-
-    grid_options = gb.build()
-    grid_options["pagination"] = True
-    grid_options["paginationPageSize"] = page_size
-    grid_options["suppressPaginationPanel"] = False
-
-    AgGrid(
-        df,
-        gridOptions=grid_options,
-        height=height,
-        key=key,
-        # fit_columns_on_grid_load=True,
-    )
-
-def show_df_AgGrid(df, height:int=800, page_size:int=25, key:str="grid"):
+def show_df_AgGrid(df, height:int=800, 
+                   page_size:int=25, key:str="grid", 
+                   selectable: bool = False):
+    
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -239,6 +220,13 @@ def show_df_AgGrid(df, height:int=800, page_size:int=25, key:str="grid"):
         paginationPageSize=page_size,
     )
 
+    # xxxx selectable
+    if selectable:
+        gb.configure_selection(
+            selection_mode="single",
+            use_checkbox=True,
+        )
+
     grid_options = gb.build()
     grid_options["pagination"] = True
     grid_options["paginationPageSize"] = page_size
@@ -246,7 +234,7 @@ def show_df_AgGrid(df, height:int=800, page_size:int=25, key:str="grid"):
     if not isinstance(grid_options, dict):
         raise TypeError(f"grid_options must be dict, got {type(grid_options)}")
 
-    AgGrid(
+    response = AgGrid(
         df,
         gridOptions=grid_options,
         height=height,
@@ -255,12 +243,36 @@ def show_df_AgGrid(df, height:int=800, page_size:int=25, key:str="grid"):
         enable_enterprise_modules=False, # lightweight
         reload_data=False,  # avoids flicker / rerender
         key=key,
+        update_mode=GridUpdateMode.SELECTION_CHANGED if selectable else GridUpdateMode.NO_UPDATE,
     )
 
+    if selectable:
+        selected = response.get("selected_rows", [])
+        if selected:
+            return selected[0]
 
-def show_df(df, height:int=800, page_size:int=25, key:str="grid"):
-    show_df_AgGrid(df, height=height, page_size=page_size, key=key)
+def show_selectable_df(df, height=800, key=None):
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_selection(
+        selection_mode="single",
+        use_checkbox=True
+    )
+    gb.configure_grid_options(domLayout="normal")
 
+    response = AgGrid(
+        df,
+        gridOptions=gb.build(),
+        height=height,
+        key=key,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        allow_unsafe_jscode=False,
+    )
+
+    selected = response.get("selected_rows", [])
+    if selected:
+        return selected[0]
+
+    return None
 
 def show_df_html(df, height: int = 800):
     if df is None or df.empty:
@@ -438,6 +450,11 @@ with st.sidebar:
 
     load_clicked = st.button("Load data", use_container_width=True)
 
+    st.text(f"ROOT0 {ROOT0}")
+    st.text(f"ROOT_DATA {ROOT_DATA}")
+    st.text(f"ROOT_SRC {ROOT_SRC}")
+    st.text(f"ROOT_CSS {ROOT_CSS}")
+
     if load_clicked:
         st.session_state.loaded = True 
 
@@ -481,6 +498,34 @@ if st.session_state.loaded:
     with st.spinner("Loading primary site data..."):
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
 
+    # --------------------------------------------------
+    # SESSION STATE (RIGHT HERE ✅)
+    # --------------------------------------------------
+    if "case_idx" not in st.session_state:
+        st.session_state.case_idx = 0
+
+    case_ids = df_cases["case_id"].dropna().unique().tolist()
+
+    # reset if dataset changed
+    if "case_ids_prev" not in st.session_state:
+        st.session_state.case_ids_prev = []
+
+    if st.session_state.case_ids_prev != case_ids:
+        st.session_state.case_idx = 0
+        st.session_state.case_ids_prev = case_ids
+
+
+    def set_case_from_id(case_id):
+        if case_id in case_ids:
+            st.session_state.case_idx = case_ids.index(case_id)
+
+    def current_case_id():
+        if not case_ids:
+            return None
+        st.session_state.case_idx = max(0, min(st.session_state.case_idx, len(case_ids) - 1))
+        return case_ids[st.session_state.case_idx]
+
+
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
 
@@ -502,17 +547,16 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    # tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Diff.Expression', 'Downloads'], horizontal=True)
     tab_cases, tab_samples, tab_head_mutations, tab_head_cluster, tab_head_diff_exp, tab_donwload = st.tabs(["Cases", "Tumor Samples", "Mutations", "Clusterization", "Diff.Expression", "Downloads"]) 
 
     # -------------------------------------------------------------------------
-    # TAB 1 - CASES
+    # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
     with tab_cases:
-        cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
-       'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
-        'tumor_stage', 'stage', 'tumor_class', 'histology',
-       'subtype_tissue'] # 'stage_clin', 'figo_stage',
+        cols = [
+            'case_id', 'disease_type',  'diagnoses', 
+            'subtype_global', 'subtype_tissue', 'primary_diagnosis', 'tumor_grade',
+            'tumor_stage', 'stage', 'tumor_class', 'histology']
         
         if len(df_cases) > 200:
             df_cases2 = df_cases.head(200).copy()
@@ -521,21 +565,61 @@ if st.session_state.loaded:
             df_cases2 = df_cases
             st.write(f"Cases #{len(df_cases)}")
         
-        show_df(df_cases2[cols], height=800, key=f"cases_{psi_id}")
+        # xxxx
+        # show_df(df_cases2[cols], height=800, key=f"cases_{psi_id}")
+
+        selected_row = show_df_AgGrid( df_cases2[cols], selectable=True, key="cases")
+
+        if selected_row is not None:
+            set_case_from_id(selected_row["case_id"])
+
+        st.info(f"Selected case_id: {current_case_id()}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     with tab_samples:
 
-        if len(df_all_samples) > 200:
-            df_all_samples2 = df_all_samples.head(200).copy()
-            st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
-        else:
-            df_all_samples2 = df_all_samples
-            st.write(f"Tumor samples #{len(df_all_samples)}")
+        selected_case_id = current_case_id()
 
-        show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
+        col1, col2, col3 = st.columns([2,1,1])
+
+        with col1:
+            st.write(f"Selected case: {selected_case_id}")
+
+        with col2:
+            if st.button("Previous"):
+                st.session_state.case_idx -= 1
+                st.experimental_rerun()
+
+        with col3:
+            if st.button("Next"):
+                st.session_state.case_idx += 1
+                st.experimental_rerun()
+
+        if selected_case_id is None:
+            st.warning("Select a case first.")
+
+            if len(df_all_samples) > 200:
+                df_all_samples2 = df_all_samples.head(200).copy()
+                st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
+            else:
+                df_all_samples2 = df_all_samples
+                st.write(f"Tumor samples #{len(df_all_samples)}")
+
+            show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
+        else:
+              
+            df_case_samples = df_all_samples[df_all_samples["case_id"] == selected_case_id].copy()
+
+            df_grouped = (
+                df_case_samples
+                .groupby(["barcode_sample", "sample_type", "data_type", "data_format"], dropna=False)
+                .size()
+                .reset_index(name="n")
+            )
+
+            show_df(df_grouped, height=800, key=f"samples_{selected_primary_site}_{selected_case_id}", )
 
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS

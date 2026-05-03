@@ -14,7 +14,7 @@ div[data-baseweb="select"] div {
 /* ===== Layout ===== */
 .block-container {
     max-width: 96%;
-    padding-top: 0.5rem;
+    padding-top: 1.0rem;
     padding-bottom: 0.5rem;
     padding-left: 1.5rem;
     padding-right: 1.5rem;

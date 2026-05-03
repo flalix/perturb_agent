@@ -32,13 +32,10 @@ import plotly.express as px
 
 import seaborn as sns
 from sklearn.cluster import KMeans
-import umap
+# import umap
 
 from pathlib import Path
 import tempfile
-
-# Project root (works locally + Render)
-# ROOT = Path(__file__).resolve().parent
 
 """
 /opt/render/project/src/
@@ -480,11 +477,6 @@ if st.session_state.loaded:
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
 
-        st.text(f"ROOT0 {ROOT0}")
-        st.text(f"ROOT_DATA {ROOT_DATA}")
-        st.text(f"ROOT_SRC {ROOT_SRC}")
-        st.text(f"ROOT_CSS {ROOT_CSS}")
-
         st.text(f"Cases {len(df_cases)}")
         st.text(f"Tumor samples {len(df_all_samples)}")
         st.text(f"Total mutations {len(df_all_mut)}")
@@ -503,17 +495,15 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    # tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Diff.Expression', 'Downloads'], horizontal=True)
     tab_cases, tab_samples, tab_head_mutations, tab_head_cluster, tab_head_diff_exp, tab_donwload = st.tabs(["Cases", "Tumor Samples", "Mutations", "Clusterization", "Diff.Expression", "Downloads"]) 
 
     # -------------------------------------------------------------------------
-    # TAB 1 - CASES
+    # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
     with tab_cases:
-        cols = ['case_id', 'psi_id', 'primary_site', 'disease_type',  'diagnoses', 
-       'subtype_global', 'stage_ajcc', 'primary_diagnosis', 'tumor_grade',
-        'tumor_stage', 'stage', 'tumor_class', 'histology',
-       'subtype_tissue'] # 'stage_clin', 'figo_stage',
+        cols = ['case_id', 'disease_type',  'diagnoses', 
+       'subtype_global', 'subtype_tissue', 'primary_diagnosis', 'tumor_grade',
+        'tumor_stage', 'stage', 'tumor_class', 'histology']
         
         if len(df_cases) > 200:
             df_cases2 = df_cases.head(200).copy()
