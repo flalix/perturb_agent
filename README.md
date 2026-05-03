@@ -19,6 +19,9 @@ The pipeline integrates:
 3. **[Nextflow](https://www.nextflow.io/)** for scalable, reproducible data processing  
 4. **Python (ML/AI layer)** — pathway scoring, feature attribution, and target prioritization
 5. **[uv](https://docs.astral.sh/uv/)** Python project and dependency management
+6. **[ruff](https://docs.astral.sh/ruff/)** Python code formater and fixer.
+  - uv run ruff check src/libs/*.py --fix > ruff.txt
+  - uv run ruff format src/libs/*.py
 
 ---
 
