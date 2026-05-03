@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tempfile
@@ -19,10 +18,10 @@ import pandas as pd
 
 
 class CALC_DEGS(object):
-    def __init__(self, root_psi:Path, root_scr:Path, run_conda:bool=False):
+    def __init__(self, root_psi: Path, root_scr: Path, run_conda: bool = False):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
-            
+
         self.root_psi = Path(root_psi)
 
         self.root_scr = root_scr
@@ -35,7 +34,6 @@ class CALC_DEGS(object):
 
         if not self.rscript_path.exists():
             raise FileNotFoundError(f"R script not found: {self.rscript_path}")
-
 
     """
     def running_on_render(self) -> bool:
@@ -57,16 +55,17 @@ class CALC_DEGS(object):
 
         df2["_total_reads"] = df2[count_cols].sum(axis=1)
 
-        df2 = df2.sort_values(["gene_id", "_total_reads"], ascending=[True, False]) \
-              .drop_duplicates(subset="gene_id", keep="first") \
-              .drop(columns="_total_reads") \
-              .reset_index(drop=True)
+        df2 = (
+            df2.sort_values(["gene_id", "_total_reads"], ascending=[True, False])
+            .drop_duplicates(subset="gene_id", keep="first")
+            .drop(columns="_total_reads")
+            .reset_index(drop=True)
+        )
 
         return df2
 
     def _find_count_columns(self, df: pd.DataFrame) -> list[str]:
         return [c for c in df.columns if c not in self.GENE_COLS]
-
 
     def _validate_expression_df(self, df: pd.DataFrame, name: str) -> None:
         missing = [c for c in self.GENE_COLS if c not in df.columns]
@@ -81,15 +80,17 @@ class CALC_DEGS(object):
             dup_n = int(df["gene_id"].duplicated().sum())
             raise ValueError(f"{name} has duplicated gene_id values ({dup_n} duplicates).")
 
-
     def _rename_count_columns(self, df: pd.DataFrame, prefix: str) -> pd.DataFrame:
         count_cols = self._find_count_columns(df)
-        rename_map = {old: f"{prefix}_{i+1}" for i, old in enumerate(count_cols)}
+        rename_map = {old: f"{prefix}_{i + 1}" for i, old in enumerate(count_cols)}
         return df.rename(columns=rename_map).copy()
 
-
-    def build_counts_and_metadata(self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame, 
-                                 how: Literal["inner", "outer"] = "inner") -> tuple[pd.DataFrame, pd.DataFrame]:
+    def build_counts_and_metadata(
+        self,
+        df_tumor: pd.DataFrame,
+        df_normal: pd.DataFrame,
+        how: Literal["inner", "outer"] = "inner",
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Build:
         1) counts matrix: gene_id, symbol, gene_type, normal_1..., tumor_1...
@@ -106,7 +107,9 @@ class CALC_DEGS(object):
         df_turmor_rev = self._rename_count_columns(df_tumor, "tumor")
         df_normal_rev = self._rename_count_columns(df_normal, "normal")
 
-        dfn = pd.merge(df_normal_rev, df_turmor_rev, on=self.GENE_COLS, how=how, validate="one_to_one")
+        dfn = pd.merge(
+            df_normal_rev, df_turmor_rev, on=self.GENE_COLS, how=how, validate="one_to_one"
+        )
 
         count_cols = [c for c in dfn.columns if c not in self.GENE_COLS]
         if not count_cols:
@@ -122,24 +125,28 @@ class CALC_DEGS(object):
             c for c in dfn.columns if c.startswith("tumor_")
         ]
 
-        meta = pd.DataFrame({
-            "sample": sample_cols,
-            "condition": ["normal"] * sum(c.startswith("normal_") for c in sample_cols)
-                        + ["tumor"] * sum(c.startswith("tumor_") for c in sample_cols),
-        })
+        meta = pd.DataFrame(
+            {
+                "sample": sample_cols,
+                "condition": ["normal"] * sum(c.startswith("normal_") for c in sample_cols)
+                + ["tumor"] * sum(c.startswith("tumor_") for c in sample_cols),
+            }
+        )
 
         counts = dfn[self.GENE_COLS + sample_cols].copy()
         return counts, meta
 
-
     def run_deg_rscript(
-        self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame,
+        self,
+        df_tumor: pd.DataFrame,
+        df_normal: pd.DataFrame,
         method: Literal["auto", "deseq2", "edger"] = "auto",
         manual_dispersion: float = 0.1,
         min_total_count: int = 10,
         merge_how: Literal["inner", "outer"] = "inner",
         keep_temp: bool = False,
-        conda_env: str = "renv") -> pd.DataFrame:
+        conda_env: str = "renv",
+    ) -> pd.DataFrame:
         """
         Run DEG analysis in R using DESeq2 or edgeR through a conda environment.
 
@@ -167,7 +174,6 @@ class CALC_DEGS(object):
             DEG results table
         """
 
-
         df_counts, df_meta = self.build_counts_and_metadata(
             df_tumor=df_tumor,
             df_normal=df_normal,
@@ -186,17 +192,29 @@ class CALC_DEGS(object):
             df_meta.to_csv(meta_file, sep="\t", index=False)
 
             cmd = [
-                "Rscript", str(self.rscript_path),
-                "--counts", str(counts_file),
-                "--meta", str(meta_file),
-                "--out", str(out_file),
-                "--method", method,
-                "--manual-dispersion", str(manual_dispersion),
-                "--min-total-count", str(min_total_count),
+                "Rscript",
+                str(self.rscript_path),
+                "--counts",
+                str(counts_file),
+                "--meta",
+                str(meta_file),
+                "--out",
+                str(out_file),
+                "--method",
+                method,
+                "--manual-dispersion",
+                str(manual_dispersion),
+                "--min-total-count",
+                str(min_total_count),
             ]
-            
+
             if self.run_conda and self.has_conda():
-                cmd = ["conda", "run", "-n", conda_env,] + cmd
+                cmd = [
+                    "conda",
+                    "run",
+                    "-n",
+                    conda_env,
+                ] + cmd
 
             proc = subprocess.run(
                 cmd,

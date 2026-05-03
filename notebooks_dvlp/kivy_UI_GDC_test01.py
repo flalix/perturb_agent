@@ -6,16 +6,16 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-import os, sys
-import pandas as pd
+import os
+import sys
+from pathlib import Path
 
+import pandas as pd
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.lang import Builder
 from kivy.properties import ListProperty, ObjectProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.clock import Clock
-
-from pathlib import Path
 
 ROOT = Path().resolve().parent.parent
 SRC = os.path.join(ROOT, "src")
@@ -26,9 +26,8 @@ if str(SRC) not in sys.path:
 print("ROOT:", ROOT)
 print("SRC added:", SRC)
 
-from libs.tcga_gdc_lib import *
 from libs.Basic import *
-
+from libs.tcga_gdc_lib import *
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")
@@ -222,6 +221,7 @@ KV = """
             orientation: "vertical"
 """
 
+
 class DataRow6(BoxLayout):
     c1 = StringProperty("")
     c2 = StringProperty("")
@@ -326,7 +326,14 @@ class RootWidget(BoxLayout):
 
             self.df_primary_sites = dfc.copy()
 
-            primary_sites = self.df_primary_sites["primary_site"].dropna().astype(str).sort_values().unique().tolist()
+            primary_sites = (
+                self.df_primary_sites["primary_site"]
+                .dropna()
+                .astype(str)
+                .sort_values()
+                .unique()
+                .tolist()
+            )
 
             self.primary_site_values = primary_sites
             self.primary_site_selected = ""
@@ -368,7 +375,9 @@ class RootWidget(BoxLayout):
 
             self.status_text = f"Loading cases and subtypes for {pid}..."
 
-            df_cases, df_subt, _ = gdc.get_cases_and_subtypes(pid=pid, batch_size=200, do_filter=False, force=False, verbose=verbose)
+            df_cases, df_subt, _ = gdc.get_cases_and_subtypes(
+                pid=pid, batch_size=200, do_filter=False, force=False, verbose=verbose
+            )
 
             if not isinstance(df_cases, pd.DataFrame):
                 raise TypeError("df_cases is not a DataFrame")
@@ -380,7 +389,14 @@ class RootWidget(BoxLayout):
             if missing_subt:
                 raise ValueError(f"df_subt missing columns: {missing_subt}")
 
-            case_cols_src = ["pid", "case_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
+            case_cols_src = [
+                "pid",
+                "case_id",
+                "subtype_global",
+                "tumor_class",
+                "subtype_tissue",
+                "stage",
+            ]
             missing_cases = [c for c in case_cols_src if c not in df_cases.columns]
             if missing_cases:
                 raise ValueError(f"df_cases missing columns: {missing_cases}")
@@ -391,9 +407,7 @@ class RootWidget(BoxLayout):
             self.subt_table_data = self._df_to_table_data(self.df_subt, subt_cols)
             self.cases_table_data = self._df_to_table_data(self.df_cases2, case_cols_src)
 
-            self.status_text = (
-                f"Loaded {len(self.df_subt)} subtype rows and {len(self.df_cases2)} case rows for {pid}."
-            )
+            self.status_text = f"Loaded {len(self.df_subt)} subtype rows and {len(self.df_cases2)} case rows for {pid}."
 
         except Exception as e:
             self.status_text = f"Error loading cases/subtypes: {e}"

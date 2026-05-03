@@ -77,10 +77,24 @@ package = false
 
 [tool.ruff]
 line-length = 100
+exclude = [
+    "*.ipynb",
+    "notebooks/",
+    "notebooks_dvlp/",
+    "src/libs/backup/",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+ignore = [
+    "E501",
+    "E402",
+]
 
 # sudo apt install graphviz graphviz-dev pkg-config
 
+# uv sync --extra dev
+
+# ruff check .
+# ruff check . --fix
 

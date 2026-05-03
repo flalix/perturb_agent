@@ -7,17 +7,15 @@
 # @local: Home sweet home
 
 import pandas as pd
-
 from kivy.app import App
 from kivy.lang import Builder
 from kivy.metrics import dp
-from kivy.properties import ListProperty, StringProperty
+from kivy.properties import StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.dropdown import DropDown
 from kivy.uix.recycleview import RecycleView
 from kivy.uix.recycleview.views import RecycleDataViewBehavior
-
 
 KV = """
 <RowWidget>:
@@ -156,6 +154,8 @@ KV = """
             width: dp(100)
             on_release: root.reset_filters()
 """
+
+
 class RowWidget(RecycleDataViewBehavior, BoxLayout):
     index = 0
     country = StringProperty("")
@@ -178,14 +178,34 @@ class MainWidget(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.df = pd.DataFrame({
-            "country": ["Brazil", "Brazil", "Brazil", "USA", "USA", "Germany", "Germany", "Brazil"],
-            "state":   ["SP", "SP", "RJ", "CA", "NY", "BW", "BY", "SP"],
-            "city":    ["Santo Andre", "Sao Paulo", "Rio", "Los Angeles", "New York", "Heidelberg", "Munich", "Campinas"],
-            "gene":    ["TP53", "EGFR", "BRCA1", "KRAS", "PIK3CA", "MYC", "PTEN", "EGFR"],
-            "value":   [10, 20, 15, 30, 12, 18, 25, 22],
-            "category": ["A", "B", "A", "B", "C", "A", "B", "C"]
-        })
+        self.df = pd.DataFrame(
+            {
+                "country": [
+                    "Brazil",
+                    "Brazil",
+                    "Brazil",
+                    "USA",
+                    "USA",
+                    "Germany",
+                    "Germany",
+                    "Brazil",
+                ],
+                "state": ["SP", "SP", "RJ", "CA", "NY", "BW", "BY", "SP"],
+                "city": [
+                    "Santo Andre",
+                    "Sao Paulo",
+                    "Rio",
+                    "Los Angeles",
+                    "New York",
+                    "Heidelberg",
+                    "Munich",
+                    "Campinas",
+                ],
+                "gene": ["TP53", "EGFR", "BRCA1", "KRAS", "PIK3CA", "MYC", "PTEN", "EGFR"],
+                "value": [10, 20, 15, 30, 12, 18, 25, 22],
+                "category": ["A", "B", "A", "B", "C", "A", "B", "C"],
+            }
+        )
 
         self.country_value = "All"
         self.state_value = "All"

@@ -1,13 +1,13 @@
-
-
 import time
+
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="GDC Cases Explorer", layout="wide")
 
 # ---------- STYLE ----------
-st.markdown("""
+st.markdown(
+    """
 <style>
     .block-container {
         padding-top: 0.7rem !important;
@@ -41,13 +41,15 @@ st.markdown("""
         margin-bottom: 1rem;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------- HEADER ----------
 st.markdown("<div class='app-title'>GDC Cases Explorer</div>", unsafe_allow_html=True)
 st.markdown(
     "<div class='app-subtitle'>Explore programs, primary sites, tumor classes, subtypes, and stages from GDC.</div>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 # ---------- MOCK DATA ----------
@@ -55,8 +57,9 @@ st.markdown(
 PROGRAMS = ["TCGA", "TARGET"]
 PRIMARY_SITES = {
     "TCGA": ["Lung", "Breast", "Brain", "Kidney"],
-    "TARGET": ["Blood", "Kidney", "Nervous System"]
+    "TARGET": ["Blood", "Kidney", "Nervous System"],
 }
+
 
 # ---------- CACHED FUNCTION ----------
 @st.cache_data(show_spinner=False)
@@ -95,6 +98,7 @@ def fetch_gdc_cases(program: str, primary_site: str) -> pd.DataFrame:
     ]
     return pd.DataFrame(rows)
 
+
 # ---------- SESSION STATE ----------
 if "results_df" not in st.session_state:
     st.session_state.results_df = None
@@ -108,18 +112,10 @@ st.markdown("<div class='filter-box'>", unsafe_allow_html=True)
 col1, col2 = st.columns(2)
 
 with col1:
-    selected_program = st.selectbox(
-        "Program",
-        PROGRAMS,
-        index=0
-    )
+    selected_program = st.selectbox("Program", PROGRAMS, index=0)
 
 with col2:
-    selected_primary_site = st.selectbox(
-        "Primary Site",
-        PRIMARY_SITES[selected_program],
-        index=0
-    )
+    selected_primary_site = st.selectbox("Primary Site", PRIMARY_SITES[selected_program], index=0)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -128,16 +124,11 @@ col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
 
 with col_btn1:
     run_search = st.button(
-        "Find cases, subtypes, tumor class and stages",
-        use_container_width=True,
-        type="primary"
+        "Find cases, subtypes, tumor class and stages", use_container_width=True, type="primary"
     )
 
 with col_btn2:
-    clear_results = st.button(
-        "Clear results",
-        use_container_width=True
-    )
+    clear_results = st.button("Clear results", use_container_width=True)
 
 with col_btn3:
     show_table = st.checkbox("Wide table", value=True)
@@ -179,6 +170,5 @@ if st.session_state.has_searched:
             data=csv,
             file_name="gdc_cases_results.csv",
             mime="text/csv",
-            use_container_width=False
+            use_container_width=False,
         )
-        

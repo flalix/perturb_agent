@@ -1,18 +1,28 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 st.set_page_config(page_title="Chained Filters Table", layout="wide")
 
 # ----------------------------
 # Sample data
 # ----------------------------
-df = pd.DataFrame({
-    "country": ["Brazil", "Brazil", "Brazil", "USA", "USA", "Germany", "Germany"],
-    "state":   ["SP", "SP", "RJ", "CA", "NY", "BW", "BY"],
-    "city":    ["Santo Andre", "Sao Paulo", "Rio", "Los Angeles", "New York", "Heidelberg", "Munich"],
-    "gene":    ["TP53", "EGFR", "BRCA1", "KRAS", "PIK3CA", "MYC", "PTEN"],
-    "value":   [10, 20, 15, 30, 12, 18, 25]
-})
+df = pd.DataFrame(
+    {
+        "country": ["Brazil", "Brazil", "Brazil", "USA", "USA", "Germany", "Germany"],
+        "state": ["SP", "SP", "RJ", "CA", "NY", "BW", "BY"],
+        "city": [
+            "Santo Andre",
+            "Sao Paulo",
+            "Rio",
+            "Los Angeles",
+            "New York",
+            "Heidelberg",
+            "Munich",
+        ],
+        "gene": ["TP53", "EGFR", "BRCA1", "KRAS", "PIK3CA", "MYC", "PTEN"],
+        "value": [10, 20, 15, 30, 12, 18, 25],
+    }
+)
 
 st.title("Chained Dropdowns + Pandas Table")
 
@@ -72,18 +82,13 @@ bottom_col1, bottom_col2 = st.columns(2)
 
 with bottom_col1:
     gene_filter = st.multiselect(
-        "Filter by gene",
-        options=sorted(filtered["gene"].dropna().unique().tolist()),
-        default=[]
+        "Filter by gene", options=sorted(filtered["gene"].dropna().unique().tolist()), default=[]
     )
 
 with bottom_col2:
     min_value, max_value = int(filtered["value"].min()), int(filtered["value"].max())
     value_range = st.slider(
-        "Value range",
-        min_value=min_value,
-        max_value=max_value,
-        value=(min_value, max_value)
+        "Value range", min_value=min_value, max_value=max_value, value=(min_value, max_value)
     )
 
 final_df = filtered.copy()
@@ -91,10 +96,7 @@ final_df = filtered.copy()
 if gene_filter:
     final_df = final_df[final_df["gene"].isin(gene_filter)]
 
-final_df = final_df[
-    (final_df["value"] >= value_range[0]) &
-    (final_df["value"] <= value_range[1])
-]
+final_df = final_df[(final_df["value"] >= value_range[0]) & (final_df["value"] <= value_range[1])]
 
 st.subheader("Final result")
 st.dataframe(final_df, use_container_width=True)

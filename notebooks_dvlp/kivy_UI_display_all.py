@@ -7,7 +7,6 @@
 # @local: Home sweet home
 
 import pandas as pd
-
 from kivy.app import App
 from kivy.lang import Builder
 from kivy.properties import ListProperty, ObjectProperty, StringProperty
@@ -150,7 +149,15 @@ class RootWidget(BoxLayout):
             {
                 "country": ["Brazil", "Brazil", "Brazil", "USA", "USA", "Germany", "Germany"],
                 "state": ["SP", "SP", "RJ", "CA", "NY", "BW", "BY"],
-                "city": ["Santo Andre", "Sao Paulo", "Rio", "Los Angeles", "New York", "Heidelberg", "Munich"],
+                "city": [
+                    "Santo Andre",
+                    "Sao Paulo",
+                    "Rio",
+                    "Los Angeles",
+                    "New York",
+                    "Heidelberg",
+                    "Munich",
+                ],
                 "gene": ["TP53", "EGFR", "BRCA1", "KRAS", "PIK3CA", "MYC", "PTEN"],
                 "value": [10, 20, 15, 30, 12, 18, 25],
             }
@@ -246,6 +253,7 @@ class RootWidget(BoxLayout):
             }
             for _, row in df.iterrows()
         ]
+
 
 class ChainedDropdownTableApp(App):
     def build(self):

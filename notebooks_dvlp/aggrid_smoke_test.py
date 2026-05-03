@@ -1,12 +1,10 @@
-import streamlit as st
-import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder
-
-import streamlit as st
-import pandas as pd
 import sys
 from importlib.metadata import version
+
+import pandas as pd
 import st_aggrid
+import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 st.title("AgGrid smoke test")
 
@@ -20,10 +18,7 @@ st.write("st_aggrid module:", getattr(st_aggrid, "__file__", "no file"))
 st.write("protobuf:", version("protobuf"))
 
 
-df = pd.DataFrame({
-    "A": [1, 2, 3],
-    "B": ["x", "y", "z"]
-})
+df = pd.DataFrame({"A": [1, 2, 3], "B": ["x", "y", "z"]})
 
 st.write("before grid")
 

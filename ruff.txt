@@ -1,0 +1,851 @@
+F821 Undefined name `df`
+   --> src/libs/stat_lib.py:436:70
+    |
+434 |             sig = stat_asteristics(pvalue)
+435 |             print("Null hypothesis is rejected, both distributions may be different.")
+436 |             print(f"p-value {pvalue:.2e} significance = {sig} dof = {df}")
+    |                                                                      ^^
+437 |         else:
+438 |             print("fail to reject the null hypothesis, both distributions may be similar.")
+    |
+
+F841 Local variable `df` is assigned to but never used
+   --> src/libs/stat_lib.py:461:9
+    |
+459 |         statistic = float(res.statistic)
+460 |         pvalue = float(res.pvalue)
+461 |         df = int(res.df)
+    |         ^^
+462 |     except ValueError:
+463 |         s_error = f"Error: ttest {vals1} {vals2}"
+    |
+help: Remove assignment to unused variable `df`
+
+F821 Undefined name `df`
+   --> src/libs/stat_lib.py:500:75
+    |
+498 |         return -1, -1, 0, mu, std, s_error
+499 |
+500 |     msg = f"mean={mu:.3f} and std={std:.3f}, pval = {pvalue:.3e} and dof={df}"
+    |                                                                           ^^
+501 |
+502 |     return statistic, pvalue, dof, mu, std, msg
+    |
+
+F841 Local variable `df` is assigned to but never used
+   --> src/libs/stat_lib.py:527:9
+    |
+525 |         statistic = float(res.statistic)
+526 |         pvalue = float(res.pvalue)
+527 |         df = int(res.df)
+    |         ^^
+528 |     except ValueError:
+529 |         s_error = f"Error: ttest {vals1} {vals2}"
+    |
+help: Remove assignment to unused variable `df`
+
+F821 Undefined name `vals1`
+   --> src/libs/stat_lib.py:529:35
+    |
+527 |         df = int(res.df)
+528 |     except ValueError:
+529 |         s_error = f"Error: ttest {vals1} {vals2}"
+    |                                   ^^^^^
+530 |         print(s_error)
+531 |         return False, [valsf, valsm], [nfemales, nmales], -1, -1, s_error
+    |
+
+F821 Undefined name `vals2`
+   --> src/libs/stat_lib.py:529:43
+    |
+527 |         df = int(res.df)
+528 |     except ValueError:
+529 |         s_error = f"Error: ttest {vals1} {vals2}"
+    |                                           ^^^^^
+530 |         print(s_error)
+531 |         return False, [valsf, valsm], [nfemales, nmales], -1, -1, s_error
+    |
+
+F821 Undefined name `samp1`
+   --> src/libs/stat_lib.py:709:40
+    |
+707 | def test_one_way_ANOVA(ser1, ser2, alpha=0.05):
+708 |     # teste de variancias de Fisher - one way ANOVA (analysis of variance)
+709 |     statistic, pvalue = stats.f_oneway(samp1, samp2)
+    |                                        ^^^^^
+710 |
+711 |     if pvalue > alpha:
+    |
+
+F821 Undefined name `samp2`
+   --> src/libs/stat_lib.py:709:47
+    |
+707 | def test_one_way_ANOVA(ser1, ser2, alpha=0.05):
+708 |     # teste de variancias de Fisher - one way ANOVA (analysis of variance)
+709 |     statistic, pvalue = stats.f_oneway(samp1, samp2)
+    |                                               ^^^^^
+710 |
+711 |     if pvalue > alpha:
+    |
+
+F841 Local variable `statistic` is assigned to but never used
+    --> src/libs/stat_lib.py:1160:13
+     |
+1158 |         else:
+1159 |             ret = None
+1160 |             statistic = None
+     |             ^^^^^^^^^
+1161 |             pvalue = None
+1162 |             stri_stat = ""
+     |
+help: Remove assignment to unused variable `statistic`
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1425:9
+     |
+1424 |     try:
+1425 |         os.mkdir("./tmp/")
+     |         ^^
+1426 |     except ValueError:
+1427 |         pass
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1432:8
+     |
+1431 |     # install.packages('DescTools')
+1432 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+     |        ^^
+1433 |         os.remove("./tmp/dunnett_result.tsv")
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1433:9
+     |
+1431 |     # install.packages('DescTools')
+1432 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+1433 |         os.remove("./tmp/dunnett_result.tsv")
+     |         ^^
+1434 |
+1435 |     os.system("Rscript ../src/dunnett_test.R ./tmp/dunnett.tsv 0.8")
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1435:5
+     |
+1433 |         os.remove("./tmp/dunnett_result.tsv")
+1434 |
+1435 |     os.system("Rscript ../src/dunnett_test.R ./tmp/dunnett.tsv 0.8")
+     |     ^^
+1436 |
+1437 |     if os.path.exists("./tmp/dunnet_result.tsv"):
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1437:8
+     |
+1435 |     os.system("Rscript ../src/dunnett_test.R ./tmp/dunnett.tsv 0.8")
+1436 |
+1437 |     if os.path.exists("./tmp/dunnet_result.tsv"):
+     |        ^^
+1438 |         dfdn = pdreadcsv("./tmp/dunnet_result.tsv")
+1439 |     else:
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1452:9
+     |
+1451 |     try:
+1452 |         os.mkdir("./tmp/")
+     |         ^^
+1453 |     except ValueError:
+1454 |         pass
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1459:8
+     |
+1458 |     # install.packages('DescTools')
+1459 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+     |        ^^
+1460 |         os.remove("./tmp/dunnett_result.tsv")
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1460:9
+     |
+1458 |     # install.packages('DescTools')
+1459 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+1460 |         os.remove("./tmp/dunnett_result.tsv")
+     |         ^^
+1461 |
+1462 |     # new command 2024/08/26
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1464:5
+     |
+1462 |     # new command 2024/08/26
+1463 |     cmd = f"Rscript ../src/dunnett_test.R ./tmp/dunnett.tsv {confidence}"
+1464 |     os.system(cmd)
+     |     ^^
+1465 |
+1466 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+     |
+
+F821 Undefined name `os`
+    --> src/libs/stat_lib.py:1466:8
+     |
+1464 |     os.system(cmd)
+1465 |
+1466 |     if os.path.exists("./tmp/dunnett_result.tsv"):
+     |        ^^
+1467 |         dfdn = pdreadcsv("./tmp/dunnett_result.tsv")
+1468 |     else:
+     |
+
+E712 Avoid equality comparisons to `True`; use `normal:` for truth checks
+    --> src/libs/stat_lib.py:1651:12
+     |
+1649 |             error = None
+1650 |     else:
+1651 |         if normal == True:
+     |            ^^^^^^^^^^^^^^
+1652 |             # if normal distributed
+1653 |             try:
+     |
+help: Replace with `normal`
+
+F403 `from libs.stat_lib import *` used; unable to detect undefined names
+  --> src/libs/tcga_gdc_lib.py:34:1
+   |
+32 | from libs.Basic import pdreadcsv, pdwritecsv, read_txt, write_txt
+33 | from libs.calc_degs_lib import CALC_DEGS
+34 | from libs.stat_lib import *
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+F405 `create_dir` may be undefined, or defined from star imports
+  --> src/libs/tcga_gdc_lib.py:51:26
+   |
+49 |         self.ROOT_DATA0 = Path(ROOT_DATA0)
+50 |         self.root_src = ROOT_SRC
+51 |         self.root_gtex = create_dir(self.ROOT_DATA0, "GTEx")
+   |                          ^^^^^^^^^^
+52 |
+53 |         self.fname_gtex = "tcga_primary_site_to_gtex_ids.tsv"
+   |
+
+F405 `create_dir` may be undefined, or defined from star imports
+   --> src/libs/tcga_gdc_lib.py:533:26
+    |
+531 |         self.prog_id = prog_id
+532 |
+533 |         self.root_data = create_dir(self.ROOT_DATA0, prog_id)
+    |                          ^^^^^^^^^^
+534 |         self.root_summary = create_dir(self.root_data, "summary")
+    |
+
+F405 `create_dir` may be undefined, or defined from star imports
+   --> src/libs/tcga_gdc_lib.py:534:29
+    |
+533 |         self.root_data = create_dir(self.ROOT_DATA0, prog_id)
+534 |         self.root_summary = create_dir(self.root_data, "summary")
+    |                             ^^^^^^^^^^
+535 |
+536 |         self.clean_gdc_files()
+    |
+
+E722 Do not use bare `except`
+   --> src/libs/tcga_gdc_lib.py:672:9
+    |
+670 |             if isinstance(deas_type_list, str):
+671 |                 deas_type_list = eval(deas_type_list)
+672 |         except:
+    |         ^^^^^^
+673 |             print("No disease types were found.")
+674 |             deas_type_list = []
+    |
+
+F405 `psi_id` may be undefined, or defined from star imports
+   --> src/libs/tcga_gdc_lib.py:884:91
+    |
+883 |         # -------------------------- batch loop ---------------------------
+884 |         filters = {"op": "in", "content": {"field": "cases.project.project_id", "value": [psi_id]}}
+    |                                                                                           ^^^^^^
+885 |
+886 |         all_hits = []
+    |
+
+F405 `psi_id` may be undefined, or defined from star imports
+   --> src/libs/tcga_gdc_lib.py:920:65
+    |
+919 |                 if "data" not in response.keys():
+920 |                     print(f"No data found while searching for '{psi_id}'")
+    |                                                                 ^^^^^^
+921 |                     print(">>> response", response)
+922 |                     self.df_cases = pd.DataFrame()
+    |
+
+F405 `psi_id` may be undefined, or defined from star imports
+   --> src/libs/tcga_gdc_lib.py:941:48
+    |
+940 |             if all_hits == []:
+941 |                 print(f"No subtypes found for {psi_id} ")
+    |                                                ^^^^^^
+942 |                 self.df_cases = response
+943 |                 self.df_subt = pd.DataFrame()
+    |
+
+F405 `psi_id` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1029:53
+     |
+1028 |         except Exception as e:
+1029 |             print(f"Error for searching diags for '{psi_id}'. error: {e}")
+     |                                                     ^^^^^^
+1030 |             self.df_cases = df_cases
+1031 |             self.df_subt = pd.DataFrame()
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1168:23
+     |
+1166 |             self.s_case = f"{self.psi_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{su…
+1167 |
+1168 |         self.s_case = title_replace(self.s_case)
+     |                       ^^^^^^^^^^^^^
+1169 |
+1170 |     def get_samples_for_subtypes(
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1236:17
+     |
+1235 |         fname = self.fname_samples0 % (self.s_case)
+1236 |         fname = title_replace(fname)
+     |                 ^^^^^^^^^^^^^
+1237 |         filename = os.path.join(self.root_psi, fname)
+     |
+
+F405 `psi_id` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1332:54
+     |
+1331 |                 if all_hits == []:
+1332 |                     print(f"No files were found for {psi_id} cases {case_id_list}")
+     |                                                      ^^^^^^
+1333 |                     self.df_samples = pd.DataFrame()
+1334 |                     return self.df_samples
+     |
+
+F405 `psi_id` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1372:40
+     |
+1371 |                 # 🔹 Metadata
+1372 |                 df_samples["psi_id"] = psi_id
+     |                                        ^^^^^^
+1373 |                 df_samples["subtype_global"] = subtype_global
+1374 |                 df_samples["tumor_class"] = tumor_class
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1439:17
+     |
+1437 |             type_of_file,
+1438 |         )
+1439 |         fname = title_replace(fname)
+     |                 ^^^^^^^^^^^^^
+1440 |         filename = os.path.join(self.root_psi, fname)
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1528:22
+     |
+1526 |     ) -> pd.DataFrame:
+1527 |
+1528 |         data_type2 = title_replace(data_type)
+     |                      ^^^^^^^^^^^^^
+1529 |         sample_type2 = title_replace(sample_type)
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1529:24
+     |
+1528 |         data_type2 = title_replace(data_type)
+1529 |         sample_type2 = title_replace(sample_type)
+     |                        ^^^^^^^^^^^^^
+1530 |
+1531 |         files = [
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1591:31
+     |
+1589 |             return {}, {}
+1590 |
+1591 |         self.file_type_list = np.unique(df_tumor_samples.data_type)
+     |                               ^^
+1592 |
+1593 |         dff_normal = df_normal_samples[
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:1598:24
+     |
+1596 |         dff_normal.reset_index(drop=True, inplace=True)
+1597 |
+1598 |         case_id_list = np.unique(dff_normal.case_id)
+     |                        ^^
+1599 |
+1600 |         dff_tumor = df_tumor_samples[df_tumor_samples.case_id.isin(case_id_list)].copy()
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2012:31
+     |
+2010 |     def set_mutation_filenames(self):
+2011 |         self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
+2012 |         self.fname_mut_anal = title_replace(self.fname_mut_anal)
+     |                               ^^^^^^^^^^^^^
+2013 |         self.filename_mutanal = self.root_psi / self.fname_mut_anal
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2016:31
+     |
+2015 |         self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
+2016 |         self.fname_mut_summ = title_replace(self.fname_mut_summ)
+     |                               ^^^^^^^^^^^^^
+2017 |         self.filename_mutsumm = self.root_psi / self.fname_mut_summ
+     |
+
+F841 Local variable `df_prof` is assigned to but never used
+    --> src/libs/tcga_gdc_lib.py:2141:28
+     |
+2139 |         df_psi = self.get_primary_sites(prog_id=prog_id, force=force, verbose=verbose)
+2140 |
+2141 |         df_cases, df_subt, df_prof = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+     |                            ^^^^^^^
+2142 |
+2143 |         fname_all_cases = self.fname_all_cases % (self.prog_id)
+     |
+help: Remove assignment to unused variable `df_prof`
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2168:17
+     |
+2166 |             return df_all_cases, df_all_samples, df_all_mutations
+2167 |
+2168 |         lista = np.arange(len(df_psi))
+     |                 ^^
+2169 |
+2170 |         df_list_cases, df_list_samples, df_list_mutations = [], [], []
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2227:44
+     |
+2225 |                     continue
+2226 |
+2227 |                 barcode_sample_list = list(np.unique(df2.barcode_sample))
+     |                                            ^^
+2228 |
+2229 |                 print("Getting mutations", end=" ")
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2348:28
+     |
+2346 |             df3 = df3.copy().reset_index(drop=True)
+2347 |
+2348 |             case_id_list = np.unique(df3.case_id)
+     |                            ^^
+2349 |
+2350 |             fname = self.fname_samples0 % (self.s_case)
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2351:21
+     |
+2350 |             fname = self.fname_samples0 % (self.s_case)
+2351 |             fname = title_replace(fname)
+     |                     ^^^^^^^^^^^^^
+2352 |             filename = os.path.join(self.root_psi, fname)
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2396:34
+     |
+2394 |         )
+2395 |         df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
+2396 |         list_all_barcodes = list(np.unique(list_all_barcodes))
+     |                                  ^^
+2397 |
+2398 |         return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2411:36
+     |
+2410 |         # 01A, 01B, 01Z → all collapse to 01
+2411 |         barcode_sample_list = list(np.unique(barcode_sample_list))
+     |                                    ^^
+2412 |
+2413 |         return barcode_sample_list
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2487:18
+     |
+2485 |             aggfunc="max",
+2486 |             fill_value=0,
+2487 |         ).astype(np.uint8)
+     |                  ^^
+2488 |
+2489 |         # Remove empty samples and genes
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2571:21
+     |
+2569 |             embedding = embedding[0]
+2570 |
+2571 |         embedding = np.asarray(embedding)
+     |                     ^^
+2572 |
+2573 |         if embedding.shape[0] < 3:
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2590:34
+     |
+2588 |         # Force numeric/binary and remove bad values
+2589 |
+2590 |         X = dfpiv.to_numpy(dtype=np.uint8)
+     |                                  ^^
+2591 |
+2592 |         n_samples = X.shape[0]
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2629:21
+     |
+2627 |             embedding = embedding[0]
+2628 |
+2629 |         embedding = np.asarray(embedding)
+     |                     ^^
+2630 |
+2631 |         """
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2635:16
+     |
+2633 |         embedding = embedding[good]
+2634 |         """
+2635 |         if not np.isfinite(embedding).all():
+     |                ^^
+2636 |             print("UMAP embedding contains NaN or infinite values.")
+2637 |             return [], []
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2659:21
+     |
+2658 |         embedding, labels = self.calc_UMAP(dfpiv, k)
+2659 |         embedding = np.array(embedding)
+     |                     ^^
+2660 |
+2661 |         if len(embedding) == 0 or len(labels) == 0:
+     |
+
+F841 Local variable `sc` is assigned to but never used
+    --> src/libs/tcga_gdc_lib.py:2668:9
+     |
+2667 |         # cmap = plt.cm.get_cmap("tab10", k)
+2668 |         sc = plt.scatter(
+     |         ^^
+2669 |             embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
+2670 |         )
+     |
+help: Remove assignment to unused variable `sc`
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2708:21
+     |
+2706 |             dfpiv=dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples
+2707 |         )
+2708 |         embedding = np.array(embedding)
+     |                     ^^
+2709 |
+2710 |         if len(embedding) == 0 or len(labels) == 0:
+     |
+
+F841 Local variable `sc` is assigned to but never used
+    --> src/libs/tcga_gdc_lib.py:2716:9
+     |
+2714 |         fig, ax = plt.subplots(figsize=figsize)
+2715 |
+2716 |         sc = plt.scatter(
+     |         ^^
+2717 |             embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
+2718 |         )
+     |
+help: Remove assignment to unused variable `sc`
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2767:21
+     |
+2766 |             if len(deg_list) == 0:
+2767 |                 H = np.nan
+     |                     ^^
+2768 |                 Hmax = np.nan
+2769 |                 Hnorm = np.nan
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2768:24
+     |
+2766 |             if len(deg_list) == 0:
+2767 |                 H = np.nan
+2768 |                 Hmax = np.nan
+     |                        ^^
+2769 |                 Hnorm = np.nan
+2770 |                 n_genes = 0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2769:25
+     |
+2767 |                 H = np.nan
+2768 |                 Hmax = np.nan
+2769 |                 Hnorm = np.nan
+     |                         ^^
+2770 |                 n_genes = 0
+2771 |             else:
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2772:21
+     |
+2770 |                 n_genes = 0
+2771 |             else:
+2772 |                 w = np.array(deg_list, dtype=float)
+     |                     ^^
+2773 |                 p = w / w.sum()
+2774 |                 H = -np.sum(p * np.log2(p))
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2774:22
+     |
+2772 |                 w = np.array(deg_list, dtype=float)
+2773 |                 p = w / w.sum()
+2774 |                 H = -np.sum(p * np.log2(p))
+     |                      ^^
+2775 |                 n_genes = len(p)
+2776 |                 Hmax = np.log2(n_genes) if n_genes > 1 else 0.0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2774:33
+     |
+2772 |                 w = np.array(deg_list, dtype=float)
+2773 |                 p = w / w.sum()
+2774 |                 H = -np.sum(p * np.log2(p))
+     |                                 ^^
+2775 |                 n_genes = len(p)
+2776 |                 Hmax = np.log2(n_genes) if n_genes > 1 else 0.0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2776:24
+     |
+2774 |                 H = -np.sum(p * np.log2(p))
+2775 |                 n_genes = len(p)
+2776 |                 Hmax = np.log2(n_genes) if n_genes > 1 else 0.0
+     |                        ^^
+2777 |                 Hnorm = H / Hmax if Hmax > 0 else 0.0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2808:22
+     |
+2806 |                 (sub["entropy_norm"] * sub["cluster_size"]).sum() / total_n
+2807 |                 if total_n > 0
+2808 |                 else np.nan
+     |                      ^^
+2809 |             )
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2880:28
+     |
+2878 |                 continue
+2879 |
+2880 |             for cluster in np.unique(labels):
+     |                            ^^
+2881 |                 dfc = self.cluster_mutation_table(
+2882 |                     dfpiv=dfpiv, labels=labels, cluster=cluster, min_barcodes=min_barcodes
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2927:20
+     |
+2926 |     def buid_purity_table(self, dfpiv: pd.DataFrame, labels: list) -> pd.DataFrame:
+2927 |         lab_list = np.unique(labels)
+     |                    ^^
+2928 |         pu_list = []
+2929 |         n_list = []
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2943:37
+     |
+2941 |                 dist = pairwise_distances(X, metric="jaccard")
+2942 |                 similarity = 1 - dist
+2943 |                 purity = similarity[np.triu_indices_from(similarity, k=1)].mean()
+     |                                     ^^
+2944 |             else:
+2945 |                 purity = 0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2947:28
+     |
+2945 |                 purity = 0
+2946 |
+2947 |             pu_list.append(np.round(purity, 3))
+     |                            ^^
+2948 |
+2949 |         dfa = pd.DataFrame(
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:2967:21
+     |
+2966 |         ngood = len(good_clusters)
+2967 |         nrows = int(np.ceil(ngood / 2))
+     |                     ^^
+2968 |         height = 6 * nrows
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3075:28
+     |
+3074 |         # ------------ hypergeometric statistics ---------------------
+3075 |         background_genes = np.unique(df_all_mut.symbol.to_list())
+     |                            ^^
+3076 |
+3077 |         dic = self.SUBTYPE_GENES.get(self.psi_id, {})
+     |
+
+F405 `fdr` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3141:25
+     |
+3139 |                 ],
+3140 |             )
+3141 |             df["fdr"] = fdr(df["pval"])
+     |                         ^^^
+3142 |
+3143 |         return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
+     |
+
+F405 `title_replace` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3180:17
+     |
+3178 |         self.fname_vcf_files0 = "vcf_files_for_%s.tsv"
+3179 |         fname = self.fname_vcf_files0 % (self.s_case)
+3180 |         fname = title_replace(fname)
+     |                 ^^^^^^^^^^^^^
+3181 |         filename = os.path.join(self.root_psi, fname)
+     |
+
+E722 Do not use bare `except`
+    --> src/libs/tcga_gdc_lib.py:3338:17
+     |
+3336 |                     print("content-type:", res.headers.get("Content-Type"))
+3337 |                     print("text:", res.text[:500])  # inspect response before parsing
+3338 |                 except:
+     |                 ^^^^^^
+3339 |                     print("Could not access http response.")
+     |
+
+E722 Do not use bare `except`
+    --> src/libs/tcga_gdc_lib.py:3406:13
+     |
+3405 |                 return df_degs, df_lfc, degs_txt, sample_txt
+3406 |             except:
+     |             ^^^^^^
+3407 |                 pass
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3513:22
+     |
+3512 |         def row_entropy(values):
+3513 |             values = np.asarray(values, dtype=float)
+     |                      ^^
+3514 |
+3515 |             # remove NaNs
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3516:29
+     |
+3515 |             # remove NaNs
+3516 |             values = values[np.isfinite(values)]
+     |                             ^^
+3517 |
+3518 |             if len(values) == 0:
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3519:24
+     |
+3518 |             if len(values) == 0:
+3519 |                 return np.nan
+     |                        ^^
+3520 |
+3521 |             # all equal → entropy = 0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3522:16
+     |
+3521 |             # all equal → entropy = 0
+3522 |             if np.allclose(values, values[0]):
+     |                ^^
+3523 |                 return 0.0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3529:16
+     |
+3528 |             # avoid all zeros
+3529 |             if np.allclose(values.sum(), 0):
+     |                ^^
+3530 |                 return 0.0
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3537:24
+     |
+3535 |             probs = probs[probs > 0]
+3536 |
+3537 |             entropy = -np.sum(probs * np.log2(probs))
+     |                        ^^
+3538 |             return entropy
+     |
+
+F405 `np` may be undefined, or defined from star imports
+    --> src/libs/tcga_gdc_lib.py:3537:39
+     |
+3535 |             probs = probs[probs > 0]
+3536 |
+3537 |             entropy = -np.sum(probs * np.log2(probs))
+     |                                       ^^
+3538 |             return entropy
+     |
+
+Found 82 errors (1 fixed, 81 remaining).
+No fixes available (7 hidden fixes can be enabled with the `--unsafe-fixes` option).

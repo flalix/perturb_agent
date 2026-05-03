@@ -6,11 +6,12 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-import os, sys
+import os
+import sys
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
-
-from pathlib import Path
 
 ROOT = Path().resolve().parent.parent
 SRC = os.path.join(ROOT, "src")
@@ -21,9 +22,8 @@ if str(SRC) not in sys.path:
 print("ROOT:", ROOT)
 print("SRC added:", SRC)
 
-from libs.tcga_gdc_lib import *
 from libs.Basic import *
-
+from libs.tcga_gdc_lib import *
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")
@@ -103,7 +103,8 @@ def init_state() -> None:
 
 def main() -> None:
 
-    st.markdown("""
+    st.markdown(
+        """
         <style>
             .block-container {
                 padding-top: 0.5rem !important;
@@ -113,11 +114,16 @@ def main() -> None:
                 margin-top: -20px !important;
             }
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("""
+    st.markdown(
+        """
 <h1 style='font-size: 1.2rem;'>GDC Cases Explorer</h1>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
     # st.set_page_config(page_title="GDC Cases Explorer", layout="wide")
     init_state()
@@ -166,12 +172,7 @@ def main() -> None:
     primary_site_options: list[str] = []
     if not dfc.empty:
         primary_site_options = (
-            dfc["primary_site"]
-            .dropna()
-            .astype(str)
-            .sort_values()
-            .unique()
-            .tolist()
+            dfc["primary_site"].dropna().astype(str).sort_values().unique().tolist()
         )
 
     with col2:
@@ -182,19 +183,24 @@ def main() -> None:
             placeholder="Select primary site",
         )
 
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     div[data-testid="stButton"] button[kind="primary"] {
         height: 2em;
         font-size: 1.3rem;
     }
     </style>
-""", unsafe_allow_html=True)
-    
+""",
+        unsafe_allow_html=True,
+    )
+
     _, col_btn, _ = st.columns([1, 2, 1])
 
     with col_btn:
-        run_search = st.button("Find cases, subtypes, tumor class and stages", use_container_width=True, type="primary")
+        run_search = st.button(
+            "Find cases, subtypes, tumor class and stages", use_container_width=True, type="primary"
+        )
 
     if run_search:
         if not selected_primary_site:
@@ -234,4 +240,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

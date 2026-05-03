@@ -1,27 +1,24 @@
 # streamlit_gdc_tcga.py
 
-#=============== to run =====================
+# =============== to run =====================
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 # streamlit run streamlit_UI_GDC_test03.py
 #
-#============================================
+# ============================================
 
 
-import os, sys
-import numpy as np
-import pandas as pd
-import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder
+import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
-import plotly.express as px
-
+import numpy as np
+import pandas as pd
 import seaborn as sns
-from sklearn.cluster import KMeans
+import streamlit as st
 import umap
-
-from pathlib import Path
+from sklearn.cluster import KMeans
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 ROOT = Path().resolve().parent
 SRC = ROOT / "src"
@@ -29,9 +26,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
-from libs.calc_degs_lib import CALC_DEGS
-from libs.tcga_gdc_lib import *
 from libs.Basic import *
+from libs.tcga_gdc_lib import *
 
 root0 = ROOT / "data"
 
@@ -42,8 +38,27 @@ print("Data:", root0)
 gdc = GDC(root0=root0)
 
 verbose = True
-colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', 'tomato', 'lime', 'magenta', 'yellow',
-          'gray', 'brown', 'olive', 'navy', 'teal', 'maroon', 'silver']
+colors = [
+    "red",
+    "green",
+    "blue",
+    "orange",
+    "pink",
+    "purple",
+    "black",
+    "cyan",
+    "tomato",
+    "lime",
+    "magenta",
+    "yellow",
+    "gray",
+    "brown",
+    "olive",
+    "navy",
+    "teal",
+    "maroon",
+    "silver",
+]
 
 
 # -----------------------------------------------------------------------------
@@ -51,7 +66,8 @@ colors = ['red', 'green', 'blue', 'orange', 'pink', 'purple', 'black', 'cyan', '
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="GDC / TCGA Explorer", layout="wide")
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 .block-container {
     max-width: 96%;
@@ -59,33 +75,38 @@ st.markdown("""
     padding-right: 1.5rem;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 div.stButton > button {
     width: 100%;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.title("GDC / TCGA Explorer")
 st.caption("Explore cases, tumor samples, and mutation matrices by primary site")
+
 
 def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
 
     out = df.copy()
-    
+
     # Make labels plain Python strings
     out.index = out.index.map(str)
     out.columns = [str(c) for c in out.columns]
-    
+
     # Flatten MultiIndex columns if present
     if isinstance(out.columns, pd.MultiIndex):
         out.columns = [" | ".join(map(str, col)).strip() for col in out.columns.to_flat_index()]
-
 
     # Convert every column to a Streamlit-safe pandas dtype
     for col in out.columns:
@@ -105,10 +126,10 @@ def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
         # Replace pandas NA/NaT with None so Arrow does not try fancy typing
         out[col] = out[col].where(pd.notna(out[col]), None)
 
-
     return out
 
-def show_df(df, height:int=500, page_size:int=50):
+
+def show_df(df, height: int = 500, page_size: int = 50):
     df = make_streamlit_safe(df)
 
     gb = GridOptionsBuilder.from_dataframe(df)
@@ -127,11 +148,14 @@ def show_df(df, height:int=500, page_size:int=50):
 
     grid_options = gb.build()
 
-    AgGrid(df,
+    AgGrid(
+        df,
         gridOptions=grid_options,
         height=height,
         fit_columns_on_grid_load=True,
-        allow_unsafe_jscode=False)
+        allow_unsafe_jscode=False,
+    )
+
 
 def show_df_html(df, height: int = 450):
     if df is None or df.empty:
@@ -163,7 +187,8 @@ def show_df_html(df, height: int = 450):
         unsafe_allow_html=True,
     )
 
-def show_df_old(df, height:int=450):
+
+def show_df_old(df, height: int = 450):
     df = make_streamlit_safe(df)
 
     try:
@@ -172,7 +197,7 @@ def show_df_old(df, height:int=450):
         st.dataframe(df, height=height)
 
 
-def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
+def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20, figsize=(12, 6)):
     if dfpiv is None or dfpiv.empty:
         st.info("No mutation matrix available.")
         return
@@ -196,29 +221,25 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n:int=20, figsize=(12,6)):
     st.pyplot(fig)
     plt.close(fig)
 
-def plot_heatmap(dfpiv: pd.DataFrame, figsize:tuple=(14, 10)):
+
+def plot_heatmap(dfpiv: pd.DataFrame, figsize: tuple = (14, 10)):
     # Ensure numeric + binary (important for Jaccard)
     data = dfpiv.fillna(0).astype(int)
 
     cg = sns.clustermap(
-                data,
-                metric="jaccard",
-                method="average",
-                figsize=figsize,
-                cmap="viridis",
-                cbar=False
-            )
+        data, metric="jaccard", method="average", figsize=figsize, cmap="viridis", cbar=False
+    )
 
     st.pyplot(cg.figure)
     plt.close(cg.figure)
 
-def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
+
+def plot_umap(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
 
     # Binary mutation matrix for Jaccard
     # Force numeric/binary and remove bad values
     data = (
-        dfpiv
-        .replace(["NaN", "nan", ""], np.nan)   # catch fake NaNs
+        dfpiv.replace(["NaN", "nan", ""], np.nan)  # catch fake NaNs
         .apply(pd.to_numeric, errors="coerce")
         .fillna(0)
         .astype(bool)
@@ -231,7 +252,7 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     if data.empty:
         st.warning("No non-empty mutation matrix after filtering.")
         return
-    
+
     X = data.to_numpy(dtype=np.uint8)
 
     n_samples = X.shape[0]
@@ -247,15 +268,15 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     k = min(k, n_samples)
 
     n_neighbors = min(15, n_samples - 1)
-    n_neighbors = max(2, n_neighbors)    
+    n_neighbors = max(2, n_neighbors)
 
     reducer = umap.UMAP(
         n_neighbors=n_neighbors,
         min_dist=0.1,
         metric="jaccard",
         random_state=42,
-        init="random",      # important
-        output_dens=False   # avoid tuple output
+        init="random",  # important
+        output_dens=False,  # avoid tuple output
     )
 
     embedding = reducer.fit_transform(X)
@@ -269,7 +290,6 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
     good = np.isfinite(embedding).all(axis=1)
     embedding = embedding[good]
 
-
     labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(embedding)
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -282,7 +302,7 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
         c=[colors[label] for label in labels],
         # c=labels,
         # cmap=cmap,
-        s=20
+        s=20,
     )
 
     ax.set_title(f"UMAP of Mutation Profiles (k={k})")
@@ -298,7 +318,7 @@ def plot_umap(dfpiv: pd.DataFrame, k:int=8, figsize:tuple=(14, 10)):
 
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
-prog_id = 'TCGA'
+prog_id = "TCGA"
 gdc.set_program(prog_id)
 df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
 df_psi = make_streamlit_safe(df_psi)
@@ -306,15 +326,18 @@ df_psi = make_streamlit_safe(df_psi)
 primary_site = df_psi.iloc[0].primary_site
 gdc.set_primary_site(primary_site=primary_site)
 
+
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
 # hash error: @st.cache(show_spinner=True)
-def load_primary_site_data(primary_site:str, verbose:bool=False):
+def load_primary_site_data(primary_site: str, verbose: bool = False):
 
     gdc.set_primary_site(primary_site=primary_site)
 
-    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(primary_site=primary_site, verbose=verbose)
+    df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(
+        primary_site=primary_site, verbose=verbose
+    )
 
     df_cases = make_streamlit_safe(df_cases)
     df_all_samples = make_streamlit_safe(df_all_samples)
@@ -354,12 +377,13 @@ def summarize_mutations(df_all_mut: pd.DataFrame) -> pd.DataFrame:
     if df_all_mut is None or df_all_mut.empty:
         return pd.DataFrame(columns=["symbol", "n_patients_mutated"])
 
-    df = ( df_all_mut.groupby("symbol")["barcode"]
-                .nunique()
-                .reset_index(name="n_patients_mutated")
-                .sort_values("n_patients_mutated", ascending=False)
-                .reset_index(drop=True)
-        )
+    df = (
+        df_all_mut.groupby("symbol")["barcode"]
+        .nunique()
+        .reset_index(name="n_patients_mutated")
+        .sort_values("n_patients_mutated", ascending=False)
+        .reset_index(drop=True)
+    )
 
     df = make_streamlit_safe(df)
     return df
@@ -380,7 +404,6 @@ with st.sidebar:
     force = st.checkbox("Force rebuild", value=False)
     verbose = st.checkbox("Verbose", value=False)
 
-   
 
 st.session_state.loaded = True
 
@@ -388,8 +411,6 @@ st.session_state.loaded = True
 # MAIN LOAD
 # -----------------------------------------------------------------------------
 if st.session_state.loaded:
-
-
     # -------------------------------------------------------------------------
     # GLOBAL SUMMARY
     # -------------------------------------------------------------------------
@@ -414,7 +435,9 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # FILTERED TABLES
     # -------------------------------------------------------------------------
-    df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(selected_primary_site, verbose=False)
+    df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(
+        selected_primary_site, verbose=False
+    )
 
     # -------------------------------------------------------------------------
     # LOCAL SUMMARY
@@ -423,7 +446,6 @@ if st.session_state.loaded:
     with st.sidebar:
         st.subheader(f"Primary site: {selected_primary_site}")
 
-        
         st.text(f"Cases {len(df_cases)}")
         st.text(f"Tumor samples {len(df_all_samples)}")
         st.text(f"Total mutations {len(df_all_mut)}")
@@ -442,7 +464,11 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    tab = st.radio("Main", ['Cases', 'Tumor Samples', 'Mutations', 'Mutation Matrix', 'Downloads'], horizontal=True)
+    tab = st.radio(
+        "Main",
+        ["Cases", "Tumor Samples", "Mutations", "Mutation Matrix", "Downloads"],
+        horizontal=True,
+    )
 
     # -------------------------------------------------------------------------
     # TAB 1 - CASES
@@ -462,8 +488,11 @@ if st.session_state.loaded:
     # TAB 3 - MUTATIONS
     # -------------------------------------------------------------------------
     elif tab == "Mutations":
-
-        subtab = st.radio("Main", ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"], horizontal=True)
+        subtab = st.radio(
+            "Main",
+            ["Barplot: top Mutated Genes", "Mutated Genes", "Raw Mutation Rows"],
+            horizontal=True,
+        )
 
         if subtab == "Barplot: top Mutated Genes":
             st.write("Most frequently mutated genes across filtered barcodes")
@@ -490,13 +519,11 @@ if st.session_state.loaded:
     # TAB 4 - MUTATION MATRIX
     # -------------------------------------------------------------------------
     elif tab == "Mutation Matrix":
-
         subtab = st.radio("Main", ["Heatmap", "UMAP - cluster"], horizontal=True)
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
         else:
-
             if subtab == "Heatmap":
                 st.subheader("Mutation matrix heatmap")
                 plot_heatmap(dfpiv)
@@ -506,12 +533,7 @@ if st.session_state.loaded:
 
                 n_samples = dfpiv.shape[0]
 
-                k = st.slider(
-                    "K (number of clusters)",
-                    2,
-                    min(15, n_samples),
-                    min(8, n_samples)
-                )
+                k = st.slider("K (number of clusters)", 2, min(15, n_samples), min(8, n_samples))
 
                 plot_umap(dfpiv, k=k)
 

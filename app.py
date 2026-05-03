@@ -6,8 +6,8 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-from pathlib import Path
 import runpy
+from pathlib import Path
 
 target = Path(__file__).resolve().parent / "src" / "app_main.py"
 print(f"Running {target}")

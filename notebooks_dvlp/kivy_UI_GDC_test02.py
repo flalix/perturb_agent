@@ -6,16 +6,16 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-import os, sys
-import pandas as pd
+import os
+import sys
+from pathlib import Path
 
+import pandas as pd
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.lang import Builder
 from kivy.properties import ListProperty, ObjectProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
-
-from pathlib import Path
 
 ROOT = Path().resolve().parent.parent
 SRC = os.path.join(ROOT, "src")
@@ -26,9 +26,8 @@ if str(SRC) not in sys.path:
 print("ROOT:", ROOT)
 print("SRC added:", SRC)
 
-from libs.tcga_gdc_lib import *
 from libs.Basic import *
-
+from libs.tcga_gdc_lib import *
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")
@@ -356,11 +355,7 @@ class RootWidget(BoxLayout):
         try:
             self.status_text = f"Loading primary sites for {program}..."
 
-            dfc = gdc.get_primary_sites(
-                program=program,
-                force=False,
-                verbose=self.verbose
-            )
+            dfc = gdc.get_primary_sites(program=program, force=False, verbose=self.verbose)
 
             if not isinstance(dfc, pd.DataFrame):
                 raise TypeError("gdc.get_primary_sites() did not return a DataFrame")
@@ -425,11 +420,7 @@ class RootWidget(BoxLayout):
             self.status_text = f"Loading cases and subtypes for {self.pid}..."
 
             df_cases, df_subt, _ = gdc.get_cases_and_subtypes(
-                pid=self.pid,
-                batch_size=200,
-                do_filter=False,
-                force=False,
-                verbose=self.verbose
+                pid=self.pid, batch_size=200, do_filter=False, force=False, verbose=self.verbose
             )
 
             if not isinstance(df_cases, pd.DataFrame):
@@ -442,7 +433,14 @@ class RootWidget(BoxLayout):
             if missing_subt:
                 raise ValueError(f"df_subt missing columns: {missing_subt}")
 
-            case_cols = ["pid", "case_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
+            case_cols = [
+                "pid",
+                "case_id",
+                "subtype_global",
+                "tumor_class",
+                "subtype_tissue",
+                "stage",
+            ]
             missing_cases = [c for c in case_cols if c not in df_cases.columns]
             if missing_cases:
                 raise ValueError(f"df_cases missing columns: {missing_cases}")

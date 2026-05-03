@@ -5,9 +5,9 @@
 
 # ========== STANDARD LIBRARY IMPORTS ONLY (no external dependencies) ==========
 import os
-import sys
-import shutil
 import re
+import shutil
+import sys
 from pathlib import Path
 
 
@@ -33,8 +33,8 @@ def check_python_executable_and_version():
     print()
 
     # Check if running in a virtual environment
-    in_venv = hasattr(sys, 'real_prefix') or (
-        hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix
+    in_venv = hasattr(sys, "real_prefix") or (
+        hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
     )
 
     # Check if executable is in expected .venv location
@@ -58,7 +58,7 @@ def check_python_executable_and_version():
         issues.append("⚠️  Not running in a virtual environment")
         issues.append("   This may cause import errors if required packages are not installed")
     elif not executable_in_venv:
-        issues.append(f"⚠️  Python executable is not in expected .venv location")
+        issues.append("⚠️  Python executable is not in expected .venv location")
         issues.append(f"   Expected: {expected_python}")
         issues.append(f"   Actual:   {executable}")
         issues.append("   You may be using a different virtual environment or system Python")
@@ -74,7 +74,7 @@ def check_python_executable_and_version():
         print(f"✅ Python version {py_version_str} is in expected range (>=3.12, <3.14)")
 
     # Check sys.prefix and base_prefix
-    print(f"\nEnvironment paths:")
+    print("\nEnvironment paths:")
     print(f"  sys.prefix:      {sys.prefix}")
     print(f"  sys.base_prefix: {sys.base_prefix}")
     if in_venv:
@@ -101,12 +101,14 @@ def check_python_executable_and_version():
 
 # ========== EXTERNAL DEPENDENCY IMPORTS (with error handling) ==========
 try:
-    from dotenv import dotenv_values, load_dotenv
     import tomllib
     from importlib import metadata
+
+    from dotenv import dotenv_values, load_dotenv
     from packaging.requirements import Requirement
     from packaging.specifiers import SpecifierSet
     from packaging.version import Version
+
     EXTERNAL_IMPORTS_AVAILABLE = True
 except ImportError as e:
     EXTERNAL_IMPORTS_AVAILABLE = False
@@ -171,6 +173,7 @@ def summarize_value(key: str, value: str, example_value: str = None) -> str:
     # Otherwise, obscure the API key
     return "****" + value[-4:] if len(value) > 4 else "****" + value
 
+
 def check_env_conflicts(env_file_path: str):
     """Check for conflicts between system environment variables and .env file.
 
@@ -186,6 +189,7 @@ def check_env_conflicts(env_file_path: str):
 
     # Parse the .env file to get what values SHOULD be loaded
     from dotenv import dotenv_values
+
     env_file_vars = dotenv_values(env_file_path)
 
     conflicts = []
@@ -194,11 +198,7 @@ def check_env_conflicts(env_file_path: str):
         sys_value = os.environ.get(key)
         if sys_value is not None and sys_value != file_value:
             # There's a conflict - system env var exists and differs from .env file
-            conflicts.append({
-                'key': key,
-                'system_value': sys_value,
-                'file_value': file_value
-            })
+            conflicts.append({"key": key, "system_value": sys_value, "file_value": file_value})
 
     if conflicts:
         print("=" * 70)
@@ -210,12 +210,20 @@ def check_env_conflicts(env_file_path: str):
         print("which may not be what you intended.")
         print()
         for conflict in conflicts:
-            key = conflict['key']
+            key = conflict["key"]
             print(f"Variable: {key}")
-            if key.endswith('API_KEY'):
+            if key.endswith("API_KEY"):
                 # Obscure API keys in the output
-                sys_val = "****" + conflict['system_value'][-4:] if len(conflict['system_value']) > 4 else "****"
-                file_val = "****" + conflict['file_value'][-4:] if len(conflict['file_value']) > 4 else "****"
+                sys_val = (
+                    "****" + conflict["system_value"][-4:]
+                    if len(conflict["system_value"]) > 4
+                    else "****"
+                )
+                file_val = (
+                    "****" + conflict["file_value"][-4:]
+                    if len(conflict["file_value"]) > 4
+                    else "****"
+                )
                 print(f"  System value: {sys_val}")
                 print(f"  .env value:   {file_val}")
             else:
@@ -258,15 +266,15 @@ def check_manual_installs(file_path: str):
         return
 
     manual_installs = []
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         for line in f:
             stripped = line.strip()
             # Look for the manual installs comment
-            if stripped.startswith('# Manual installs for checking:'):
+            if stripped.startswith("# Manual installs for checking:"):
                 # Extract the comma-delimited list after the colon
-                apps_str = stripped.split(':', 1)[1].strip()
+                apps_str = stripped.split(":", 1)[1].strip()
                 if apps_str:
-                    manual_installs = [app.strip() for app in apps_str.split(',')]
+                    manual_installs = [app.strip() for app in apps_str.split(",")]
                 break
 
     if not manual_installs:
@@ -306,23 +314,23 @@ def doublecheck_env(file_path: str):
     # Parse the example file to identify required keys and their example values
     required_keys = {}
     all_example_values = {}
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         lines = f.readlines()
         is_required_section = False
         for line in lines:
             stripped = line.strip()
             # Check if this is a comment line
-            if stripped.startswith('#'):
+            if stripped.startswith("#"):
                 # Check if comment contains "required" (case-insensitive)
-                if 'required' in stripped.lower():
+                if "required" in stripped.lower():
                     is_required_section = True
                 else:
                     # A different comment section starts
                     is_required_section = False
             # Check if this is a key=value line
-            elif '=' in stripped and not stripped.startswith('#'):
-                key = stripped.split('=')[0].strip()
-                value = stripped.split('=', 1)[1].strip()
+            elif "=" in stripped and not stripped.startswith("#"):
+                key = stripped.split("=")[0].strip()
+                value = stripped.split("=", 1)[1].strip()
                 # Remove quotes if present
                 if value.startswith("'") and value.endswith("'"):
                     value = value[1:-1]
@@ -382,9 +390,11 @@ def doublecheck_env(file_path: str):
     if langsmith_tracing == "true":
         # Check if API key is missing, empty, or still has the example value
         if not langsmith_api_key:
-            issues.append(f"  ⚠️  LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY is not set")
+            issues.append("  ⚠️  LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY is not set")
         elif langsmith_api_key == langsmith_example:
-            issues.append(f"  ⚠️  LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY still has the example/placeholder value")
+            issues.append(
+                "  ⚠️  LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY still has the example/placeholder value"
+            )
         else:
             print("\n✅ LANGSMITH_TRACING is enabled and the LANGSMITH_API_KEY is set")
     elif langsmith_api_key and langsmith_api_key != langsmith_example:
@@ -411,7 +421,9 @@ def check_venv(expected_venv_path: str = ".venv"):
     expected_path_obj = Path(expected_venv_path).resolve()
 
     # Check if running in a virtual environment
-    in_venv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    in_venv = hasattr(sys, "real_prefix") or (
+        hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+    )
 
     if not in_venv:
         issues.append("⚠️  Virtual environment is not activated")
@@ -419,13 +431,17 @@ def check_venv(expected_venv_path: str = ".venv"):
     else:
         # Virtual env is activated, check if it's the expected one
         if current_prefix != expected_path_obj:
-            issues.append(f"⚠️  Activated venv ({current_prefix}) doesn't match expected path ({expected_path_obj})")
+            issues.append(
+                f"⚠️  Activated venv ({current_prefix}) doesn't match expected path ({expected_path_obj})"
+            )
 
     # Check if uv is available
     uv_available = shutil.which("uv") is not None
 
     if not uv_available:
-        issues.append("ℹ️  'uv' command not found - this project recommends using uv for package management")
+        issues.append(
+            "ℹ️  'uv' command not found - this project recommends using uv for package management"
+        )
         issues.append("   Install uv: https://docs.astral.sh/uv/")
 
     # Print results
@@ -443,8 +459,10 @@ def check_venv(expected_venv_path: str = ".venv"):
 
 # ========== utility to check packages and python based on pyproject.toml  =====================================
 
+
 def _fmt_row(cols, widths):
     return " | ".join(str(c).ljust(w) for c, w in zip(cols, widths))
+
 
 def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
     p = Path(pyproject_path)
@@ -466,7 +484,9 @@ def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
     if not deps:
         if verbose or not py_ok:
             print("No [project].dependencies found in pyproject.toml.")
-            print(f"Python {py_ver} {'satisfies' if py_ok else 'DOES NOT satisfy'} requires-python: {python_spec_str}")
+            print(
+                f"Python {py_ver} {'satisfies' if py_ok else 'DOES NOT satisfy'} requires-python: {python_spec_str}"
+            )
             print(f"Executable: {sys.executable}")
         return None
 
@@ -481,7 +501,13 @@ def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
         except Exception:
             name, spec = dep, "(unparsed)"
 
-        rec = {"package": name, "required": spec, "installed": "-", "path": "-", "status": "❌ Missing"}
+        rec = {
+            "package": name,
+            "required": spec,
+            "installed": "-",
+            "path": "-",
+            "status": "❌ Missing",
+        }
 
         try:
             installed_ver = metadata.version(name)
@@ -500,7 +526,7 @@ def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
             wrong_version = False
             if "python" in path_str and rec["path"] != "(unknown)":
                 # Look for patterns like python3.11, python3.13, etc. that don't match current version
-                py_versions_in_path = re.findall(r'python\d+\.\d+', path_str)
+                py_versions_in_path = re.findall(r"python\d+\.\d+", path_str)
                 if py_versions_in_path:
                     # If we found python version(s) in path, check if any match current version
                     if expected_py_version.lower() not in py_versions_in_path:
@@ -528,17 +554,24 @@ def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
     should_print = verbose or (not py_ok) or bool(problems)
     if should_print:
         # Python status
-        print(f"Python {py_ver} {'satisfies' if py_ok else 'DOES NOT satisfy'} requires-python: {python_spec_str}")
+        print(
+            f"Python {py_ver} {'satisfies' if py_ok else 'DOES NOT satisfy'} requires-python: {python_spec_str}"
+        )
 
         # Table (no hints column)
         headers = ["package", "required", "installed", "status", "path"]
+
         def short_path(s, maxlen=80):
             s = str(s)
-            return s if len(s) <= maxlen else ("…" + s[-(maxlen-1):])
-        rows = [[r["package"], r["required"], r["installed"], r["status"], short_path(r["path"])] for r in results]
+            return s if len(s) <= maxlen else ("…" + s[-(maxlen - 1) :])
+
+        rows = [
+            [r["package"], r["required"], r["installed"], r["status"], short_path(r["path"])]
+            for r in results
+        ]
         widths = [max(len(h), *(len(str(row[i])) for row in rows)) for i, h in enumerate(headers)]
         print(_fmt_row(headers, widths))
-        print(_fmt_row(["-"*w for w in widths], widths))
+        print(_fmt_row(["-" * w for w in widths], widths))
         for row in rows:
             print(_fmt_row(row, widths))
 
@@ -546,7 +579,9 @@ def doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=False):
         if problems:
             print("\nIssues detected:")
             for r in problems:
-                print(f"- {r['package']}: {r['status']} (required {r['required']}, installed {r['installed']}, path {r['path']})")
+                print(
+                    f"- {r['package']}: {r['status']} (required {r['required']}, installed {r['installed']}, path {r['path']})"
+                )
 
         if verbose or problems or not py_ok:
             print("\nEnvironment:")
