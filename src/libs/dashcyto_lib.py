@@ -246,12 +246,16 @@ class DASH_CYTO(object):
                     id="reactome-network",
                     elements=elements,
                     layout={"name": "preset"},
+                    boxSelectionEnabled=True,   # drag box to select many nodes
+                    autoungrabify=False,        # nodes can be moved
+                    autounselectify=False,      # nodes can be selected
                     style={
                         "width": width,
                         "height": height,
                         "backgroundColor": "#fff9c4",  # light yellow
                         "marginTop": marginTop,
                     },
+
                     stylesheet=[
                         {
                             "selector": "node",
@@ -263,6 +267,14 @@ class DASH_CYTO(object):
                                 "height": 30,
                             },
                         },
+                        {
+                            "selector": "node:selected",
+                            "style": {
+                                "border-width": 4,
+                                "border-color": "black",
+                                "background-color": "#ffcc00",
+                            },
+                        },             
                         {
                             "selector": "edge",
                             "style": {
@@ -343,6 +355,21 @@ class DASH_CYTO(object):
                 new_elements = elements
 
             return True, message, new_elements
+        
+        @app.callback(
+            Output("saved-output", "children"),
+            Input("reactome-network", "selectedNodeData"),
+        )
+        def show_selected_nodes(selected_nodes):
+            """
+            Streamlit itself is not doing the selection. 
+            The selection happens inside the Dash Cytoscape browser app, and Streamlit can present/open that app.            
+            """
+            if not selected_nodes:
+                return "No nodes selected"
+
+            ids = [n["id"] for n in selected_nodes]
+            return f"Selected nodes: {', '.join(ids)}"        
 
         return app
 
