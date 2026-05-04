@@ -19,7 +19,7 @@ from scipy import stats
 from scipy.special import factorial
 from statsmodels.formula.api import ols
 
-from libs.Basic import isfloat, pdreadcsv, pdwritecsv  #, write_txt, read_txt,
+from libs.Basic import isfloat, pdreadcsv, pdwritecsv  # , write_txt, read_txt,
 
 
 def standardize_log2_x2_table(df, numfields) -> pd.DataFrame:
@@ -260,15 +260,14 @@ def chisquare_2series(df1: pd.DataFrame, df2: pd.DataFrame, measure, alpha=0.05,
 
     # statistic, pvalue = stats.chisquare(np.array([dfgender.iloc[0].to_list(), dfgender.iloc[1].to_list()]), axis=None)
     lista0 = dfgender.iloc[0].to_list()
-    lista1 =  dfgender.iloc[1].to_list()
+    lista1 = dfgender.iloc[1].to_list()
     res = stats.chi2_contingency([lista0, lista1])
     typetest = "chi-square"
 
     # statistic, pvalue = fisher_exact( [dfgender.iloc[0].to_list(), dfgender.iloc[1].to_list()] )  # statistic is oddsratio
     # typetest = 'fisher exact test'
 
-
-    statistic= res.statistic
+    statistic = res.statistic
     pvalue = res.pvalue
     dof = len(lista0) - 1
 
@@ -476,13 +475,12 @@ def ttest_2vals(
 
     stri_stat = f'p-value {pvalue:.2e} significance = "{sig} dof = {dof}"'
 
-
     if verbose:
         if pvalue < alpha:
             print("Null hypothesis is rejected, both distributions may be different.")
         else:
             print("Fail to reject the null hypothesis, both distributions may be similar.")
-        
+
         print(stri_stat)
 
     return ret, [vals1, vals2], [n1, n2], statistic, pvalue, stri_stat
@@ -713,16 +711,16 @@ def calc_confidence_interval_param(
     return error, cinf, csup, SEM, stri
 
 
-def test_one_way_ANOVA(samples:List, alpha=0.05) -> Tuple[bool, str, str, float, float]:
-    '''
+def test_one_way_ANOVA(samples: List, alpha=0.05) -> Tuple[bool, str, str, float, float]:
+    """
     one way anova
     input: List
-    '''
+    """
 
     if len(samples) < 3:
         print("Error: at least 3 samples.")
-        return False, "Error: at least 3 samples.", "Error: at least 3 samples.", -1., -1.
-    
+        return False, "Error: at least 3 samples.", "Error: at least 3 samples.", -1.0, -1.0
+
     statistic, pvalue = stats.f_oneway(*samples)
 
     if pvalue > alpha:
@@ -1176,7 +1174,7 @@ def calc_params(vals, name=None, type=None, canNeg=False, ndig=2):
             # statistic = None
             pvalue = None
             stri_stat = ""
-            normal=False
+            normal = False
 
         meds.append(med)
         mus.append(mu)

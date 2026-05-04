@@ -259,7 +259,7 @@ def pdreadcsv(
         if dtype == {}:
             df = pd.read_csv(
                 filename, sep=sep, low_memory=low_memory, skiprows=skiprows, header=header
-            ) 
+            )
         else:
             df = pd.read_csv(
                 filename,
@@ -411,7 +411,6 @@ def pdloaddic(filename: str, path: str = "./", verbose: bool = False) -> dict:
             print("Dictionary read at '%s'" % (filename))
     except ValueError as e:
         print(f"Error '{ValueError}' in pickle loading '{filename}': {e}")
-
 
     return dic
 
@@ -786,7 +785,6 @@ def break_lines(
 
         newtext = sep.join(mat2)
         if len(newtext) > maxLen:
-
             while True:
                 text += newtext[:maxLen] + CR
                 if len(newtext) <= maxLen:

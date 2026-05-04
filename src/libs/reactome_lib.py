@@ -13,7 +13,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 
-from libs.Basic import isfloat, pdreadcsv, pdwritecsv  #, write_txt, read_txt
+from libs.Basic import isfloat, pdreadcsv, pdwritecsv  # , write_txt, read_txt
 
 
 class Reactome(object):

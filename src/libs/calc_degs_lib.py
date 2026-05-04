@@ -18,14 +18,14 @@ import pandas as pd
 
 
 class CALC_DEGS(object):
-    def __init__(self, root_psi: Path, root_scr: Path, run_conda: bool = False):
+    def __init__(self, root_psi: Path, root_src: Path, run_conda: bool = False):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
 
         self.root_psi = Path(root_psi)
 
-        self.root_scr = root_scr
-        self.libs_dir = root_scr / "libs"
+        self.root_src = root_src
+        self.libs_dir = root_src / "libs"
 
         self.run_conda = run_conda
 

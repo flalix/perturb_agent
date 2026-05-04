@@ -882,7 +882,10 @@ class GDC(object):
             return df
 
         # -------------------------- batch loop ---------------------------
-        filters = {"op": "in", "content": {"field": "cases.project.project_id", "value": [self.psi_id]}}
+        filters = {
+            "op": "in",
+            "content": {"field": "cases.project.project_id", "value": [self.psi_id]},
+        }
 
         all_hits = []
         from_ = 0
