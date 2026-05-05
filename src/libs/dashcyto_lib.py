@@ -243,86 +243,107 @@ class DASH_CYTO(object):
                     },
                 ),
 
-            html.Div([
-                dcc.Dropdown(
-                    id="layout-dropdown",
-                    options=[
-                        {"label": "COSE force-directed", "value": "cose"},
-                        {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
-                        {"label": "Circle", "value": "circle"},
-                        {"label": "Grid", "value": "grid"},
-                        {"label": "Preset", "value": "preset"},
-                    ],
-                    value="preset",
-                    clearable=False,
-                    style={"width": "350px"},
-                ),
-            ]),
+                html.Div([
+                    dcc.Dropdown(
+                        id="layout-dropdown",
+                        options=[
+                            {"label": "COSE force-directed", "value": "cose"},
+                            {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
+                            {"label": "Circle", "value": "circle"},
+                            {"label": "Grid", "value": "grid"},
+                            {"label": "Preset", "value": "preset"},
+                        ],
+                        value="preset",
+                        clearable=False,
+                        style={"width": "350px"},
+                    ),
+                ]),
 
-                cyto.Cytoscape(
-                    id="reactome-network",
-                    elements=elements,
-                    layout={"name": "preset"},
-                    boxSelectionEnabled=True,   # drag box to select many nodes
-                    autoungrabify=False,        # nodes can be moved
-                    autounselectify=False,      # nodes can be selected
-                    style={
-                        "width": width,
-                        "height": height,
-                        "backgroundColor": "#fff9c4",  # light yellow
-                        "marginTop": marginTop,
-                    },
+                html.Div([
+                    html.H4("Node information"),
+                    html.Div(id="node-info"),
+                    html.Button("Mark as root", id="mark-root-button"),
+                    html.Button("Mark as terminal", id="mark-terminal-button"),
+                    html.Button("Expand neighbors", id="expand-neighbors-button"),
+                ], style={
+                    "width": "25%",
+                    "display": "inline-block",
+                    "verticalAlign": "top",
+                    "padding": "10px",
+                    "border": "1px solid lightgray",
+                }),
 
-                    stylesheet=[
-                        {
-                            "selector": "node",
-                            "style": {
-                                "label": "data(label)",
-                                "font-size": "10px",
-                                "background-color": "#8ecae6",
-                                "width": 30,
-                                "height": 30,
+                html.Div([
+                    cyto.Cytoscape(
+                        id="reactome-network",
+                        elements=elements,
+                        layout={"name": "preset"},
+                        boxSelectionEnabled=True,   # drag box to select many nodes
+                        autoungrabify=False,        # nodes can be moved
+                        autounselectify=False,      # nodes can be selected
+                        style={
+                            "width": width,
+                            "height": height,
+                            "backgroundColor": "#fff9c4",  # light yellow
+                            "marginTop": marginTop,
+                        },
+
+                        stylesheet=[
+                            {
+                                "selector": "node",
+                                "style": {
+                                    "label": "data(label)",
+                                    "font-size": "10px",
+                                    "background-color": "#8ecae6",
+                                    "width": 30,
+                                    "height": 30,
+                                },
                             },
-                        },
-                        {
-                            "selector": "node:selected",
-                            "style": {
-                                "border-width": 4,
-                                "border-color": "black",
-                                "background-color": "#ffcc00",
+                            {
+                                "selector": "node:selected",
+                                "style": {
+                                    "border-width": 4,
+                                    "border-color": "black",
+                                    "background-color": "#ffcc00",
+                                },
+                            },             
+                            {
+                                "selector": "edge",
+                                "style": {
+                                    "curve-style": "bezier",
+                                    "target-arrow-shape": "triangle",
+                                    "label": "data(interaction)",
+                                    "font-size": "7px",
+                                },
                             },
-                        },             
-                        {
-                            "selector": "edge",
-                            "style": {
-                                "curve-style": "bezier",
-                                "target-arrow-shape": "triangle",
-                                "label": "data(interaction)",
-                                "font-size": "7px",
+                            {
+                                "selector": '[biopax_type = "BiochemicalReaction"]',
+                                "style": {"background-color": "#f94144", "shape": "hexagon"},
                             },
-                        },
-                        {
-                            "selector": '[biopax_type = "BiochemicalReaction"]',
-                            "style": {"background-color": "#f94144", "shape": "hexagon"},
-                        },
-                        {
-                            "selector": '[biopax_type = "Protein"]',
-                            "style": {"background-color": "#8ecae6", "shape": "ellipse"},
-                        },
-                        {
-                            "selector": '[biopax_type = "Complex"]',
-                            "style": {"background-color": "#ffb703", "shape": "round-rectangle"},
-                        },
-                        {
-                            "selector": '[biopax_type = "SmallMolecule"]',
-                            "style": {"background-color": "#90be6d", "shape": "diamond"},
-                        },
-                        {
-                            "selector": '[biopax_type = "Pathway"]',
-                            "style": {"background-color": "#cdb4db", "shape": "rectangle"},
-                        },
-                    ],
-                ),
+                            {
+                                "selector": '[biopax_type = "Protein"]',
+                                "style": {"background-color": "#8ecae6", "shape": "ellipse"},
+                            },
+                            {
+                                "selector": '[biopax_type = "Complex"]',
+                                "style": {"background-color": "#ffb703", "shape": "round-rectangle"},
+                            },
+                            {
+                                "selector": '[biopax_type = "SmallMolecule"]',
+                                "style": {"background-color": "#90be6d", "shape": "diamond"},
+                            },
+                            {
+                                "selector": '[biopax_type = "Pathway"]',
+                                "style": {"background-color": "#cdb4db", "shape": "rectangle"},
+                            },
+                        ],
+                    ),
+                ], style={
+                    "width": "74%",
+                    "display": "inline-block",
+                }),
+
+                dcc.Store(id="selected-node-store"),
                 html.Button("Save node positions", id="save-button"),
                 html.Pre(id="saved-output"),
                 dbc.Toast(
@@ -373,6 +394,52 @@ class DASH_CYTO(object):
 
             return True, message, new_elements
         
+        @app.callback(
+            Output("node-info", "children"),
+            Output("selected-node-store", "data"),
+            Input("reactome-network", "tapNodeData"),
+        )
+        def show_node_info(node_data):
+            if node_data is None:
+                return "Click a node to see details.", None
+
+            node_id = node_data.get("id")
+            label = node_data.get("label", node_id)
+            node_type = node_data.get("type", "NA")
+            gene = node_data.get("gene", "NA")
+            biopax_class = node_data.get("biopax_class", "NA")
+
+            info = html.Div([
+                html.P([html.B("ID: "), node_id]),
+                html.P([html.B("Label: "), label]),
+                html.P([html.B("Type: "), node_type]),
+                html.P([html.B("Gene: "), gene]),
+                html.P([html.B("BioPAX class: "), biopax_class]),
+            ])
+
+            return info, node_data
+
+        @app.callback(
+            Output("reactome-network", "elements"),
+            Input("expand-neighbors-button", "n_clicks"),
+            State("selected-node-store", "data"),
+            State("reactome-network", "elements"),
+            prevent_initial_call=True,
+        )
+        def expand_selected_node(n_clicks, selected_node, elements):
+            if selected_node is None:
+                return elements
+
+            node_id = selected_node["id"]
+
+            print("Expand neighbors for:", node_id)
+
+            # here you call your own function:
+            # new_elements = self.add_neighbors_to_elements(node_id, elements)
+
+            return elements
+
+
         @app.callback(
             Output("reactome-network", "layout"),
             Input("layout-dropdown", "value"),
