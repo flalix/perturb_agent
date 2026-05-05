@@ -6,25 +6,20 @@
 # @author: Flavio Lichtenstein
 # @local: Bioinformatics: CENTD/Molecular Biology; Instituto Butatan
 
-from fileinput import filename
 import json
 import os
-
-import numpy as np
-import pybiopax
-import pandas as pd
-import requests
-
+from collections import deque
 from pathlib import Path
 from typing import List
 
-
+import numpy as np
+import pandas as pd
+import pybiopax
+import requests
 from pybiopax import model_from_owl_file
-from pybiopax.biopax import Pathway, BioPaxModel
+from pybiopax.biopax import BioPaxModel
 
-from collections import deque
-
-from libs.Basic import isfloat, pdreadcsv, pdwritecsv, create_dir
+from libs.Basic import create_dir, isfloat, pdreadcsv, pdwritecsv
 
 
 class Reactome(object):
@@ -43,7 +38,6 @@ class Reactome(object):
         self.fname_human_owl = "Homo_sapiens.owl"
         self.hsa_model = None
         self.fname_owl = "%s_level3.owl"
-
 
         self.dfr, self.df_gmt, self.dfr_merge = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.pathway_list = []
@@ -179,7 +173,9 @@ class Reactome(object):
 
         return True
 
-    def build_reactome_table(self, dfr: pd.DataFrame, force: bool = False, verbose: bool = False) -> bool:
+    def build_reactome_table(
+        self, dfr: pd.DataFrame, force: bool = False, verbose: bool = False
+    ) -> bool:
 
         if force:
             dfr = pd.DataFrame()
@@ -314,12 +310,13 @@ class Reactome(object):
         self.dfr_merge = df
         return True
 
-
-    def download_reactome_owl(self, pathway_id: str,  force: bool = False,  timeout: int = 60) -> dict:
+    def download_reactome_owl(
+        self, pathway_id: str, force: bool = False, timeout: int = 60
+    ) -> dict:
 
         pathway_id = str(pathway_id).strip()
 
-        fname_owl = self.fname_owl%(pathway_id)
+        fname_owl = self.fname_owl % (pathway_id)
         filename = self.root_reactome / fname_owl
 
         if filename.exists() and filename.stat().st_size > 0 and not force:
@@ -330,10 +327,10 @@ class Reactome(object):
                 "url": None,
                 "http_status": None,
                 "n_bytes": filename.stat().st_size,
-                "msg": 'OWL file already exists',
+                "msg": "OWL file already exists",
             }
 
-        url = self.url_owl_level3%(pathway_id)
+        url = self.url_owl_level3 % (pathway_id)
         error_msg = ""
         try:
             r = requests.get(url, timeout=timeout)
@@ -356,7 +353,7 @@ class Reactome(object):
                         "url": url,
                         "http_status": r.status_code,
                         "n_bytes": len(content),
-                        "msg": 'OWL file downloaded successfully',
+                        "msg": "OWL file downloaded successfully",
                     }
 
         except Exception as e:
@@ -369,9 +366,8 @@ class Reactome(object):
             "url": None,
             "http_status": None,
             "n_bytes": 0,
-            "msg": error_msg
+            "msg": error_msg,
         }
-
 
     def open_human_owl(self, force: bool = False):
         if self.hsa_model is None or force:
@@ -379,7 +375,6 @@ class Reactome(object):
             self.hsa_model = model_from_owl_file(str(filename))
 
         return self.hsa_model
-
 
     def get_reactome_ids_given_obj(self, obj):
         ids = set()
@@ -403,8 +398,10 @@ class Reactome(object):
         return ids
 
     def get_pathways_from_model(self):
-        
-        pathways = [ obj for obj in self.hsa_model.objects.values()  if type(obj).__name__ == "Pathway"  ]
+
+        pathways = [
+            obj for obj in self.hsa_model.objects.values() if type(obj).__name__ == "Pathway"
+        ]
 
         pathway_index = {}
 
@@ -415,10 +412,10 @@ class Reactome(object):
                 pathway_index[rid] = p
 
         return pathways, pathway_index
-    
+
     def pathways_to_df(self, pathways) -> pd.DataFrame:
-        dic={}
-        icount=-1
+        dic = {}
+        icount = -1
 
         for p in pathways:
             ids = self.get_reactome_ids_given_obj(p)
@@ -429,24 +426,19 @@ class Reactome(object):
 
                 dic2 = dic[icount]
 
-                dic2['pathway_object'] = p
-                dic2['rid'] = rid
-                dic2['is_ID'] = str(rid).startswith('R-HSA-')
+                dic2["pathway_object"] = p
+                dic2["rid"] = rid
+                dic2["is_ID"] = str(rid).startswith("R-HSA-")
 
-        dfo = pd.DataFrame.from_dict(dic, orient='index')
+        dfo = pd.DataFrame.from_dict(dic, orient="index")
         return dfo
-                
 
     def is_biopax_object(self, x):
         return hasattr(x, "uid") and hasattr(x, "__dict__")
 
-
     def get_pathway_names(self, p, dfo: pd.DataFrame) -> tuple[str, str, str]:
 
-        dfa = dfo[
-            (dfo["pathway_object"].map(lambda x: x is p)) &
-            (dfo["is_ID"])
-        ]
+        dfa = dfo[(dfo["pathway_object"].map(lambda x: x is p)) & (dfo["is_ID"])]
 
         if dfa.empty:
             pathway_id = ""
@@ -456,7 +448,7 @@ class Reactome(object):
 
         uid = p.uid
         pathway = p.display_name
-    
+
         return uid, pathway_id, pathway
 
     def collect_referenced_objects(self, pthw_obj, include_inverse=False) -> dict:
@@ -474,11 +466,10 @@ class Reactome(object):
         if pthw_obj is None:
             print("Pathway is None")
             return {}
-        
+
         if pthw_obj.uid is None:
             print("Pathway has no stable ID")
             return {}
-                    
 
         sub_objects = {}
         queue = deque([pthw_obj])
@@ -496,7 +487,6 @@ class Reactome(object):
             sub_objects[uid] = obj
 
             for attr, value in obj.__dict__.items():
-
                 # Skip inverse/back-reference fields unless explicitly requested
                 if not include_inverse and attr.startswith("_"):
                     continue
@@ -516,28 +506,34 @@ class Reactome(object):
                     for item in value.values():
                         if self.is_biopax_object(item):
                             queue.append(item)
-        
+
         return sub_objects
 
+    def save_owl_model(
+        self,
+        pathway_id: str,
+        pathway: str,
+        sub_objects: dict,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> bool:
 
-    def save_owl_model(self, pathway_id:str, pathway:str, sub_objects: dict,
-                       force:bool=False, verbose:bool=False) -> bool:
-        
-        fname_owl = self.fname_owl%(pathway_id)
+        fname_owl = self.fname_owl % (pathway_id)
         filename = self.root_owl / fname_owl
 
         if filename.exists() and not force:
-            if verbose: print(f"File {filename} already exists.")
+            if verbose:
+                print(f"File {filename} already exists.")
             return True
 
         try:
             sub_model = BioPaxModel(objects=sub_objects)
             pybiopax.model_to_owl_file(sub_model, filename)
-            if verbose: print(f"Submodel '{pathway}' saved to {filename}")
+            if verbose:
+                print(f"Submodel '{pathway}' saved to {filename}")
             ret = True
         except Exception as e:
             print(f"Error saving submodel to {filename}: {e}")
             ret = False
 
         return ret
-    
