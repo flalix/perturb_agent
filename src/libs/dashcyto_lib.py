@@ -18,7 +18,7 @@ import dash
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import networkx as nx
-from dash import Input, Output, State, html
+from dash import dcc, Input, Output, State, html
 from rdflib import RDF, Graph, Namespace
 
 # import py4cytoscape as p4c
@@ -242,6 +242,23 @@ class DASH_CYTO(object):
                         "marginBottom": "5px",
                     },
                 ),
+
+            html.Div([
+                dcc.Dropdown(
+                    id="layout-dropdown",
+                    options=[
+                        {"label": "COSE force-directed", "value": "cose"},
+                        {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
+                        {"label": "Circle", "value": "circle"},
+                        {"label": "Grid", "value": "grid"},
+                        {"label": "Preset", "value": "preset"},
+                    ],
+                    value="preset",
+                    clearable=False,
+                    style={"width": "350px"},
+                ),
+            ]),
+
                 cyto.Cytoscape(
                     id="reactome-network",
                     elements=elements,
@@ -356,6 +373,50 @@ class DASH_CYTO(object):
 
             return True, message, new_elements
         
+        @app.callback(
+            Output("reactome-network", "layout"),
+            Input("layout-dropdown", "value"),
+        )
+        def update_layout(layout_name):
+
+            if layout_name == "cose":
+                return {
+                    "name": "cose",
+                    "animate": True,
+                    "fit": True,
+                    "padding": 100,
+                    "nodeRepulsion": 15000,
+                    "idealEdgeLength": 180,
+                    "edgeElasticity": 100,
+                    "gravity": 40,
+                    "numIter": 3000,
+                }
+
+            if layout_name == "breadthfirst":
+                return {
+                    "name": "breadthfirst",
+                    "directed": True,
+                    "fit": True,
+                    "padding": 100,
+                    "spacingFactor": 1.8,
+                }
+
+            if layout_name == "circle":
+                return {
+                    "name": "circle",
+                    "fit": True,
+                    "padding": 100,
+                }
+
+            if layout_name == "grid":
+                return {
+                    "name": "grid",
+                    "fit": True,
+                    "padding": 100,
+                }
+
+            return {"name": "preset"}
+
         @app.callback(
             Output("saved-output", "children"),
             Input("reactome-network", "selectedNodeData"),
