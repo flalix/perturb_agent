@@ -10,6 +10,7 @@
 import json
 import math
 import os
+import re
 from os import path
 import pandas as pd
 import threading
@@ -41,7 +42,8 @@ class DASH_CYTO(object):
 
         self.fname_pos = "positions_%s.json"
 
-        self.fname_hugo = "hugo_gene_table_refseq_uniprot.tsv"
+        self.fname_hugo       = "hugo_gene_table_refseq_uniprot.tsv"
+        self.fname_gene_alias = "hugo_gene_alias_table.tsv"
 
         self.pathway_id = ""
         self.pathway = ""
@@ -73,6 +75,10 @@ class DASH_CYTO(object):
             BP.participant,
             BP.component,
         ]
+
+        self.load_gene_annotation_table()
+        self.load_gene_alias_table()
+
 
     def read_owl(self, pathway_id: str, pathway: str) -> Graph:
         self.pathway_id = pathway_id
@@ -235,8 +241,6 @@ class DASH_CYTO(object):
             ncbi_gene_id, synonyms, refseq_summary
         """
 
-        import pandas as pd
-
         filename = self.root_ncbi / self.fname_hugo
         if not filename.exists():
             raise FileNotFoundError(f"Could not find gene annotation file: {filename}")
@@ -257,23 +261,17 @@ class DASH_CYTO(object):
             raise ValueError(f"Missing columns in {filename}: {missing}")
 
         # Keep only useful columns for node annotation
-        df = df[
-            [
-                "ensembl_id",
-                "symbol",
-                "name",
-                "uniprot_id",
-                "synonyms",
-                "refseq_summary",
-            ]
-        ].copy()
+        df = df[required_cols].copy()
 
-        # Normalize key columns
-        df["ensembl_id"] = df["ensembl_id"].str.strip()
-        df["symbol"] = df["symbol"].str.strip()
+        # Safety normalization
+        df = df.fillna("")
+        df["ensembl_id"] = df["ensembl_id"].astype(str).str.strip()
+        df["symbol"] = df["symbol"].astype(str).str.strip()
+        df["name"] = df["name"].astype(str).str.strip()
+        df["uniprot_id"] = df["uniprot_id"].astype(str).str.strip()
+        df["synonyms"] = df["synonyms"].astype(str).str.strip()
+        df["refseq_summary"] = df["refseq_summary"].astype(str).str.strip()
 
-        # Ensembl IDs can sometimes contain version suffixes
-        # e.g. ENSG00000141510.18 -> ENSG00000141510
         df["ensembl_id_base"] = df["ensembl_id"].str.replace(
             r"\.\d+$",
             "",
@@ -284,27 +282,140 @@ class DASH_CYTO(object):
 
         # Fast dictionaries
         self.gene_annot_by_ensembl = (
-            df.drop_duplicates("ensembl_id_base")
+            df[df["ensembl_id_base"] != ""]
+            .drop_duplicates("ensembl_id_base")
             .set_index("ensembl_id_base")
             .to_dict(orient="index")
         )
 
         self.gene_annot_by_symbol = (
-            df.drop_duplicates("symbol")
+            df.dropna(subset=["symbol"])
+            .assign(symbol=lambda x: x["symbol"].astype(str).str.strip())
+            .drop_duplicates("symbol")
             .set_index("symbol")
             .to_dict(orient="index")
         )
 
         print(f"Loaded gene annotation table: {filename}")
         print(f"Rows: {len(df):,}")
+        print(f"Symbols: {len(self.gene_annot_by_symbol):,}")
+        print(f"Ensembl IDs: {len(self.gene_annot_by_ensembl):,}")
 
         return df
-        
-    def get_gene_annotation_for_node(self, node_data: dict) -> dict:
-        """
-        Find gene annotation by Ensembl ID first, then by symbol.
 
-        Returns empty strings if not found.
+    def load_gene_alias_table(self) -> pd.DataFrame:
+        df = pdreadcsv(self.fname_gene_alias, self.root_ncbi).fillna("")
+
+        required_cols = [
+            "alias",
+            "alias_upper",
+            "symbol",
+            "ensembl_id",
+            "name",
+            "uniprot_id",
+            "refseq_summary",
+        ]
+
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"Missing columns in alias table: {missing}")
+
+        df = df[required_cols].copy()
+
+        df["alias"] = df["alias"].astype(str).str.strip()
+        df["alias_upper"] = df["alias_upper"].astype(str).str.strip().str.upper()
+        df["symbol"] = df["symbol"].astype(str).str.strip()
+
+        # Important: do NOT drop duplicates only by alias_upper
+        # because that would remove ties like TSP1 -> THBS1 / PRSS55.
+        df = df.drop_duplicates(
+            subset=["alias_upper", "symbol", "ensembl_id"]
+        )
+
+        self.gene_alias_df = df.set_index("alias_upper", drop=False).sort_index()
+
+        print(f"Loaded alias rows: {len(self.gene_alias_df):,}")
+        print(f"Unique aliases: {self.gene_alias_df.index.nunique():,}")
+
+        print("DEBUG TSP1:")
+        print(self.gene_alias_df.loc["TSP1"])
+
+        return self.gene_alias_df
+
+    def lookup_gene_alias(self, label: str) -> list[dict]:
+        if not hasattr(self, "gene_alias_df"):
+            print("WARNING: gene_alias_df not loaded")
+            return []
+
+        if label in [None, "", "NA"]:
+            return []
+
+        key = str(label).strip().upper()
+
+        try:
+            hit = self.gene_alias_df.loc[key]
+        except KeyError:
+            return []
+
+        # One match: pandas returns Series
+        if isinstance(hit, pd.Series):
+            return [
+                hit.drop(labels=["alias_upper"], errors="ignore").to_dict()
+            ]
+
+        # Multiple matches: pandas returns DataFrame
+        return hit.drop(columns=["alias_upper"], errors="ignore").to_dict(
+            orient="records"
+        )
+
+
+    def get_gene_annotation_for_node(self, node_data: dict) -> dict:
+        empty = {
+            "ensembl_id": "NA",
+            "symbol": "NA",
+            "name": "NA",
+            "uniprot_id": "NA",
+            "refseq_summary": "NA",
+            "matches": [],
+            "n_matches": 0,
+        }
+
+        label = (
+            node_data.get("label")
+            or node_data.get("symbol")
+            or node_data.get("gene_symbol")
+            or node_data.get("name")
+            or ""
+        )
+
+        label = str(label).strip()
+
+        if not label:
+            return empty
+
+        matches = self.lookup_gene_alias(label)
+
+        if not matches:
+            print(f"No gene annotation match for label: {label}")
+            return empty
+
+        first = dict(matches[0])
+        first["matches"] = matches
+        first["n_matches"] = len(matches)
+
+        return first
+
+
+    def get_gene_annotation_for_node2(self, node_data: dict) -> dict:
+        """
+        Find gene annotation for a Cytoscape node.
+
+        Lookup priority:
+            1. Ensembl ID, if the node has a real ENSG ID
+            2. Official symbol / synonym using node label
+            3. Symbol-like fields
+
+        Returns the first match plus all matches if the alias is ambiguous.
         """
 
         empty = {
@@ -314,41 +425,158 @@ class DASH_CYTO(object):
             "uniprot_id": "",
             "synonyms": "",
             "refseq_summary": "",
+            "matches": [],
+            "n_matches": 0,
         }
 
-        if not hasattr(self, "gene_annot_by_ensembl"):
-            return empty
-
+        # -----------------------------
+        # 1. Try Ensembl ID only if real
+        # -----------------------------
         ensembl_id = (
             node_data.get("ensembl_id")
             or node_data.get("gene_id")
-            or node_data.get("id")
-            or ""
-        )
-
-        symbol = (
-            node_data.get("symbol")
-            or node_data.get("gene_symbol")
-            or node_data.get("label")
-            or node_data.get("name")
             or ""
         )
 
         ensembl_id = str(ensembl_id).strip()
-        symbol = str(symbol).strip()
-
-        # Remove Ensembl version suffix if present
         ensembl_id_base = ensembl_id.split(".")[0]
 
-        if ensembl_id_base in self.gene_annot_by_ensembl:
-            return self.gene_annot_by_ensembl[ensembl_id_base]
+        if (
+            ensembl_id_base.startswith("ENSG")
+            and hasattr(self, "gene_annot_by_ensembl")
+            and ensembl_id_base in self.gene_annot_by_ensembl
+        ):
+            record = self.gene_annot_by_ensembl[ensembl_id_base]
+            record = dict(record)
+            record["matches"] = [record]
+            record["n_matches"] = 1
+            return record
 
-        if symbol in self.gene_annot_by_symbol:
-            return self.gene_annot_by_symbol[symbol]
+        # -----------------------------
+        # 2. Try label/symbol via alias table
+        # -----------------------------
+        label = (
+            node_data.get("label")
+            or node_data.get("symbol")
+            or node_data.get("gene_symbol")
+            or node_data.get("name")
+            or ""
+        )
+
+        label = str(label).strip()
+
+        if label and hasattr(self, "gene_alias_lookup"):
+            matches = self.lookup_gene_alias(label)
+
+            if matches:
+                first = dict(matches[0])
+                first["matches"] = matches
+                first["n_matches"] = len(matches)
+                return first
+
+        # -----------------------------
+        # 3. Fallback: official symbol table
+        # -----------------------------
+        if label and hasattr(self, "gene_annot_by_symbol"):
+            if label in self.gene_annot_by_symbol:
+                record = dict(self.gene_annot_by_symbol[label])
+                record["matches"] = [record]
+                record["n_matches"] = 1
+                return record
+
+            label_upper = label.upper()
+            for symbol, record in self.gene_annot_by_symbol.items():
+                if str(symbol).upper() == label_upper:
+                    record = dict(record)
+                    record["matches"] = [record]
+                    record["n_matches"] = 1
+                    return record
 
         return empty
 
 
+    def none_one_multiple_alias(self, info_data: dict):
+
+        print(">>> info_data", info_data)
+
+        if info_data.get("symbol", "NA") == "NA":
+            return None
+        
+        matches = info_data.get("matches", [])
+        n_matches = info_data.get("n_matches", 0)
+
+        print(">>> n_matches", n_matches)
+
+        if n_matches > 1:
+            alias_note = html.Div(
+                [
+                    html.P(
+                        [
+                            html.B("Alias warning: "),
+                            f'{info_data["label"]} maps to {n_matches} genes.',
+                        ],
+                        style={
+                            "color": "#92400e",
+                            "fontWeight": "700",
+                            "marginBottom": "6px",
+                        },
+                    ),
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    [
+                                        html.Th("Symbol"),
+                                        html.Th("Ensembl ID"),
+                                        html.Th("Name"),
+                                    ]
+                                )
+                            ),
+                            html.Tbody(
+                                [
+                                    html.Tr(
+                                        [
+                                            html.Td(str(m.get("symbol", ""))),
+                                            html.Td(str(m.get("ensembl_id", ""))),
+                                            html.Td(str(m.get("name", ""))),
+                                        ]
+                                    )
+                                    for m in matches
+                                ]
+                            ),
+                        ],
+                        style={
+                            "width": "100%",
+                            "fontSize": "12px",
+                            "borderCollapse": "collapse",
+                        },
+                    ),
+                ],
+                style={
+                    "backgroundColor": "#fef3c7",
+                    "padding": "8px",
+                    "borderRadius": "8px",
+                    "marginBottom": "10px",
+                },
+            )
+        elif info_data["label"] != info_data["symbol"]:
+            alias_note = html.P(
+                [
+                    html.B("Alias mapping: "),
+                    f'{info_data["label"]} → {info_data["symbol"]}',
+                ],
+                style={
+                    "color": "#b45309",
+                    "fontWeight": "600",
+                    "backgroundColor": "#fef3c7",
+                    "padding": "6px 8px",
+                    "borderRadius": "8px",
+                },
+            )
+        else:
+            alias_note = None
+
+        return alias_note
 
     #============ methods - expand-contract ==================
     def is_node(self, elem):
@@ -530,10 +758,8 @@ class DASH_CYTO(object):
 
     def extract_node_info(self, node_data: dict, ndigits: int = 4) -> dict:
         """
-        Extract standardized node information from Cytoscape node data.
-
-        Accepts multiple possible key names because BioPAX, DEG tables,
-        and Cytoscape elements may use different conventions.
+        Extract standardized node information from Cytoscape node data
+        and enrich it with HGNC/HUGO + RefSeq + UniProt annotations.
         """
 
         def first_available(*keys, default="NA"):
@@ -550,6 +776,9 @@ class DASH_CYTO(object):
                 return f"{float(x):.{ndigits}g}"
             except Exception:
                 return str(x)
+
+        matches = []
+        n_matches = 0
 
         annot = self.get_gene_annotation_for_node(node_data)
 
@@ -589,8 +818,7 @@ class DASH_CYTO(object):
         )
 
         refseq_summary = (
-            annot.get("refseq_summary")
-            or first_available("refseq_summary", "summary", "description", default="NA")
+            annot.get("refseq_summary", "NA")
         )
 
         gene_type = first_available(
@@ -612,6 +840,14 @@ class DASH_CYTO(object):
             "qvalue",
         )
 
+        matches = annot.get("matches", [])
+        n_matches = annot.get("n_matches", 0)
+
+
+        print("ANNOT:", annot)
+        print("matches:", matches)
+        print("n_matches:", n_matches)
+
         return {
             "id": node_id,
             "label": label,
@@ -625,11 +861,16 @@ class DASH_CYTO(object):
             "refseq_summary": refseq_summary,
             "lfc": fmt_number(lfc, ndigits),
             "fdr": fmt_number(fdr, ndigits),
+
+            # keep alias/synonym ambiguity information
+            "matches": matches,
+            "n_matches": n_matches,
         }
-
-
+    
     def make_node_info_panel(self, node_data: dict):
         info_data = self.extract_node_info(node_data)
+
+        alias_note = self.none_one_multiple_alias(info_data)
 
         return html.Div(
             [
@@ -637,7 +878,8 @@ class DASH_CYTO(object):
                 html.P([html.B("Label: "), str(info_data["label"])]),
 
                 html.Hr(),
-
+                alias_note,
+        
                 html.P([html.B("BioPAX type: "), str(info_data["biopax_type"])]),
                 html.P([html.B("Ensembl ID: "), str(info_data["ensembl_id"])]),
                 html.P([html.B("Symbol: "), str(info_data["symbol"])]),
@@ -657,6 +899,7 @@ class DASH_CYTO(object):
                 html.Hr(),
 
                 html.P([html.B("RefSeq summary:")]),
+
                 html.Div(
                     str(info_data["refseq_summary"]),
                     style={
@@ -672,7 +915,6 @@ class DASH_CYTO(object):
                 ),
             ]
         )
-
 
     def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px"):
 
@@ -1048,3 +1290,80 @@ class DASH_CYTO(object):
             use_reloader=False,
             jupyter_mode="external",
         )
+
+
+
+    def build_gene_alias_table(self, force:bool=False, verbose:bool=False) -> pd.DataFrame:
+        """
+        Build helper table mapping:
+            official symbol -> official symbol
+            synonym/alias   -> official symbol
+
+        Save symbol table -> to synonyms lookup table
+        """
+
+        filename = self.root_ncbi / self.fname_gene_alias
+
+        if filename.exists() and not force:
+            return pdreadcsv(self.fname_gene_alias, self.root_ncbi, verbose=verbose)
+
+        #--- read hugo table
+        df = pdreadcsv(self.fname_hugo, self.root_ncbi, verbose=verbose)
+
+        rows = []
+        for _, row in df.iterrows():
+            symbol = row.symbol.strip()
+
+            if not symbol:
+                continue
+
+            base_record = {
+                "symbol": symbol,
+                "ensembl_id": None if pd.isnull(row.ensembl_id) else row.ensembl_id.strip(),
+                "name": None if pd.isnull(row['name']) else row['name'].strip(),
+                "uniprot_id": row.uniprot_id,
+                "refseq_summary": None if pd.isnull(row.refseq_summary) else row.refseq_summary.strip(),
+            }
+
+            # Include official symbol as its own alias
+            rows.append(
+                {
+                    "alias": symbol,
+                    "alias_upper": symbol.upper(),
+                    **base_record,
+                }
+            )
+
+            synonyms = str(row.get("synonyms", "")).strip()
+
+            if synonyms:
+                # Accept ;, |, or comma as separators
+                for alias in re.split(r"[;|,]", synonyms):
+                    alias = alias.strip()
+
+                    if not alias:
+                        continue
+
+                    rows.append(
+                        {
+                            "alias": alias,
+                            "alias_upper": alias.upper(),
+                            **base_record,
+                        }
+                    )
+
+        df_alias = pd.DataFrame(rows)
+
+        if df_alias.empty:
+            return df_alias
+
+        df_alias = df_alias.drop_duplicates(
+            subset=["alias_upper", "symbol", "ensembl_id"]
+        ).reset_index(drop=True)
+
+        print(f"Gene alias table rows: {len(df_alias):,}")
+
+        _ = pdwritecsv(df_alias, self.fname_gene_alias, self.root_ncbi, verbose=verbose)
+
+        return df_alias
+
