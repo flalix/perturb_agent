@@ -42,3 +42,85 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
     margin-left: 0 !important;
     padding-left: 0 !important;
 }
+
+/* ===== Dash Cytoscape sidebar ===== */
+
+.node-sidebar {
+    width: 25%;
+    min-width: 280px;
+    display: inline-block;
+    vertical-align: top;
+    padding: 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background-color: white;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+}
+
+.node-panel-title {
+    margin-bottom: 14px;
+    color: #1f2937;
+    font-weight: 700;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 8px;
+}
+
+.node-info-box {
+    min-height: 180px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding: 12px;
+    margin-bottom: 18px;
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+/* ===== Dash Cytoscape buttons ===== */
+
+.cyto-button {
+    width: 100%;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    color: white;
+    transition: all 0.15s ease-in-out;
+}
+
+.cyto-button:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+}
+
+.cyto-button:active {
+    transform: translateY(0);
+    filter: brightness(0.95);
+}
+
+.cyto-button-root {
+    background-color: #2563eb;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.cyto-button-terminal {
+    background-color: #7c3aed;
+    box-shadow: 0 4px 10px rgba(124, 58, 237, 0.25);
+}
+
+.cyto-button-expand {
+    background-color: #059669;
+    box-shadow: 0 4px 10px rgba(5, 150, 105, 0.25);
+}
+
+.cyto-button-reset {
+    background-color: #dc2626;
+    box-shadow: 0 4px 10px rgba(220, 38, 38, 0.25);
+}

@@ -26,7 +26,7 @@ class Reactome(object):
     def __init__(self, ROOT0: Path):
 
         self.root_src = create_dir(ROOT0, "src")
-        self.root_owl = create_dir(ROOT0, "owl")
+        self.root_owl = create_dir(ROOT0, "data/owl")
         self.root_reactome = create_dir(ROOT0, "data/reactome")
         self.root_json = self.root_reactome / "pathway_json"
 
