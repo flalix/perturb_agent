@@ -34,7 +34,7 @@ from markdown_pdf import Section
 from markdown_pdf import MarkdownPdf
 
 
-from libs.Basic import pdwritecsv, pdreadcsv, create_dir
+from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print
 from libs.gene_lib import *
 from libs.config_lib import *
 from libs.stat_lib import *
@@ -259,71 +259,36 @@ class MTD(object):
 		self.root_fig_md   = create_dir(self.root_project, 'figures')
 		self.curr_figname  = 'unknown_md.png'
 		
+		self.root_enrichment	 = create_dir(self.root_project, 'enrichment_analyses')
+		self.root_enrich_random  = create_dir(self.root_project, 'enrichment_random')
+		self.root_ptw_modulation = create_dir(self.root_project, 'pathway_modulation')
+
+		'''----- self.root_colab = where data is -------'''
+		self.root_bioplanet = create_dir(self.root_colab, 'bioplanet')
+		self.root_kegg		= create_dir(self.root_colab, 'kegg')
+		self.root_refseq	= create_dir(self.root_colab, 'refseq')
+		self.root_hgnc		= create_dir(self.root_colab, 'hgnc')
+
 		''' ---- Affymetrix ---'''
 		self.fname_affy = 'Human_Agilent_WholeGenome_4x44k_v2_MSigDB_v71.tsv'
-		self.root_affymetrix = create_dir(root_colab, 'affymetrix')
+		self.root_affymetrix = create_dir(self.root_colab, 'affymetrix')
 		self.root_affy	   = create_dir(self.root_project, 'affy')
 
 		''' affymetrix experiment table - probe x symbols '''
 		self.df_gpl = pd.DataFrame()
 
-		self.root_enrichment	 = create_dir(self.root_project, 'enrichment_analyses')
-		self.root_enrich_random  = create_dir(self.root_project, 'enrichment_random')
-		self.root_ptw_modulation = create_dir(self.root_project, 'pathway_modulation')
-
-		'''----- root_colab = where data is -------'''
-		self.root_colab	= create_dir(self.root_project, 'colab')
-
-		self.root_bioplanet = create_dir(root_colab, 'bioplanet')
-		self.root_kegg		= create_dir(root_colab, 'kegg')
-		self.root_refseq	= create_dir(root_colab, 'refseq')
-		self.root_hgnc		= create_dir(root_colab, 'hgnc')
-
+		''' ---- KEGG ---'''
 		self.kegg_fname	= 'kegg_pathways.tsv'
 		self.fname_kegg_pathways  = 'kegg_pathways.tsv'
 		self.fname_kegg_gene_comp = 'kegg_gene_compound.tsv'
 
-		self.root_owl	= create_dir(self.root_data, 'owl')
+		self.root_owl= create_dir(self.root0_data, 'owl')
+		self.root_reactome = create_dir(self.root0_data, 'reactome')
 
-		self.root_owl_data = osjoin(self.root_owl, 'data/reactome')
-		if not exists(self.root_owl_data):
-			print(f"Error: Houston, we have problems: no '{self.root_owl_data}'")
-			raise Exception('stop')
-
-		self.root_stringdb	= osjoin(self.root_owl, 'data/stringdb')
-		if not exists(self.root_stringdb):
-			os.mkdir(self.root_stringdb)
-
-		self.root_owl_result0 = osjoin(self.root_owl, 'result/reactome')
-		if not exists(self.root_owl_result0):
-			os.mkdir(self.root_owl_result0)
-
-		self.pathway_id = 'DUMMY'
-		self.root_owl_result = osjoin(self.root_owl_result0, self.pathway_id)
-
-		self.x_container0, self.y_container0 = 100, 100
-
-		self.max_x_pathway = 1501
-
-		self.del_x_pathway = 500
-		self.del_y_pathway = 300
-
-		self.max_x_container = 1000+1
-		self.del_x_container = 375
-		self.del_y_container = 180
-
-		self.max_x_elem = 500+1
-		self.del_x_elem = 125
-		self.del_y_elem = 60
-
-		self.dfsMol, self.dfprot, self.dfreact, self.dfcontrol, \
-		self.dfcompx, self.dfcompxAss, self.dfstoi, self.dfcat, self.dfdeg, \
-		self.dftempReac, self.dftempReacReg, self.dftransp, \
-		self.dfdna, self.dfdnaRef = [None]*14
+		self.pathway_id, self.pathway = 'DUMMY', 'DUMMY'
 
 		self.df_lfc, self.dflfc_ori  = pd.DataFrame(), pd.DataFrame()
 		self.dic_lfc, self.fig_lfc = {}, {}
-
 
 		self.label, self.symbol = '', ''
 
@@ -335,8 +300,8 @@ class MTD(object):
 
 		self.tolerance_pPMI = tolerance_pPMI
 
-		self.reactome = Reactome()
-		self.root_reactome	   = self.reactome.root_reactome
+
+		self.reactome = Reactome(root_owl=self.root_owl, root_reactome=self.root_reactome)
 
 		self.dfr = None
 		''' below, df reactome with pathway_original '''
@@ -808,51 +773,8 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 			self.dflfc_ori = df
 
-		self.set_figure_strindb()
-
 		return True
 
-
-	def set_figure_pathway(self):
-		fnamefig0 = self.pathway_id + '.svg'
-		fnamefig = fnamefig0
-		fileorigin = osjoin(self.root_owl_data, fnamefig)
-		if not exists(fileorigin):
-			fnamefig = self.pathway_id + '.png'
-			fileorigin = osjoin(self.root_owl_data, fnamefig)
-			if not exists(fileorigin):
-				fnamefig = '???.png'
-
-		if fnamefig != '???.png':
-			print(">>>> figure pathway: '%s'"%(fnamefig))
-			filedestine = osjoin(self.root_assets, fnamefig)
-			if not exists(filedestine):
-				shutil.copyfile(fileorigin, filedestine)
-		else:
-			print(">>>> Error: figure '%s' not found"%(fnamefig0))
-
-		self.figure_svg = fnamefig
-
-	def set_figure_strindb(self):
-
-		fnamefig0 = self.fname_stringdb + '.svg'
-		fnamefig = fnamefig0
-		fileorigin = osjoin(self.root_stringdb, fnamefig)
-		if not exists(fileorigin):
-			fnamefig = self.fname_stringdb + '.png'
-			fileorigin = osjoin(self.root_stringdb, fnamefig)
-			if not exists(fileorigin):
-				fnamefig = '???.png'
-
-		if fnamefig != '???.png':
-			print(">>>> figure strindb: '%s'"%(fnamefig))
-			filedestine = osjoin(self.root_assets, fnamefig)
-			if not exists(filedestine):
-				shutil.copyfile(fileorigin, filedestine)
-		else:
-			print(">>>> Error: string-db figure '%s' not found"%(fnamefig0))
-
-		self.figure_stringdb = fnamefig
 
 
 	def set_which_db(self, geneset_lib):
@@ -3644,7 +3566,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		fig.write_image(figname)
 		if verbose: print(">>> HTML and png saved:", figname)		
 
-		figname = osjoin(self.self.root_fig_md, figname0+'.png')
+		figname = osjoin(self.root_fig_md, figname0+'.png')
 		fig.write_image(figname)
 		self.curr_figname = figname
 
@@ -4169,7 +4091,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		fig.write_image(figname)
 		if verbose: print(">>> HTML and png saved:", figname)
 
-		figname = osjoin(self.self.root_fig_md, figname0+'.png')
+		figname = osjoin(self.root_fig_md, figname0+'.png')
 		fig.write_image(figname)
 		self.curr_figname = figname
 		
@@ -4475,7 +4397,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 					figname0 = figname0[:250]
 				figname = figname0 + '.png'
 
-				filename = osjoin(self.self.root_fig_md, figname)
+				filename = osjoin(self.root_fig_md, figname)
 
 				if exists(filename):
 					s_md_plots += f"### {symbol}\n"
@@ -4609,7 +4531,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 					if not exists(file_ori):
 						continue
 
-					file_dest = osjoin(self.self.root_fig_md, fname)
+					file_dest = osjoin(self.root_fig_md, fname)
 
 					if exists(file_dest):
 						s_md_plots += f"#### {term2}\n"
@@ -4658,7 +4580,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 						figname0 = figname0[:250]
 					figname = figname0 + '.png'
 
-					filename = osjoin(self.self.root_fig_md, figname)
+					filename = osjoin(self.root_fig_md, figname)
 
 					if exists(filename):
 						if print_header3:
@@ -5177,7 +5099,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		except:
 			print(f"Error writing {figname}")
 
-		figname = osjoin(self.self.root_fig_md, figname0+'.png')
+		figname = osjoin(self.root_fig_md, figname0+'.png')
 		try:
 			fig.write_image(figname)
 		except:
@@ -5367,7 +5289,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		except:
 			print(f"Error writing {figname}")
 
-		figname = osjoin(self.self.root_fig_md, figname0+'.png')
+		figname = osjoin(self.root_fig_md, figname0+'.png')
 		try:
 			fig.write_image(figname)
 		except:
@@ -6256,7 +6178,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 					fig.write_html(figname)
 					fig.write_image(figname.replace('.html', '.png'))
 
-					figname = osjoin(self.self.root_fig_md, figname0+'.png')
+					figname = osjoin(self.root_fig_md, figname0+'.png')
 					fig.write_image(figname)
 
 				except:
@@ -7734,7 +7656,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		figname = osjoin(self.root_figure, figname0+'.png')
 		fig.write_image(figname)
 
-		figname = osjoin(self.self.root_fig_md, figname0+'.png')
+		figname = osjoin(self.root_fig_md, figname0+'.png')
 		fig.write_image(figname)
 
 		return fig
@@ -8525,7 +8447,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 				if verbose: print(">>> image saved:", figname)
 				plt.savefig(figname, dpi=dpi, format=format, facecolor=facecolor)
 
-				figname = osjoin(self.self.root_fig_md, figname0 + '.' + format)
+				figname = osjoin(self.root_fig_md, figname0 + '.' + format)
 				figname_circos_list.append(figname)
 				plt.savefig(figname, dpi=dpi, format=format, facecolor=facecolor)
 

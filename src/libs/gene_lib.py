@@ -345,6 +345,10 @@ class Gene(object):
 
 	def open_my_gene(self, force:bool=False, verbose:bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
+		filename = self.root_refseq / self.fname_my_gene
+		if not filename.exists():
+			raise Exception(f"Error: open_my_gene() - file not found: {filename}")
+		
 		df_my_gene = pdreadcsv(self.fname_my_gene, self.root_refseq, verbose=verbose)
 		df_my_gene = df_my_gene[~df_my_gene.geneid.isna()]
 		df_my_gene.geneid = df_my_gene.geneid.astype(int)

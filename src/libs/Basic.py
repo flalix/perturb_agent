@@ -897,10 +897,12 @@ def create_dir(root: Path, subdir:str=''):
 
 
 def echo_print(stri: str, verbose: bool = False):
+    if not isinstance(stri, str):
+        return stri
+
     if verbose:
         print(stri)
     return stri + "\n"
-
 
 def all_equal_list(cols1, cols2):
     cols1 = list(cols1)

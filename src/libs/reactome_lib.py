@@ -23,11 +23,10 @@ from libs.Basic import create_dir, isfloat, pdreadcsv, pdwritecsv
 
 
 class Reactome(object):
-    def __init__(self, ROOT0: Path):
+    def __init__(self, root_owl: Path, root_reactome: Path):
 
-        self.root_src = create_dir(ROOT0, "src")
-        self.root_owl = create_dir(ROOT0, "data/owl")
-        self.root_reactome = create_dir(ROOT0, "data/reactome")
+        self.root_owl = root_owl
+        self.root_reactome = root_reactome
         self.root_json = self.root_reactome / "pathway_json"
 
         self.fname_reactome = "reactome_pathways_human.tsv"
