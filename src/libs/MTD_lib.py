@@ -64,8 +64,8 @@ class MTD(object):
 
 		self.root_project = create_dir(root0_data, s_project)
 
-		self.gene = Gene(root0=root0, root_project=self.root_project)
-		self.cfg  = Config(root0=root0, root_project=self.root_project, project=project, s_project=s_project,case_list=case_list)
+		self.gene = Gene(root0=root0)
+		self.cfg  = Config(root0=root0, project=project, s_project=s_project,case_list=case_list)
 		self.med_max_ptw = 'median'
 
 		self.disease = disease
@@ -436,10 +436,10 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print("")
 			
 			fname_final, _, _ = self.set_lfc_names()
-			fullname = osjoin(self.root_data, fname_final)
+			filename = osjoin(self.root_data, fname_final)
 
-			if exists(fullname):
-				print(">>> lfc file exists:", fullname, '\n')
+			if exists(filename):
+				print(">>> lfc file exists:", filename, '\n')
 				dfq = pdreadcsv(fname_final, self.root_data)
 				cols = list(dfq.columns)
 
@@ -451,7 +451,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 						print('\t', col, '???')
 				print("\n")
 			else:
-				print("Error: lfc file does not exists",  fullname, '\n')
+				print("Error: lfc file does not exists",  filename, '\n')
 
 
 	def set_lfc_names(self):
@@ -486,10 +486,10 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			fname_given_lfc: is the original LFC table given by the study
 			fname_final_lfc_ori: is the final LFC table, corrected with no duplications
 		'''
-		fullname = osjoin(self.root_data, fname_given_lfc)
+		filename = self.root_data / fname_given_lfc
 
-		if not exists(fullname):
-			print(f"Error: could not find table '{fullname}'")
+		if not filename.exists():
+			print(f"Error: could not find table '{filename}'")
 			raise Exception('stop: fix dup_dflfc_ori()')
 
 		dflfc_ori = pdreadcsv(fname_given_lfc, self.root_data, verbose=verbose)
@@ -637,9 +637,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		'''
 
 		fname_final_lfc_ori, fname_given_lfc, _ = self.set_lfc_names()
-		fullname = osjoin(self.root_data, fname_final_lfc_ori)
+		filename = self.root_data / fname_final_lfc_ori
 
-		if not exists(fullname):
+		if not filename.exists():
 			if self.s_omics == 'microarray':
 				_ = self.review_LFC_table_with_affy_annot_wo_case(force=False, calc_interm_tables=False, verbose=False)
 
@@ -649,8 +649,8 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			else:
 				print(f"There is no fix duplication method to {self.s_omics}")
 
-		if not exists(fullname):
-			print(f"Error: could not find {fullname}")
+		if not filename.exists():
+			print(f"Error: could not find {filename}")
 			self.dflfc_ori = pd.DataFrame()
 			return False
 
@@ -696,11 +696,11 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		fname_final_lfc_ori, _, title = self.set_lfc_names()
 		self.title = title
 
-		fullname = osjoin(self.root_data, fname_final_lfc_ori)
+		filename = osjoin(self.root_data, fname_final_lfc_ori)
 
-		if not exists(fullname):
+		if not exists(filename):
 			df = pd.DataFrame({})
-			print('LFC table does not exists: %s'%(fullname))
+			print('LFC table does not exists: %s'%(filename))
 			return False
 
 		if verbose: print("reading df_lfc ori", self.group, self.gender, self.age)
@@ -832,17 +832,17 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		self.df_enr, self.pathway_in = pd.DataFrame(), False
 
 		fname, _ = self.set_enrichment_name()
-		fullname = osjoin(self.root_enrich, fname)
-		if verbose: print(">>>> open enrichment_analysis(): ", fullname)
+		filename = osjoin(self.root_enrich, fname)
+		if verbose: print(">>>> open enrichment_analysis(): ", filename)
 
-		if not exists(fullname):
-			if verbose: print(f"Warning: EA table for {self.case} does not exist: '{fullname}'")
+		if not exists(filename):
+			if verbose: print(f"Warning: EA table for {self.case} does not exist: '{filename}'")
 			return False
 
 		df_enr0 = pdreadcsv(fname, self.root_enrich, verbose=verbose)
 
 		if df_enr0 is None or df_enr0.empty:
-			print(f"EA table is empty: '{fullname}'")
+			print(f"EA table is empty: '{filename}'")
 			return False
 
 		cols_ori = list(df_enr0.columns)
@@ -918,8 +918,8 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			from openpyxl import Workbook
 			'''
 			fname = self.fname_enrich_table0%(self.geneset_lib, self.case, self.normalization) + '.xlsx'
-			fullname = osjoin(self.root_result, fname)
-			df_enr.to_excel(fullname, sheet_name=self.case, index=False)
+			filename = osjoin(self.root_result, fname)
+			df_enr.to_excel(filename, sheet_name=self.case, index=False)
 
 		return df_enr
 
@@ -1149,9 +1149,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 	def summary_degs_and_pathways(self, check:bool=False, force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
-		fullname = osjoin(self.root_ressum, self.fname_summ_deg_ptw)
+		filename = osjoin(self.root_ressum, self.fname_summ_deg_ptw)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dfsum = pdreadcsv(self.fname_summ_deg_ptw, self.root_ressum, verbose=verbose)
 			col0 = list(dfsum.columns)[0]
 			dfsum = dfsum.set_index(col0)
@@ -1588,9 +1588,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 	def calc_all_genes_in_pubmed_per_case(self, force:bool=False, prompt_verbose:bool=False,
 										  verbose:bool=False) -> pd.DataFrame:
 
-		fullname = osjoin(self.root_ressum, self.fname_degs_summary)
+		filename = osjoin(self.root_ressum, self.fname_degs_summary)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			return pdreadcsv(self.fname_degs_summary, self.root_ressum, verbose=verbose)
 
 		dic={}; icount=-1
@@ -1695,9 +1695,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			self.open_enriched_pathways_summary()
 
 		fname = self.fname_pathway_summary%(self.normalization)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dfa = pdreadcsv(fname, self.root_ressum, verbose=verbose)
 			return dfa
 
@@ -1824,9 +1824,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 	def calc_degs_and_pathways_summary(self, force:bool=False, prompt_verbose:bool=False,
 									   verbose:bool=False) -> bool:
 
-		fullname = osjoin(self.root_ressum, self.fname_degs_and_pathways_summary)
+		filename = osjoin(self.root_ressum, self.fname_degs_and_pathways_summary)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			return self.open_enriched_pathways_summary(verbose=verbose)
 
 		dic_summ = {}; icount = -1
@@ -2107,9 +2107,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 				if save_file and not dfa.empty:
 					fname_up = fname0.replace('_final_', f"{stri}UP_{biotype}_").replace('.tsv', '.txt')
-					fullname = osjoin(self.root_result, fname_up)
+					filename = osjoin(self.root_result, fname_up)
 
-					if not exists(fullname) or force:
+					if not exists(filename) or force:
 						text = "\n".join(dfa.symbol)
 						write_txt(text, fname_up, self.root_result, verbose=verbose)
 
@@ -2119,9 +2119,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 				if save_file and not dfa.empty:
 					fname_dw = fname0.replace('_final_', f"{stri}DW_{biotype}_").replace('.tsv', '.txt')
-					fullname = osjoin(self.root_result, fname_dw)
+					filename = osjoin(self.root_result, fname_dw)
 
-					if not exists(fullname) or force:
+					if not exists(filename) or force:
 						text = "\n".join(dfa.symbol)
 						write_txt(text, fname_dw, self.root_result, verbose=verbose)
 
@@ -2160,12 +2160,12 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			self.set_dfsim()
 			return self.dfsim
 
-		fullname = osjoin(self.root_config, self.cfg.fname_lfc_cutoff)
+		filename = osjoin(self.root_config, self.cfg.fname_lfc_cutoff)
 
-		if exists(fullname):
+		if exists(filename):
 			dfsim = pdreadcsv(self.cfg.fname_lfc_cutoff, self.root_config, verbose=verbose)
 		else:
-			print(f"Could not found simulation table: {fullname}")
+			print(f"Could not found simulation table: {filename}")
 			dfsim = pd.DataFrame()
 
 		self.dfsim = dfsim
@@ -2180,9 +2180,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 	def calc_degs_cutoff_simulation(self, cutoff_list:List, force:bool=False, save_file:bool=False, 
 									n_echo:int=-1, verbose:bool=False) -> pd.DataFrame:
 
-		fullname = osjoin(self.root_config, self.cfg.fname_lfc_cutoff)
+		filename = osjoin(self.root_config, self.cfg.fname_lfc_cutoff)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dfsim = pdreadcsv(self.cfg.fname_lfc_cutoff, self.root_config)
 			self.dfsim = dfsim
 			return dfsim
@@ -3357,9 +3357,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 		fname = self.fname_one_pathway_symb_LFC%(pathway, self.geneset_lib, self.normalization)
 		fname = title_replace(fname)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dff = pdreadcsv(fname, self.root_ressum, verbose=verbose)
 			return dff
 
@@ -4397,9 +4397,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 					figname0 = figname0[:250]
 				figname = figname0 + '.png'
 
-				filename = osjoin(self.root_fig_md, figname)
+				filename = self.root_fig_md / figname
 
-				if exists(filename):
+				if filename.exists():
 					s_md_plots += f"### {symbol}\n"
 					s_md_plots += f"""![{symbol})]({filename})""" + '\n'
 				else:
@@ -5500,9 +5500,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		fname = self.fname_pPMI%(self.project, self.type_sat_ptw_index, s_saturation, self.normalization)
 		fname = title_replace(fname)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dff = pdreadcsv(fname, self.root_ressum, verbose=verbose)
 			return dff
 
@@ -5535,9 +5535,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	def list_all_df_erichments(self, force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
 		fname_all_dfenr = self.fname_all_dfenr%(self.s_project)
-		fullname = osjoin(self.root_result, fname_all_dfenr)
+		filename = osjoin(self.root_result, fname_all_dfenr)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dfall = pdreadcsv(fname_all_dfenr, self.root_result, verbose=verbose)
 			return dfall
 
@@ -6189,9 +6189,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	def degs_to_text_all_cases_summary(self, force:bool=False, verbose:bool=False) -> str:
 
 		fname = self.fname_big_summary_txt%(self.s_project, self.geneset_num, self.geneset_lib)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			text = read_txt(fname, self.root_ressum, verbose=verbose)
 			return text
 
@@ -6420,9 +6420,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		icount=-1
 
 		fname = self.fname_enr_gene_stat%(case, self.geneset_lib, self.normalization)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dfi = pdreadcsv(fname, self.root_ressum)
 			self.dfi = dfi
 			return dfi
@@ -6657,9 +6657,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		# self.fname_cutoff_table = 'cutoff_table_all_cases_quantiles_for_col_%s_for_geneset_%d_%s_%s.tsv'
 		fname = self.fname_cutoff_table%(selected_toi_col, self.geneset_num, self.geneset_lib, self.normalization)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 				return pdreadcsv(fname, self.root_ressum, verbose=verbose)
 
 		dic={}; icount=-1
@@ -6743,16 +6743,16 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 								 save_config:bool=False, verbose:bool=False) -> pd.DataFrame:
 
 		fname = self.fname_cutoff_table%(selected_toi_col, self.geneset_num, self.geneset_lib, self.normalization)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if not exists(fullname):
-			print(f"Could not find: '{fullname}'")
+		if not exists(filename):
+			print(f"Could not find: '{filename}'")
 			return pd.DataFrame()
 
 		dfcut = pdreadcsv(fname, self.root_ressum, verbose=verbose)
 
 		if dfcut is None or dfcut.empty:
-			print(f"Error: could not read: '{fullname}'")
+			print(f"Error: could not read: '{filename}'")
 			return pd.DataFrame()
 
 		df_all_fdr = self.open_all_fdr_lfc_correlation()
@@ -6844,16 +6844,16 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			return pd.DataFrame()
 
 		fname = self.fname_cutoff_table%(selected_toi_col, self.geneset_num, self.geneset_lib, self.normalization)
-		fullname = osjoin(self.root_ressum, fname)
+		filename = osjoin(self.root_ressum, fname)
 
-		if not exists(fullname):
-			print(f"Could not find: '{fullname}'")
+		if not exists(filename):
+			print(f"Could not find: '{filename}'")
 			return pd.DataFrame()
 
 		dfcut = pdreadcsv(fname, self.root_ressum, verbose=verbose)
 
 		if dfcut is None or dfcut.empty:
-			print(f"Error: could not read: '{fullname}'")
+			print(f"Error: could not read: '{filename}'")
 			return pd.DataFrame()
 
 		df_all_fdr = self.open_all_fdr_lfc_correlation()
@@ -6960,12 +6960,12 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 	def open_all_fdr_lfc_correlation(self, verbose:bool=False) -> pd.DataFrame:
 		fname = self.fname_all_fdr_lfc_correlation%(self.LFC_cut_inf)
-		fullname = osjoin(self.root_config, fname)
+		filename = osjoin(self.root_config, fname)
 
-		if exists(fullname):
+		if exists(filename):
 			df_all_fdr = pdreadcsv(fname, self.root_config, verbose=verbose)
 		else:
-			print(f"File all_fdr_lfc_correlation not found: {fullname}")
+			print(f"File all_fdr_lfc_correlation not found: {filename}")
 			print("Please run: 'pubmed_taubate_new03_up_down_simulation'")
 			df_all_fdr = pd.DataFrame()
 
@@ -6978,15 +6978,15 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			LFC_cut_inf = self.LFC_cut_inf
 
 		fname = self.fname_dic_fdr_lfc_correlation%(case, LFC_cut_inf)
-		fullname = osjoin(self.root_config, fname)
+		filename = osjoin(self.root_config, fname)
 
-		if exists(fullname):
+		if exists(filename):
 			dic = loaddic(fname, self.root_config, verbose=verbose)
 		else:
 			dic = None
 
 		if dic is None or len(dic) == 0:
-			print(f"Could not find {fullname}, thus df_fdr is empty")
+			print(f"Could not find {filename}, thus df_fdr is empty")
 			df_fdr = pd.DataFrame()
 		else:
 			df_fdr = dic['df_fdr']
@@ -7000,9 +7000,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		self.df_all_fdr = None
 
 		fname = self.fname_all_fdr_lfc_correlation%(self.LFC_cut_inf)
-		fullname = osjoin(self.root_config, fname)
+		filename = osjoin(self.root_config, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			self.df_all_fdr = pdreadcsv(fname, self.root_config, verbose=verbose)
 			return self.df_all_fdr
 
@@ -7093,9 +7093,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		dfsim = self.open_simulation_table()
 
 		fname = self.fname_dic_fdr_lfc_correlation%(case, self.LFC_cut_inf)
-		fullname = osjoin(self.root_config, fname)
+		filename = osjoin(self.root_config, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			dic = loaddic(fname, self.root_config, verbose=verbose)
 			return True, dic
 
@@ -7736,9 +7736,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		self.df_empty_gpl_lnc_new, self.df_empty_gpl_lnc, self.df_empty_gpl_not_lnc = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 		fname_final_lfc_ori = self.fname_final_lfc_table0%(case, self.normalization)
-		fullname = osjoin(self.root_data, fname_final_lfc_ori)
+		filename = osjoin(self.root_data, fname_final_lfc_ori)
 
-		if not calc_interm_tables and exists(fullname) and not force:
+		if not calc_interm_tables and exists(filename) and not force:
 			dflfc_new = pdreadcsv(fname_final_lfc_ori, self.root_data, verbose=verbose)
 			self.dflfc_new = dflfc_new
 			return True
@@ -7981,7 +7981,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		self.dflfc_new_final = dflfc_new_final
 
 		'''------ again ---  calc_interm_tables --------------------------------'''
-		if not exists(fullname) or force:
+		if not exists(filename) or force:
 			pdwritecsv(dflfc_new_final, fname_final_lfc_ori, self.root_data, verbose=verbose)
 
 		print(f"There are {len(self.dflfc_all)} unique RNAs/probes in the microarray expression table")
@@ -8051,10 +8051,10 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		fname_geo = fname_affy.replace('.tsv', '_location.tsv')
 		self.fname_geo = fname_geo
-		fullname = osjoin(self.root_affy, fname_geo)
+		filename = osjoin(self.root_affy, fname_geo)
 
-		if not exists(fullname):
-			print(f"Could not find '{fullname}'")
+		if not exists(filename):
+			print(f"Could not find '{filename}'")
 			self.df_gpl = pd.DataFrame()
 			return self.df_gpl
 
@@ -8081,9 +8081,9 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	def prepare_gpl(self, fname_affy:str="GPL14550-9757.tsv", force:bool=False, verbose:bool=False) -> bool:
 
 		fname = fname_affy.replace('.tsv', '_location.tsv')
-		fullname = osjoin(self.root_affy, fname)
+		filename = osjoin(self.root_affy, fname)
 
-		if exists(fullname) and not force:
+		if exists(filename) and not force:
 			df_gpl = pdreadcsv(fname, self.root_affy, verbose=verbose)
 			self.df_gpl = df_gpl
 			return True

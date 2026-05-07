@@ -16,12 +16,10 @@ from typing import List, Tuple #  Optional, Iterable, Set, Any
 from libs.Basic import create_dir, pdwritecsv, pdreadcsv, to_roman_numeral
 
 class Gene(object):
-	def __init__(self, root0:Path, root_project:Path):
+	def __init__(self, root0:Path):
 
 		self.root0 = root0
 		self.root_colab = create_dir(root0, 'colab')
-		self.root_project = root_project
-
 		self.root_refseq = create_dir(self.root_colab, 'refseq')
 
 		files = os.listdir(self.root_refseq)
@@ -824,7 +822,7 @@ class Gene(object):
 
 
 	def open_uniprot(self, verbose:bool=False) -> pd.DataFrame:
-		dfunip = pdreadcsv(self.fname_uniprot, self.root_project, verbose=verbose)
+		dfunip = pdreadcsv(self.fname_uniprot, self.refseq, verbose=verbose)
 		self.dfunip = dfunip
 		return dfunip
 
@@ -835,7 +833,7 @@ class Gene(object):
 
 	def uniprot_add_symbol(self, df, fname) -> pd.DataFrame:
 		fname_backup = fname.replace('.tsv', '_backup.tsv')
-		ret = pdwritecsv(df, fname_backup, self.root_project)
+		ret = pdwritecsv(df, fname_backup, self.refseq)
 		if not ret:
 			return pd.DataFrame()
 
@@ -848,7 +846,7 @@ class Gene(object):
 		dfn = dfn.sort_values('lfc', ascending=False)
 		dfn.reset_index(inplace=True, drop=True)
 
-		ret = pdwritecsv(dfn, fname, self.root_project)
+		ret = pdwritecsv(dfn, fname, self.refseq)
 		return dfn
 
 

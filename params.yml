@@ -1,11 +1,9 @@
 root0: '/home/flavio/uv/perturb_agent'
-root_data: '/home/flavio/uv/perturb_agent/data'
-root_colab: '/home/flavio/uv/perturb_agent/colab'
+root0_data: '/home/flavio/uv/perturb_agent/data'
 
+project_list: ['TCGA',]
+s_project_list: ['TCGA', ]
 i_project: 0
-
-project_list: ['Perturbation agent: a molecular target discovery pipeline',]
-s_project_list: ['target_disc_perturb_project', ]
 
 gene_protein: 'gene'
 s_omics: 'DNA'
@@ -40,9 +38,6 @@ std_filename_list: [ [] ]
 
 min_lfc_modulation: 0.4
 num_of_genes_list: [3]
-
-disease: ''
-context_disease: ""
 
 n_sentences: 5
 run_list: ['run01', 'run02', 'run03']

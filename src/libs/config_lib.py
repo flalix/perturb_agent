@@ -16,13 +16,13 @@ from typing import Tuple, List # Optional, Iterable, Set, Any
 from libs.Basic import pdreadcsv, pdwritecsv, create_dir, title_replace
 
 class Config(object):
-	def __init__(self, root0:Path, root_project:Path, project:str, s_project:str, case_list:List):
+	def __init__(self, root0:Path, root_data:Path, project:str, s_project:str, case_list:List):
 
 		self.root0 = root0
-		self.root_project = root_project
+		self.root_data = root_data
 		self.root_colab = create_dir(root0, 'colab')
 
-		self.root_config = create_dir(self.root_project, 'config')
+		self.root_config = create_dir(self.root_data, 'config')
 
 		self.case_list = case_list
 
