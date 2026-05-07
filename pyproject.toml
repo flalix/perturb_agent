@@ -41,6 +41,7 @@ dependencies = [
 
     # Bioinformatics helpers
     "biopython>=1.83",
+    "biomart",
     "gseapy>=1.1",
     "mygene>=3.2",
 
@@ -48,6 +49,10 @@ dependencies = [
     "matplotlib>=3.8,<3.10",
     "plotly>=5.20",
     "seaborn>=0.13,<0.14",
+    "matplotlib_venn",
+    "pycirclize",
+    "plotly",
+    "markdown-pdf",
 
     # PDF / papers
     "pypdf>=4.0",

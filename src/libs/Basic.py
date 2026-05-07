@@ -881,9 +881,13 @@ def list_dfmeta_field(dfmeta, field):
     return np.sort(vals)
 
 
-def create_dir(root: Path, _dir: Any = None):
-    if isinstance(_dir, str) and _dir != "":
-        path = root / _dir
+def create_dir(root: Path, subdir:str=''):
+
+    if isinstance(root, str):
+        root = Path(root)
+
+    if isinstance(subdir, str) and subdir != "":
+        path = root / subdir
     else:
         path = root
 
