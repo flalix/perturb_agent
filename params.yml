@@ -6,7 +6,7 @@ s_project_list: ['TCGA', ]
 i_project: 0
 
 gene_protein: 'gene'
-s_omics: 'DNA'
+s_omics: 'RNA-Seq'
 
 has_age: False
 has_gender: False

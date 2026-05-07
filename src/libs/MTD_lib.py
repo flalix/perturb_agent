@@ -34,7 +34,7 @@ from markdown_pdf import Section
 from markdown_pdf import MarkdownPdf
 
 
-from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print
+from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt
 from libs.gene_lib import *
 from libs.config_lib import *
 from libs.stat_lib import *
@@ -48,7 +48,8 @@ from libs.graphic_lib import plotly_colors_proteins
 # print('recursionlimit', sys.getrecursionlimit())
 
 class MTD(object):
-	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, root0:Path, root0_data:Path,
+	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, 
+			     root0:Path, root0_data:Path,
 				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=False, 
 				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
@@ -59,18 +60,37 @@ class MTD(object):
 				 saturation_lfc_param:float=5., enr_db_list:List=[], pPMI_normalized:bool=False):
 
 		self.root0 = Path(root0)
-		self.root0_data = Path(root0_data)
 		self.root_colab = create_dir(root0, 'colab')
 
+		self.project = project
+		self.s_project = s_project		
+
+		self.root0_data = Path(root0_data)
 		self.root_project = create_dir(root0_data, s_project)
+		self.disease = title_replace(disease)
+		self.root_disease = create_dir(self.root_project, self.disease)
+
+		self.root_result   = create_dir(self.root_disease, 'results')
+		self.root_lfc      = create_dir(self.root_disease, 'lfc')
+		self.root_data	   = create_dir(self.root_disease, 'data')
+		self.root_enrich   = create_dir(self.root_disease, 'enrichment_analyses')
+		self.root_ressum   = create_dir(self.root_disease, 'res_summ')
+		self.root_figure   = create_dir(self.root_disease, 'figures')
+		self.root_pathway  = create_dir(self.root_disease, 'pathway_summaries')
+		self.root_config   = create_dir(self.root_disease, 'config')
+		self.root_llm	   = create_dir(self.root_disease, 'llm')
+		self.root_nc	   = create_dir(self.root_disease, 'non_coding')
+		self.root_pdf_summ = create_dir(self.root_disease, 'pdf_summary')
+		self.root_enrich_sampling = create_dir(self.root_disease, 'enrich_sampling')
+		self.root_enrich_random  = create_dir(self.root_disease, 'enrichment_random')
+		self.root_ptw_modulation = create_dir(self.root_disease, 'pathway_modulation')
+		
+		self.cfg  = Config(root0=root0, root_disease=self.root_disease, disease=self.disease, case_list=case_list)
+
 
 		self.gene = Gene(root0=root0)
-		self.cfg  = Config(root0=root0, project=project, s_project=s_project,case_list=case_list)
 		self.med_max_ptw = 'median'
 
-		self.disease = disease
-		self.project = project
-		self.s_project = s_project
 		self.s_pathw_enrichm_method = s_pathw_enrichm_method
 		self.selected_pivot_pathway_list = []
 		self.selected_pivot_symb_list = []
@@ -125,24 +145,24 @@ class MTD(object):
 		# fname_given_lfc: is the original LFC table given by the study
 		# fname_final_lfc_ori: is the final LFC table, corrected with no duplications
 		# open(fname_given_lfc) --> dflfc_all
-		self.fname_given_lfc_table0 = f"{s_project}_ALL_LFC_%s_x_CTRL_%s.tsv"
+		self.fname_given_lfc_table0 = f"{self.disease}_ALL_LFC_%s_x_CTRL_%s.tsv"
 		# open(fname_final_lfc_ori) - corrected --> dflfc_ori
-		self.fname_final_lfc_table0 = f"{s_project}_final_LFC_%s_x_CTRL_%s.tsv"
+		self.fname_final_lfc_table0 = f"{self.disease}_final_LFC_%s_x_CTRL_%s.tsv"
 
 		# lfc columns for given lfc table
 		self.lfc_cols_default = ['ensembl_id', 'symbol', 'biotype', 'description', 'lfc', 'abs_lfc', 'pval', 'fdr']
 
-		self.fname_lfc_nodup_table0 = f"{s_project}_NO_DUP_LFC_%s_x_CTRL_%s.tsv"
+		self.fname_lfc_nodup_table0 = f"{self.disease}_NO_DUP_LFC_%s_x_CTRL_%s.tsv"
 		self.fname_final_lfc_ori = ''
 		self.fname_all_dfenr = 'pathway_all_list_for_%s.tsv'
 
 		self.fname_lfc_mod_summary = "lfc_modulation_summary_lfc_threshold_%.2f_diff_cutoff_%.2f.txt"
 
 		''' enricher_GO_Biological_Process_2021_taubate_covid19_proteomics_for_g3_female_elder_x_ctrl_not_normalized_cutoff_lfc_0.200_fdr_0.700_pathway_pval_0.050_fdr_0.500_num_genes_3.tsv '''
-		fname_enrich_table0 = f"{s_pathw_enrichm_method}_%s_{s_project}_{s_omics}_for_%s_x_ctrl_%s"
+		fname_enrich_table0 = f"{s_pathw_enrichm_method}_%s_{self.disease}_{s_omics}_for_%s_x_ctrl_%s"
 		self.fname_enrich_table0 = fname_enrich_table0
 
-		self.fname_enr_simulation = f"enr_simulation_{s_project}_%s_%s.tsv"
+		self.fname_enr_simulation = f"enr_simulation_{self.disease}_%s_%s.tsv"
 
 		self.fname_stringdb  = ''
 
@@ -230,24 +250,9 @@ class MTD(object):
 
 		self.param_defaults = 1, 0.05, -1, -1, -1, -1
 
-		self.root_assets = './assets'
-		if not exists(self.root_assets):
-			os.mkdir(self.root_assets)
+		self.root_assets = create_dir(root0, 'assets')
 
-		self.root_result   = create_dir(self.root_project, 'results')
-		self.root_data	   = create_dir(self.root_project, 'data')
-		self.root_enrich   = create_dir(self.root_project, 'enrichment_analyses')
-		self.root_ressum   = create_dir(self.root_project, 'res_summ')
-		self.root_figure   = create_dir(self.root_project, 'figures')
-		self.root_pathway  = create_dir(self.root_project, 'pathway_summaries')
-		self.root_config   = create_dir(self.root_project, 'config')
-		self.root_llm	   = create_dir(self.root_project, 'llm')
-		self.root_nc	   = create_dir(self.root_project, 'non_coding')
-		self.root_pdf_summ = create_dir(self.root_project, 'pdf_summary')
-
-		# root figures for markdown
-
-		root_fig_md = self.root_project / 'figures'
+		root_fig_md = self.root_disease / 'figures'
 		if root_fig_md.exists():
 			try:
 				shutil.rmtree(root_fig_md)
@@ -256,12 +261,10 @@ class MTD(object):
 			except OSError as e:
 				print(f"Error deleting folder {root_fig_md}: {e}")
 
-		self.root_fig_md   = create_dir(self.root_project, 'figures')
+		self.root_fig_md   = create_dir(self.root_disease, 'figures')
 		self.curr_figname  = 'unknown_md.png'
 		
-		self.root_enrichment	 = create_dir(self.root_project, 'enrichment_analyses')
-		self.root_enrich_random  = create_dir(self.root_project, 'enrichment_random')
-		self.root_ptw_modulation = create_dir(self.root_project, 'pathway_modulation')
+
 
 		'''----- self.root_colab = where data is -------'''
 		self.root_bioplanet = create_dir(self.root_colab, 'bioplanet')
@@ -272,7 +275,7 @@ class MTD(object):
 		''' ---- Affymetrix ---'''
 		self.fname_affy = 'Human_Agilent_WholeGenome_4x44k_v2_MSigDB_v71.tsv'
 		self.root_affymetrix = create_dir(self.root_colab, 'affymetrix')
-		self.root_affy	   = create_dir(self.root_project, 'affy')
+		self.root_affy	   = create_dir(self.root_disease, 'affy')
 
 		''' affymetrix experiment table - probe x symbols '''
 		self.df_gpl = pd.DataFrame()
@@ -436,11 +439,11 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print("")
 			
 			fname_final, _, _ = self.set_lfc_names()
-			filename = osjoin(self.root_data, fname_final)
+			filename = osjoin(self.root_lfc, fname_final)
 
 			if exists(filename):
 				print(">>> lfc file exists:", filename, '\n')
-				dfq = pdreadcsv(fname_final, self.root_data)
+				dfq = pdreadcsv(fname_final, self.root_lfc)
 				cols = list(dfq.columns)
 
 				print("Checking columns:")
@@ -486,13 +489,13 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			fname_given_lfc: is the original LFC table given by the study
 			fname_final_lfc_ori: is the final LFC table, corrected with no duplications
 		'''
-		filename = self.root_data / fname_given_lfc
+		filename = self.root_lfc / fname_given_lfc
 
 		if not filename.exists():
 			print(f"Error: could not find table '{filename}'")
 			raise Exception('stop: fix dup_dflfc_ori()')
 
-		dflfc_ori = pdreadcsv(fname_given_lfc, self.root_data, verbose=verbose)
+		dflfc_ori = pdreadcsv(fname_given_lfc, self.root_lfc, verbose=verbose)
 
 		if dflfc_ori is None or dflfc_ori.empty:
 			print(f"Error: could not find data for table '{fname_given_lfc}'")
@@ -512,7 +515,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		else:
 			dflfc_ori = self.biomart_fix_dflfc_ori(dflfc_ori)
 
-		pdwritecsv(dflfc_ori, fname_final_lfc_ori, self.root_data, verbose=True)
+		pdwritecsv(dflfc_ori, fname_final_lfc_ori, self.root_lfc, verbose=True)
 
 		return dflfc_ori
 
@@ -633,11 +636,11 @@ th {background-color: #f2f2f2; font-weight: bold;}
 					_ = self.review_proteomics_table(fname_final_lfc_ori, fname_given_lfc, verbose=verbose)
 			
 			in the end:
-				dflfc_ori = pdreadcsv(fname_final_lfc_ori, self.root_data, verbose=verbose)
+				dflfc_ori = pdreadcsv(fname_final_lfc_ori, self.root_lfc, verbose=verbose)
 		'''
 
 		fname_final_lfc_ori, fname_given_lfc, _ = self.set_lfc_names()
-		filename = self.root_data / fname_final_lfc_ori
+		filename = self.root_lfc / fname_final_lfc_ori
 
 		if not filename.exists():
 			if self.s_omics == 'microarray':
@@ -645,6 +648,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 			elif self.s_omics == 'proteomics':
 				_ = self.review_proteomics_table(fname_final_lfc_ori, fname_given_lfc, verbose=verbose)
+
+			elif self.s_omics == 'RNA-Seq':
+				pass
 
 			else:
 				print(f"There is no fix duplication method to {self.s_omics}")
@@ -655,7 +661,24 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			return False
 
 		# read final dflfc_ori table --> the corrected one
-		dflfc_ori = pdreadcsv(fname_final_lfc_ori, self.root_data, verbose=verbose)
+		dflfc_ori = pdreadcsv(fname_final_lfc_ori, self.root_lfc, verbose=verbose)
+
+		changed = False
+		if 'abs_lfc' not in dflfc_ori.columns:
+			dflfc_ori['abs_lfc'] = [np.abs(x) if not pd.isnull(x) else x for x in dflfc_ori.lfc]
+			changed = True
+
+		if 'gene_id' in dflfc_ori.columns:
+			dflfc_ori = dflfc_ori.rename(columns={"gene_id": "ensembl_id"})
+			changed = True
+
+		if 'gene_type' in dflfc_ori.columns:
+			dflfc_ori = dflfc_ori.rename(columns={"gene_type": "biotype"})
+			changed = True
+
+		if changed:
+			_ = pdwritecsv(dflfc_ori, fname_final_lfc_ori, self.root_lfc, verbose=True)
+
 		if verbose: print(f">>> dflfc_ori: contains {len(dflfc_ori)} probes.")
 
 		goods = [True if isinstance(x, str) else False for x in dflfc_ori.symbol]
@@ -696,7 +719,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		fname_final_lfc_ori, _, title = self.set_lfc_names()
 		self.title = title
 
-		filename = osjoin(self.root_data, fname_final_lfc_ori)
+		filename = osjoin(self.root_lfc, fname_final_lfc_ori)
 
 		if not exists(filename):
 			df = pd.DataFrame({})
@@ -2008,7 +2031,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			print(f"No dflfc table was calculated for this case {self.case}")
 			return [], [], pd.DataFrame()
 
-		dflfc = self.dflfc_ori
+		dflfc = self.dflfc_ori.copy()
 		dflfc = dflfc[ (dflfc.abs_lfc >= self.LFC_cut) & (dflfc.fdr < self.lfc_FDR_cut)].copy()
 
 		if dflfc.empty:
@@ -2020,10 +2043,10 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		dflfc.reset_index(inplace=True, drop=True)
 
 		if save_file:
-			fname = f'bca_{self.s_deg_dap}s_for_{self.s_project}_case_{self.case}_best_cutoff_abs_lfc_{self.LFC_cut:.3f}_fdr_{self.lfc_FDR_cut:.3f}.tsv'
+			fname = f'bca_{self.s_deg_dap}s_for_{self.disease}_case_{self.case}_best_cutoff_abs_lfc_{self.LFC_cut:.3f}_fdr_{self.lfc_FDR_cut:.3f}.tsv'
 			ret = pdwritecsv(dflfc, fname, self.root_result, verbose=verbose)
 
-			fname = f'bca_{self.s_deg_dap}s_for_{self.s_project}_case_{self.case}_best_cutoff_abs_lfc_{self.LFC_cut:.3f}_fdr_{self.lfc_FDR_cut:.3f}.txt'
+			fname = f'bca_{self.s_deg_dap}s_for_{self.disease}_case_{self.case}_best_cutoff_abs_lfc_{self.LFC_cut:.3f}_fdr_{self.lfc_FDR_cut:.3f}.txt'
 			text = "\n".join(dflfc.symbol)
 			write_txt(text, fname, self.root_result, verbose=verbose)
 
@@ -2729,7 +2752,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			s_start = f"enricher_{self.geneset_lib}"
 
 			for case in self.case_list:
-				files = [x for x in os.listdir(self.root_enrichment) if x.startswith(s_start) and case in x]
+				files = [x for x in os.listdir(self.root_enrich_sampling) if x.startswith(s_start) and case in x]
 				if prompt_verbose: print("\tcase", case, len(files))
 
 				i+=1
@@ -5534,7 +5557,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 	def list_all_df_erichments(self, force:bool=False, verbose:bool=False) -> pd.DataFrame:
 
-		fname_all_dfenr = self.fname_all_dfenr%(self.s_project)
+		fname_all_dfenr = self.fname_all_dfenr%(self.disease)
 		filename = osjoin(self.root_result, fname_all_dfenr)
 
 		if exists(filename) and not force:
@@ -6188,7 +6211,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 	def degs_to_text_all_cases_summary(self, force:bool=False, verbose:bool=False) -> str:
 
-		fname = self.fname_big_summary_txt%(self.s_project, self.geneset_num, self.geneset_lib)
+		fname = self.fname_big_summary_txt%(self.disease, self.geneset_num, self.geneset_lib)
 		filename = osjoin(self.root_ressum, fname)
 
 		if exists(filename) and not force:
@@ -6199,7 +6222,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		s_date_time = now.strftime("%d/%m/%Y %H:%M:%S")
 
-		text  = echo_print(f"# Project {self.project}: {self.s_omics} for {self.disease}")
+		text  = echo_print(f"# Project {self.project} for {self.disease}: {self.s_omics}")
 		text += echo_print(f"# Calculated in {s_date_time}")
 		text += echo_print(f"# geneset {self.geneset_num} - {self.geneset_lib}\n")
 

@@ -16,15 +16,17 @@ from typing import Tuple, List # Optional, Iterable, Set, Any
 from libs.Basic import pdreadcsv, pdwritecsv, create_dir, title_replace
 
 class Config(object):
-	def __init__(self, root0:Path, root_data:Path, project:str, s_project:str, case_list:List):
+	def __init__(self, root0:Path, root_disease:Path, disease:str, case_list:List):
 
 		self.root0 = root0
-		self.root_data = root_data
+		self.root_disease = root_disease
 		self.root_colab = create_dir(root0, 'colab')
 
-		self.root_config = create_dir(self.root_data, 'config')
+		self.root_config = create_dir(self.root_disease, 'config')
 
 		self.case_list = case_list
+
+		self.disease = title_replace(disease)
 
 		self.normalization = 'not_normalized'
 
@@ -60,10 +62,10 @@ class Config(object):
 		'''
 		self.param_ptw_defaults = 0.5, 0.9, 1, 0.05, 0.05, 0.05, 3, -1, -1, -1, -1, -1, -1, -1, -1
 
-		fname_lfc_cutoff = f'all_lfc_cutoffs_{s_project}.tsv'
+		fname_lfc_cutoff = f'all_lfc_cutoffs_{self.disease}.tsv'
 		self.fname_lfc_cutoff = title_replace(fname_lfc_cutoff)
 
-		fname_ptw_cutoff = f'best_ptw_cutoffs_{project}.tsv'
+		fname_ptw_cutoff = f'best_ptw_cutoffs_{self.disease}.tsv'
 		self.fname_ptw_cutoff = title_replace(fname_ptw_cutoff)
 
 	def set_default_best_lfc_cutoff(self, normalization:str, LFC_cut:float=1, LFC_FDR_cut:float=.05):
