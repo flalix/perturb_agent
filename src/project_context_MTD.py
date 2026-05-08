@@ -75,7 +75,6 @@ class ProjectContext:
 
 
 
-
 def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int = 0) -> ProjectContext:
     
     root0 = Path(dic_yml["root0"])

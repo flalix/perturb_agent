@@ -21,6 +21,10 @@ import numpy as np
 
 # ----------- fix incompatibilities ---------------------
 import pandas as pd
+
+from project_context_GDC import load_project_context_MTD
+
+from project_context_GDC import load_project_context_MTD
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
@@ -52,7 +56,7 @@ from libs.tcga_gdc_lib import GDC
 from libs.MTD_lib import *
 from libs.dashcyto_lib import DASH_CYTO
 
-from project_context import load_project_context
+from project_context_MTD import load_project_context
 
 
 try:

@@ -43,6 +43,10 @@ from libs.biomart_lib import *
 
 from libs.graphic_lib import plotly_colors_proteins
 
+from project_context_GDC import load_project_context
+
+
+
 # print('recursionlimit', sys.getrecursionlimit())
 # sys.setrecursionlimit(20000)
 # print('recursionlimit', sys.getrecursionlimit())
@@ -54,7 +58,7 @@ class MTD(object):
 				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
 				 tolerance_pPMI:float=.15, s_pathw_enrichm_method:str='enricher',
-				 LFC_cut_inf:float=0.40, fdr_ptw_cutoff_list:list=[],
+				 LFC_cut_inf:float=0.40, fdr_ptw_cutoff_list:List=[],
 				 num_of_genes_list:List=[3], lfc_list = [], fdr_list = [],
 				 min_lfc_modulation:float=0.40, type_sat_ptw_index:str='linear_sat', 
 				 saturation_lfc_param:float=5., enr_db_list:List=[], pPMI_normalized:bool=False):
