@@ -4,7 +4,7 @@
 # Created on 2024/04/11
 # Udated  on 2024/05/03
 # @author: Flavio Lichtenstein
-# @local: Bioinformatics: CENTD/Molecular Biology; Instituto Butatan
+# @local: Home sweet home
 
 import json
 import os

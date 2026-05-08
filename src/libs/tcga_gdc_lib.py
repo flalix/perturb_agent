@@ -75,9 +75,12 @@ class GDC(object):
         self.df_normal = pd.DataFrame()
         self.df_tumor = pd.DataFrame()
 
-        self.root_data = Path()
+        self.root_project = Path()
         self.root_summary = Path()
-        self.root_psi = Path()
+        self.root_disease = Path()
+        self.root_samples = Path()
+        self.root_lfc = Path()
+        self.root_mutations = Path()
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
 
@@ -94,7 +97,6 @@ class GDC(object):
 
         
         ctx = load_project_context( )
-
 
         self.SUBTYPE_GENES = ctx.SUBTYPE_GENES
         self.HISTOLOGY_GENES = ctx.HISTOLOGY_GENES
@@ -117,7 +119,7 @@ class GDC(object):
         # primary_site
         self.fname_prim_site = "primary_site_program_%s.tsv"
         self.fname_cases0 = "cases_for_%s.tsv"
-        self.fname_subtype0 = "subtype_for_%s.tsv"
+        # self.fname_subtype0 = "subtype_for_%s.tsv"
         self.fname_samples0 = "samples_for_%s.tsv"
         self.fname_vcf_files0 = "vcf_files_for_%s.tsv"
         self.fname_rnaseq_exp_files = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
@@ -211,24 +213,31 @@ class GDC(object):
     def set_program(self, prog_id: str):
         self.prog_id = prog_id
 
-        self.root_data = create_dir(self.ROOT_DATA0, prog_id)
-        self.root_summary = create_dir(self.root_data, "summary")
+        self.root_project = create_dir(self.ROOT_DATA0, prog_id)
+        self.root_summary = create_dir(self.root_project, "summary")
 
         self.clean_gdc_files()
 
     def get_primary_sites(
         self, prog_id: str = "TCGA", force: bool = False, verbose: bool = False
     ) -> pd.DataFrame:
+        '''
+        A primary site (like TCGA-BRCA) is a 'disease'
+        root_disease = root_project / psi_id
+
+        input: project or prog_id, force, verbose
+        output: df_psi (dataframe)
+        '''
 
         self.df_psi = pd.DataFrame()
 
         self.set_program(prog_id)
 
         fname = self.fname_prim_site % (prog_id)
-        filename = os.path.join(self.root_data, fname)
+        filename = os.path.join(self.root_project, fname)
 
         if os.path.exists(filename) and not force:
-            df_psi = pdreadcsv(fname, self.root_data, verbose=verbose)
+            df_psi = pdreadcsv(fname, self.root_project, verbose=verbose)
             self.df_psi = df_psi
 
             return df_psi
@@ -267,7 +276,7 @@ class GDC(object):
 
             df_psi = df_psi.sort_values(["primary_site", "disease_type"])
 
-            _ = pdwritecsv(df_psi, fname, self.root_data, verbose=verbose)
+            _ = pdwritecsv(df_psi, fname, self.root_project, verbose=verbose)
 
         except Exception as e:
             print(f"Error searching for '{self.prog_id}': {e}")
@@ -282,6 +291,13 @@ class GDC(object):
     def set_primary_site(
         self, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
     ) -> bool:
+        '''
+        primary site, here, is a disease
+        given psi_id --> root_disease and disease
+
+        input: psi_id (primary site identifier, like TCGA-BRCA) - OR - primary_site (its name/description)
+        output: bool (success or failure)
+        '''
 
         self.psi_id = ""
         self.primary_site, self.disease_type, self.disease_name = "", "", ""
@@ -297,19 +313,22 @@ class GDC(object):
                 print("No primary site information found for:", primary_site)
                 return False
         else:
-            if verbose:
-                print("No primary site information provided.")
+            print("No primary site information provided.")
             return False
 
         row = dfa.iloc[0]
 
         self.psi_id = row.psi_id
+        self.disease = row.psi_id
+
         self.primary_site = row.primary_site
         self.disease_type = row.disease_type
         self.disease_name = row.name
 
-        self.root_psi = self.root_data / self.psi_id
-        os.makedirs(self.root_psi, exist_ok=True)
+        self.root_disease   = create_dir(self.root_project, self.disease)
+        self.root_samples   = create_dir(self.root_disease, 'samples')
+        self.root_lfc       = create_dir(self.root_disease, 'lfc')
+        self.root_mutations = create_dir(self.root_disease, 'mutations')
 
         self.set_filenames()
 
@@ -360,10 +379,10 @@ class GDC(object):
 
     def set_filenames(self):
         self.fname_cases = self.fname_cases0 % (self.psi_id)
-        self.filename_cases = os.path.join(self.root_psi, self.fname_cases)
+        self.filename_cases = os.path.join(self.root_disease, self.fname_cases)
 
-        self.fname_subt = self.fname_subtype0 % (self.psi_id)
-        self.filename_subt = os.path.join(self.root_psi, self.fname_subt)
+        # self.fname_subt = self.fname_subtype0 % (self.psi_id)
+        # self.filename_subt = os.path.join(self.root_disease, self.fname_subt)
 
     def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
         df_cases = df_cases[df_cases.validity == "valid"].copy()
@@ -399,11 +418,11 @@ class GDC(object):
 
         self.set_filenames()
 
-        if os.path.exists(self.filename_cases) and os.path.exists(self.filename_subt) and not force:
-            df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
+        if os.path.exists(self.filename_cases) and not force:
+            df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
             if "pid" in df_cases.columns:
                 df_cases = df_cases.rename(columns={"pid": "psi_id"})
-                pdwritecsv(df_cases, self.fname_cases, self.root_psi)
+                pdwritecsv(df_cases, self.fname_cases, self.root_disease)
 
             self.df_cases = df_cases
 
@@ -706,8 +725,8 @@ class GDC(object):
             df_cases = df_cases.drop(columns=["id"])
             df_subt = self.groupby_case_by_subtypes(df_cases)
 
-            _ = pdwritecsv(df_cases, self.fname_cases, self.root_psi, verbose=verbose)
-            _ = pdwritecsv(df_subt, self.fname_subt, self.root_psi, verbose=verbose)
+            _ = pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
+            _ = pdwritecsv(df_subt, self.fname_subt, self.root_disease, verbose=verbose)
 
         except Exception as e:
             print(f"Error for searching diags for '{self.psi_id}'. error: {e}")
@@ -918,10 +937,10 @@ class GDC(object):
 
         fname = self.fname_samples0 % (self.s_case)
         fname = title_replace(fname)
-        filename = os.path.join(self.root_psi, fname)
+        filename = os.path.join(self.root_disease, fname)
 
         if os.path.exists(filename) and not force:
-            df_samples = pdreadcsv(fname, self.root_psi, verbose=verbose)
+            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
             self.df_samples = df_samples
 
             return df_samples
@@ -1066,7 +1085,7 @@ class GDC(object):
                 ).reset_index(drop=True)
                 df_samples.reset_index(drop=True, inplace=True)
 
-                _ = pdwritecsv(df_samples, fname, self.root_psi, verbose=verbose)
+                _ = pdwritecsv(df_samples, fname, self.root_samples, verbose=verbose)
 
             except Exception as e:
                 print(f"Error for searching files for {self.s_case}'. error: {e}")
@@ -1121,11 +1140,11 @@ class GDC(object):
             type_of_file,
         )
         fname = title_replace(fname)
-        filename = os.path.join(self.root_psi, fname)
+        filename = os.path.join(self.root_disease, fname)
 
         if os.path.exists(filename) and not force:
             if is_expression:
-                df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
+                df_table = pdreadcsv(fname, self.root_disease, verbose=verbose)
                 self.df_table = df_table
                 return df_table
             else:
@@ -1169,7 +1188,7 @@ class GDC(object):
                 ]
                 df_table = df_table[cols]
 
-                _ = pdwritecsv(df_table, fname, self.root_psi, verbose=verbose)
+                _ = pdwritecsv(df_table, fname, self.root_disease, verbose=verbose)
             else:
                 return filename
 
@@ -1214,7 +1233,7 @@ class GDC(object):
 
         files = [
             x
-            for x in os.listdir(self.root_psi)
+            for x in os.listdir(self.root_disease)
             if file_id in x and data_type2 in x and sample_type2 in x
         ]
 
@@ -1227,7 +1246,7 @@ class GDC(object):
             print(f"Multiple files found for {file_id}. Using the first one.")
 
         fname = files[0]
-        df_table = pdreadcsv(fname, self.root_psi, verbose=verbose)
+        df_table = pdreadcsv(fname, self.root_disease, verbose=verbose)
         self.df_table = df_table
 
         return df_table
@@ -1694,11 +1713,11 @@ class GDC(object):
     def set_mutation_filenames(self):
         self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
         self.fname_mut_anal = title_replace(self.fname_mut_anal)
-        self.filename_mutanal = self.root_psi / self.fname_mut_anal
+        self.filename_mutanal = self.root_disease / self.fname_mut_anal
 
         self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
         self.fname_mut_summ = title_replace(self.fname_mut_summ)
-        self.filename_mutsumm = self.root_psi / self.fname_mut_summ
+        self.filename_mutsumm = self.root_disease / self.fname_mut_summ
 
     def get_df_mut_transform_mutation_table(
         self,
@@ -1737,8 +1756,8 @@ class GDC(object):
             and os.path.exists(self.filename_mutsumm)
             and not force
         ):
-            dff = pdreadcsv(self.fname_mut_summ, self.root_psi, verbose=verbose)
-            df_mut = pdreadcsv(self.fname_mut_anal, self.root_psi, verbose=verbose)
+            dff = pdreadcsv(self.fname_mut_summ, self.root_disease, verbose=verbose)
+            df_mut = pdreadcsv(self.fname_mut_anal, self.root_disease, verbose=verbose)
             return dff, df_mut
 
         """
@@ -1799,8 +1818,8 @@ class GDC(object):
 
         self.dff = dff
 
-        _ = pdwritecsv(dff, self.fname_mut_summ, self.root_psi, verbose=False)
-        _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_psi, verbose=False)
+        _ = pdwritecsv(dff, self.fname_mut_summ, self.root_disease, verbose=False)
+        _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_disease, verbose=False)
 
         return dff, df_mut
 
@@ -1994,10 +2013,10 @@ class GDC(object):
             print("Error: could not find cases file:", self.filename_cases)
             return self.df_cases, self.df_all_samples, self.df_all_mut, self.all_barcode_list
 
-        df_cases = pdreadcsv(self.fname_cases, self.root_psi, verbose=verbose)
+        df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
         if "pid" in df_cases.columns:
             df_cases = df_cases.rename(columns={"pid": "psi_id"})
-            pdwritecsv(df_cases, self.fname_cases, self.root_psi)
+            pdwritecsv(df_cases, self.fname_cases, self.root_disease)
 
         if do_filter:
             df_cases = self.apply_filter_cases(df_cases)
@@ -2033,13 +2052,13 @@ class GDC(object):
 
             fname = self.fname_samples0 % (self.s_case)
             fname = title_replace(fname)
-            filename = os.path.join(self.root_psi, fname)
+            filename = os.path.join(self.root_disease, fname)
 
             if not os.path.exists(filename):
                 print("Error: could not find samples file:", filename)
                 continue
 
-            df_samples = pdreadcsv(fname, self.root_psi, verbose=verbose)
+            df_samples = pdreadcsv(fname, self.root_disease, verbose=verbose)
 
             if df_samples.empty:
                 print("Error: could not read samples file:", filename)
@@ -2062,7 +2081,7 @@ class GDC(object):
             self.set_mutation_filenames()
 
             if os.path.exists(self.filename_mutsumm):
-                df_mut = pdreadcsv(self.fname_mut_anal, self.root_psi, verbose=verbose)
+                df_mut = pdreadcsv(self.fname_mut_anal, self.root_disease, verbose=verbose)
             else:
                 if verbose:
                     print("No mutation analysis file found for:", self.s_case)
@@ -2862,10 +2881,10 @@ class GDC(object):
         self.fname_vcf_files0 = "vcf_files_for_%s.tsv"
         fname = self.fname_vcf_files0 % (self.s_case)
         fname = title_replace(fname)
-        filename = os.path.join(self.root_psi, fname)
+        filename = os.path.join(self.root_disease, fname)
 
         if os.path.exists(filename) and not force:
-            df_vcf = pdreadcsv(fname, self.root_psi, verbose=verbose)
+            df_vcf = pdreadcsv(fname, self.root_disease, verbose=verbose)
             self.df_vcf = df_vcf
 
             return df_vcf
@@ -3008,7 +3027,7 @@ class GDC(object):
                 ).reset_index(drop=True)
                 df_vcf.reset_index(drop=True, inplace=True)
 
-                _ = pdwritecsv(df_vcf, fname, self.root_psi, verbose=verbose)
+                _ = pdwritecsv(df_vcf, fname, self.root_mutations, verbose=verbose)
 
             except Exception as e:
                 print(f"Error for searching files for {self.s_case}'. error: {e}")
@@ -3074,17 +3093,17 @@ class GDC(object):
         fname_degs_txt = self.fname_degs_txt % self.psi_id
         fname_sample_txt = self.fname_sample_txt % self.psi_id
 
-        filename_degs = self.root_psi / fname_degs
-        filename_lfc = self.root_psi / fname_lfc
-        # filename_degs_txt = self.root_psi / fname_degs_txt
-        # filename_sample_txt = self.root_psi / fname_sample_txt
+        filename_degs = self.root_disease / fname_degs
+        filename_lfc = self.root_disease / fname_lfc
+        # filename_degs_txt = self.root_disease / fname_degs_txt
+        # filename_sample_txt = self.root_disease / fname_sample_txt
 
         if filename_degs.exists() and filename_lfc.exists() and not force:
             try:
-                df_degs = pdreadcsv(fname_degs, self.root_psi, verbose=verbose)
-                df_lfc = pdreadcsv(fname_lfc, self.root_psi, verbose=verbose)
-                degs_txt = read_txt(fname_degs_txt, self.root_psi, verbose=verbose)
-                sample_txt = read_txt(fname_sample_txt, self.root_psi, verbose=verbose)
+                df_degs = pdreadcsv(fname_degs, self.root_disease, verbose=verbose)
+                df_lfc = pdreadcsv(fname_lfc, self.root_disease, verbose=verbose)
+                degs_txt = read_txt(fname_degs_txt, self.root_disease, verbose=verbose)
+                sample_txt = read_txt(fname_sample_txt, self.root_disease, verbose=verbose)
 
                 return df_degs, df_lfc, degs_txt, sample_txt
             except ValueError:
@@ -3096,7 +3115,7 @@ class GDC(object):
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             return pd.DataFrame(), pd.DataFrame(), "", msg
 
-        cdegs = CALC_DEGS(root_psi=self.root_psi, root_scr=root_scr, run_conda=run_conda)
+        cdegs = CALC_DEGS(root_disease=self.root_disease, root_scr=root_scr, run_conda=run_conda)
 
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
@@ -3136,13 +3155,13 @@ class GDC(object):
         df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
         df_degs.reset_index(drop=True, inplace=True)
 
-        _ = pdwritecsv(df_lfc, fname_lfc, self.root_psi)
-        _ = pdwritecsv(df_degs, fname_degs, self.root_psi)
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
+        _ = pdwritecsv(df_degs, fname_degs, self.root_lfc)
 
         degs_txt = "\n".join(df_degs.symbol)
-        _ = write_txt(degs_txt, fname_degs_txt, self.root_psi)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_lfc)
 
-        _ = write_txt(msg, fname_sample_txt, self.root_psi)
+        _ = write_txt(msg, fname_sample_txt, self.root_lfc)
 
         return df_degs, df_lfc, degs_txt, msg
 
