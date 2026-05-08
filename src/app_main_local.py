@@ -22,9 +22,6 @@ import numpy as np
 # ----------- fix incompatibilities ---------------------
 import pandas as pd
 
-from project_context_GDC import load_project_context_MTD
-
-from project_context_GDC import load_project_context_MTD
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
@@ -67,6 +64,7 @@ except:
     print(">>>", os.listdir("../"))
     raise Exception("\n------------ stop --------------\n")
 
+from project_context_MTD import load_project_context
 
 ctx = load_project_context(
     dic_yml=dic_yml,

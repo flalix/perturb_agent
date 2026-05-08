@@ -45,6 +45,15 @@ from libs.graphic_lib import plotly_colors_proteins
 
 from project_context_GDC import load_project_context
 
+ctx = load_project_context()
+
+SUBTYPE_GENES=ctx.SUBTYPE_GENES
+HISTOLOGY_GENES=ctx.HISTOLOGY_GENES
+TUMOR_CLASS=ctx.TUMOR_CLASS
+GLOBAL_SUBTYPE=ctx.GLOBAL_SUBTYPE
+HISTOLOGY=ctx.HISTOLOGY
+SITE_MAP=ctx.SITE_MAP
+colors=ctx.colors
 
 
 # print('recursionlimit', sys.getrecursionlimit())

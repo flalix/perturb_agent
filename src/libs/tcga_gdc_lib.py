@@ -119,9 +119,9 @@ class GDC(object):
         # primary_site
         self.fname_prim_site = "primary_site_program_%s.tsv"
         self.fname_cases0 = "cases_for_%s.tsv"
-        # self.fname_subtype0 = "subtype_for_%s.tsv"
+        self.fname_subtype0 = "subtype_for_%s.tsv"
         self.fname_samples0 = "samples_for_%s.tsv"
-        self.fname_vcf_files0 = "vcf_files_for_%s.tsv"
+        self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
         self.fname_rnaseq_exp_files = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
 
         self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
@@ -379,10 +379,10 @@ class GDC(object):
 
     def set_filenames(self):
         self.fname_cases = self.fname_cases0 % (self.psi_id)
-        self.filename_cases = os.path.join(self.root_disease, self.fname_cases)
+        self.filename_cases = self.root_disease / self.fname_cases
 
-        # self.fname_subt = self.fname_subtype0 % (self.psi_id)
-        # self.filename_subt = os.path.join(self.root_disease, self.fname_subt)
+        self.fname_subt = self.fname_subtype0 % (self.psi_id)
+        self.filename_subt = self.root_disease / self.fname_subt
 
     def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
         df_cases = df_cases[df_cases.validity == "valid"].copy()
@@ -418,7 +418,7 @@ class GDC(object):
 
         self.set_filenames()
 
-        if os.path.exists(self.filename_cases) and not force:
+        if self.filename_cases.exists() and self.filename_subt.exists() and not force:
             df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
             if "pid" in df_cases.columns:
                 df_cases = df_cases.rename(columns={"pid": "psi_id"})
@@ -1011,9 +1011,7 @@ class GDC(object):
                     response = res.json()
 
                     if "data" not in response.keys():
-                        print(
-                            f"No data found while searching for '{self.psi_id}' cases {case_id_list}"
-                        )
+                        print(f"No data found while searching for '{self.psi_id}' cases {case_id_list}")
                         print(">>> response", response)
                         self.df_samples = pd.DataFrame()
                         return self.df_samples
@@ -1188,7 +1186,7 @@ class GDC(object):
                 ]
                 df_table = df_table[cols]
 
-                _ = pdwritecsv(df_table, fname, self.root_disease, verbose=verbose)
+                _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
             else:
                 return filename
 
@@ -1818,8 +1816,8 @@ class GDC(object):
 
         self.dff = dff
 
-        _ = pdwritecsv(dff, self.fname_mut_summ, self.root_disease, verbose=False)
-        _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_disease, verbose=False)
+        _ = pdwritecsv(dff, self.fname_mut_summ, self.root_mutations, verbose=False)
+        _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_mutations, verbose=False)
 
         return dff, df_mut
 
@@ -2845,206 +2843,200 @@ class GDC(object):
 
         return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
 
-    def get_VCF_files(
-        self,
-        subtype_global: str,
-        tumor_class: str,
-        subtype_tissue: str,
-        batch_cases: int = 20,
-        batch_size: int = 20,
-        timeout: int = 100,
-        force: bool = False,
-        verbose: bool = False,
-    ) -> pd.DataFrame:
+    def get_VCF_file(self, case_id: str, subtype_global: str, tumor_class: str, subtype_tissue: str, 
+                     timeout: int = 100, force: bool = False, verbose: bool = False,) -> pd.DataFrame:
 
         df_vcf = pd.DataFrame()
         self.df_vcf = df_vcf
 
+
         self.set_s_case(subtype_global, tumor_class, subtype_tissue)
 
-        df_cases, _, _ = self.get_cases_and_subtypes(
-            batch_size=batch_size, do_filter=False, force=False, verbose=verbose
-        )
+        fname = self.fname_vcf_files0 % (case_id, sample_id_list[0], sample_id_list[-1]) 
+        fname = title_replace(fname)
+        filename = self.root_mutations / fname
 
-        self.df_cases = df_cases
+        if filename.exists() and not force:
+            df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
+            return df_vcf
 
-        if df_cases is None or df_cases.empty:
+        df_samples = self.get_samples_for_subtypes(
+                        subtype_global=subtype_global,
+                        tumor_class=tumor_class,
+                        subtype_tissue=subtype_tissue,
+                        batch_size=200,
+                        force=False,
+                        verbose=verbose,
+                    )
+
+        if df_samples.empty:
             print(f"No cases found while searching for '{self.s_case}'")
             return df_vcf
 
-        case_id_list = list(df_cases.case_id)
-        case_id_list.sort()
+        df_samples = df_samples[df_samples.case_id == case_id]
 
-        N_cases = len(case_id_list)
-        print(f">>> {N_cases} cases")
-
-        self.fname_vcf_files0 = "vcf_files_for_%s.tsv"
-        fname = self.fname_vcf_files0 % (self.s_case)
-        fname = title_replace(fname)
-        filename = os.path.join(self.root_disease, fname)
-
-        if os.path.exists(filename) and not force:
-            df_vcf = pdreadcsv(fname, self.root_disease, verbose=verbose)
-            self.df_vcf = df_vcf
-
+        if df_samples.empty:
+            print(f"No cases found while searching for case_id = '{case_id}'")
             return df_vcf
+
+        sample_id_list = df_samples.sample_id.to_list()
+        N = len(df_samples)
+
         # -------------------------- batch loop ---------------------------
-        all_hits = []
-        from_ = 0
-        size_ = batch_size
-        total = None
 
-        ini = -batch_cases
-        end = 0
-        res = None
-
-        while True:
-            ini += batch_cases
-            end += batch_cases
-
-            if ini >= N_cases:
-                break
-
-            if end > N_cases:
-                end = N_cases
-
-            print(f"{ini}-{end} ", end="")
-
-            lista = case_id_list[ini:end]
-
-            filters = {
-                "op": "and",
-                "content": [
-                    {"op": "in", "content": {"field": "cases.case_id", "value": lista}},
-                    {"op": "=", "content": {"field": "files.data_format", "value": "VCF"}},
-                    {
-                        "op": "in",
-                        "content": {
-                            "field": "files.data_type",
-                            "value": ["Raw Simple Somatic Mutation", "Masked Somatic Mutation"],
-                        },
+        filters = {
+            "op": "and",
+            "content": [
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "cases.samples.sample_id",
+                        "value": sample_id_list,
                     },
-                ],
-            }
+                },
+                {
+                    "op": "=",
+                    "content": {
+                        "field": "files.data_format",
+                        "value": "VCF",
+                    },
+                },
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "files.data_type",
+                        "value": [
+                            "Raw Simple Somatic Mutation",
+                            "Masked Somatic Mutation",
+                        ],
+                    },
+                },
+            ],
+        }
 
-            try:
-                while True:
-                    print(".", end="")
+        fields = [
+            "file_id",
+            "file_name",
+            "data_type",
+            "data_format",
+            "access",
+            "analysis.workflow_type",
+            "cases.case_id",
+            "cases.submitter_id",
+            "cases.samples.sample_id",
+            "cases.samples.submitter_id",
+            "cases.samples.sample_type",
+        ]
 
-                    params = {
-                        "filters": json.dumps(filters),
-                        "fields": ",".join(
-                            [
-                                "file_id",
-                                "file_name",
-                                "data_type",
-                                "data_format",
-                                "analysis.workflow_type",
-                                "cases.case_id",
-                                "cases.submitter_id",
-                                "cases.samples.sample_id",
-                                "cases.samples.submitter_id",
-                                "cases.samples.sample_type",
-                            ]
-                        ),
-                        "format": "JSON",
-                        "size": size_,
-                        "from": from_,
-                    }
+        params = {
+            "filters": json.dumps(filters),
+            "fields": ",".join(fields),
+            "format": "JSON",
+            "size": N,
+        }
 
-                    res = requests.get(self.url_gdc_files, params=params, timeout=timeout)
-                    response = res.json()
 
-                    if "data" not in response.keys():
-                        print(
-                            f"No data found while searching for '{self.psi_id}' cases {case_id_list}"
-                        )
-                        print(">>> response", response)
-                        return df_vcf
+        res = requests.get(self.url_gdc_files, params=params, timeout=timeout)
+        res.raise_for_status()
 
-                    hits = response.get("data", {}).get("hits", [])
+        response = res.json()
 
-                    if total is None:
-                        total = response["data"]["pagination"]["total"]
+        if "data" not in response:
+            print("No data returned from GDC.")
+            print(">>> response", response)
+            return pd.DataFrame()
 
-                    if not hits:
-                        break
+        hits = response.get("data", {}).get("hits", [])
 
-                    all_hits.extend(hits)
-                    from_ += size_
+        if not hits:
+            print(f"No VCF files found for {len(sample_id_list)} sample_id(s) for case_id {case_id}.")
+            return pd.DataFrame()
 
-                print("\n")
 
-                if all_hits == []:
-                    print(f"No files were found for {self.psi_id} and {len(case_id_list)} cases")
-                    return df_vcf
+        records = []
 
-                # ------------ lost data? ------------------
-                N = len(all_hits)
+        for hit in hits:
+            file_id = hit.get("file_id")
+            file_name = hit.get("file_name")
+            data_type = hit.get("data_type")
+            data_format = hit.get("data_format")
 
-                if N < total:
-                    print(
-                        f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} "
+            analysis = hit.get("analysis") or {}
+            workflow_type = analysis.get("workflow_type")
+
+            for case in hit.get("cases", []):
+                case_submitter_id = case.get("submitter_id")
+
+                for sample in case.get("samples", []):
+                    records.append(
+                        {
+                            # case metadata
+                            "case_id": case_id,
+                            "case_submitter_id": case_submitter_id,
+
+                            # sample metadata
+                            "sample_id": sample.get("sample_id"),
+                            "barcode_sample": sample.get("submitter_id"),
+                            "sample_type": sample.get("sample_type"),
+
+                            # file metadata
+                            "file_id": file_id,
+                            "file_name": file_name,
+                            "data_type": data_type,
+                            "data_format": data_format,
+                            "workflow_type": workflow_type,
+
+                            # project/subtype metadata
+                            "psi_id": self.psi_id,
+                            "subtype_global": subtype_global,
+                            "tumor_class": tumor_class,
+                            "subtype_tissue": subtype_tissue,
+                        }
                     )
-                else:
-                    if verbose:
-                        print(f"👉 Returned {N} / Total paginated {total}")
 
-                # ------------ having all hits -------------
-                records = []
+        df_vcf = pd.DataFrame(records)
 
-                for hit in all_hits:
-                    for case in hit.get("cases", []):
-                        for sample in case.get("samples", []):
-                            records.append(
-                                {
-                                    "case_id": case["case_id"],
-                                    "submitter_id": case["submitter_id"],
-                                    "sample_id": sample["sample_id"],
-                                    "sample_type": sample["sample_type"],
-                                    "barcode_sample": sample["submitter_id"],
-                                    "file_id": hit["file_id"],
-                                    "file_name": hit["file_name"],
-                                    "data_type": hit["data_type"],
-                                    "data_format": hit["data_format"],
-                                    "workflow_type": hit["analysis"]["workflow_type"],
-                                }
-                            )
+        if df_vcf.empty:
+            return df_vcf
 
-                df_vcf = pd.DataFrame(records)
-                cols = list(df_vcf.columns)
+        cols = [
+            "psi_id",
+            "case_id",
+            "case_submitter_id",
+            "sample_id",
+            "barcode_sample",
+            "sample_type",
+            "subtype_global",
+            "tumor_class",
+            "subtype_tissue",
+            "file_id",
+            "file_name",
+            "data_type",
+            "data_format",
+            "workflow_type",
+        ]
 
-                # 🔹 Metadata
-                df_vcf["psi_id"] = self.psi_id
-                df_vcf["subtype_global"] = subtype_global
-                df_vcf["tumor_class"] = tumor_class
-                df_vcf["subtype_tissue"] = subtype_tissue
-
-                cols = ["psi_id", "subtype_global", "tumor_class", "subtype_tissue"] + cols
-
-                df_vcf = df_vcf.sort_values(
-                    ["case_id", "sample_type"], ascending=[False, False]
-                ).reset_index(drop=True)
-                df_vcf.reset_index(drop=True, inplace=True)
-
-                _ = pdwritecsv(df_vcf, fname, self.root_mutations, verbose=verbose)
-
-            except Exception as e:
-                print(f"Error for searching files for {self.s_case}'. error: {e}")
-                print("Trye to diminish the batch size - like ~20")
-
-                try:
-                    res.raise_for_status()  # raises if HTTP 4xx/5xx
-                    print("status:", res.status_code)
-                    print("content-type:", res.headers.get("Content-Type"))
-                    print("text:", res.text[:500])  # inspect response before parsing
-                except ValueError:
-                    print("Could not access http response.")
-
-                return df_vcf
-
+        cols = [c for c in cols if c in df_vcf.columns]
+        df_vcf = df_vcf[cols]
         self.df_vcf = df_vcf
 
+        return df_vcf
+
+
+
+    def open_df_VCF(self, case_id, sample_id_list, verbose: bool = False) -> pd.DataFrame:
+
+        fname = self.fname_vcf_files0 % (case_id, sample_id_list[0], sample_id_list[-1])
+        fname = title_replace(fname)
+        filename = self.root_mutations / fname
+
+        if filename.exists():
+            df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
+        else:
+            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id}")
+            df_vcf = pd.DataFrame()
+
+        self.df_vcf = df_vcf
         return df_vcf
 
     def prepare_gtex(self, df_gtex_ctrl: pd.DataFrame) -> pd.DataFrame:
@@ -3065,7 +3057,7 @@ class GDC(object):
     def calc_degs(
         self,
         psi_id: str,
-        root_scr: Path,
+        root_src: Path = Path('.'),
         run_conda: bool = False,
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
@@ -3115,7 +3107,7 @@ class GDC(object):
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             return pd.DataFrame(), pd.DataFrame(), "", msg
 
-        cdegs = CALC_DEGS(root_disease=self.root_disease, root_scr=root_scr, run_conda=run_conda)
+        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
 
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
