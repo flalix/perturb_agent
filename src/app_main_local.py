@@ -10,26 +10,23 @@
 #
 # export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 #
-# uv run streamlit run  notebooks/app_main_local.py
+# uv run streamlit run  src/app_main_local.py
 #
 # ============================================
 
 
 import sys
-
-# from marshmallow import pprint, Schema, fields
+import yaml
 import numpy as np
 
 # ----------- fix incompatibilities ---------------------
 import pandas as pd
-import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-
 setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
-# from sklearn.cluster import KMeans
-# import umap
+import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+
 from pathlib import Path
 from typing import Tuple
 
@@ -52,32 +49,43 @@ if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
 from libs.tcga_gdc_lib import GDC
+from libs.MTD_lib import *
+from libs.dashcyto_lib import DASH_CYTO
+
+from project_context import load_project_context
+
+
+try:
+    with open('params.yml', 'r') as file:
+        dic_yml = yaml.safe_load(file)
+except:
+    print("Error loading params.yml")
+    print(">>>", os.listdir("../"))
+    raise Exception("\n------------ stop --------------\n")
+
+
+ctx = load_project_context(
+    dic_yml=dic_yml,
+    PSI_ID="TCGA-BRCA",
+    i_project=0,
+)
+colors = ctx.colors
 
 gdc = GDC(ROOT_DATA0=ROOT_DATA, ROOT_SRC=ROOT_SRC)
 
-verbose = True
-colors = [
-    "red",
-    "green",
-    "blue",
-    "orange",
-    "pink",
-    "purple",
-    "black",
-    "cyan",
-    "tomato",
-    "lime",
-    "magenta",
-    "yellow",
-    "gray",
-    "brown",
-    "olive",
-    "navy",
-    "teal",
-    "maroon",
-    "silver",
-]
+mtd = MTD(disease=ctx.disease, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
+          root0=ctx.root0, root0_data=ctx.root0_data,
+          case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
+          has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
+          std_filename=ctx.std_filename, std_filename_list=ctx.std_filename_list,
+          geneset_num=0, ptw_min_num_of_degs_cut=ctx.ptw_min_num_of_degs_cut,
+          tolerance_pPMI=ctx.tolerance_pPMI, s_pathw_enrichm_method=ctx.s_pathw_enrichm_method,
+          LFC_cut_inf=ctx.LFC_cut_inf, fdr_ptw_cutoff_list=ctx.fdr_ptw_cutoff_list,
+          num_of_genes_list=ctx.num_of_genes_list, lfc_list=ctx.lfc_list, fdr_list=ctx.fdr_list, 
+          min_lfc_modulation=ctx.min_lfc_modulation, type_sat_ptw_index=ctx.type_sat_ptw_index,
+          saturation_lfc_param=ctx.saturation_lfc_param, enr_db_list=ctx.enr_db_list, pPMI_normalized=ctx.pPMI_normalized)
 
+verbose = False
 
 # -----------------------------------------------------------------------------
 # PAGE
@@ -731,8 +739,7 @@ if st.session_state.loaded:
     # TAB 4 - MUTATION MATRIX
     # -------------------------------------------------------------------------
     with tab_head_cluster:
-        # subtab = st.radio("Main", ["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"], horizontal=True)
-        tab_heatmap, tab_umap = st.tabs(["Heatmap", "UMAP - cluster"])
+        tab_heatmap, tab_umap, tab_hdbscan = st.tabs(["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"])
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
@@ -751,15 +758,7 @@ if st.session_state.loaded:
                 k = st.slider("K (number of clusters)", 2, min(15, n_samples), min(8, n_samples))
                 plot_umap(dfpiv, k=k)
 
-    with tab_head_diff_exp:
-        tab_cluster, tab_degs, tab_compare = st.tabs(["HDBSCAN - cluster", "DEGs", "Comparison"])
-
-        labels = []
-
-        if dfpiv.empty:
-            st.info("No mutation matrix available for this primary site.")
-        else:
-            with tab_cluster:
+            with tab_hdbscan:
                 st.subheader("HDBSCAN Clustering")
 
                 n_samples = dfpiv.shape[0]
@@ -774,7 +773,16 @@ if st.session_state.loaded:
 
                 fig, embedding, labels = plot_hdbscan(
                     dfpiv, min_cluster_size=min_cluster_size2, min_samples=min_samples2
-                )
+                )                
+
+    with tab_head_diff_exp:
+        tab_degs, tab_biotypes = st.tabs(["DEGs", "Bioptypes"])
+
+        labels = []
+
+        if dfpiv.empty:
+            st.info("No mutation matrix available for this primary site.")
+        else:
 
             with tab_degs:
                 if labels:
@@ -824,6 +832,8 @@ if st.session_state.loaded:
                     )
                     show_df(df_degs, height=800, key=f"degs_{psi_id}")
 
+            with tab_biotypes:
+                pass
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
     # -------------------------------------------------------------------------
