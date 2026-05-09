@@ -508,9 +508,6 @@ if st.session_state.loaded:
     df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
     df_psi = make_streamlit_safe(df_psi)
 
-    psi_id = df_psi.iloc[0].psi_id
-    gdc.set_primary_site(psi_id=psi_id)
-
     # ---------- primary sites ----------------------------
     primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]
     primary_sites.sort()
@@ -535,6 +532,7 @@ if st.session_state.loaded:
     # FILTERED TABLES
     # -------------------------------------------------------------------------
     psi_id = str(selected_primary_site).split(" - ")[0]
+    gdc.set_primary_site(psi_id=psi_id)
     with st.spinner("Loading primary site data..."):
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(
             psi_id, verbose=False
@@ -578,8 +576,10 @@ if st.session_state.loaded:
     # BUILD MATRIX
     # -------------------------------------------------------------------------
     dfpiv = st_build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
+
     # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
     if not dfpiv.empty:
+        st.write("dfpiv is empty.")
         dfpiv = dfpiv.astype(int)
 
     df_gene_counts = summarize_mutations(df_all_mut)
@@ -637,51 +637,74 @@ if st.session_state.loaded:
     # TAB 2 - TUMOR SAMPLES
     # -------------------------------------------------------------------------
     with tab_samples:
-        selected_case_id = current_case_id()
 
-        col1, col2, col3 = st.columns([2, 1, 1])
-
-        with col1:
-            st.write(f"Selected case: {selected_case_id}")
-
-        with col2:
-            if st.button("Previous"):
-                st.session_state.case_idx -= 1
-                st.experimental_rerun()
-
-        with col3:
-            if st.button("Next"):
-                st.session_state.case_idx += 1
-                st.experimental_rerun()
-
-        if selected_case_id is None:
-            st.warning("Select a case first.")
-
-            if len(df_all_samples) > 200:
-                df_all_samples2 = df_all_samples.head(200).copy()
-                st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
-            else:
-                df_all_samples2 = df_all_samples
-                st.write(f"Tumor samples #{len(df_all_samples)}")
-
-            show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
+        if df_all_samples.empty:
+            st.warning("No tumor samples found.")
         else:
-            df_case_samples = df_all_samples[df_all_samples["case_id"] == selected_case_id].copy()
-
-            df_grouped = (
-                df_case_samples.groupby(
-                    ["barcode_sample", "sample_type", "data_type", "data_format"], dropna=False
-                )
-                .size()
-                .reset_index(name="n")
+            tab_one_case, tab_statistics = st.tabs(
+                ["One case", "Statistics"]
             )
 
-            show_df(
-                df_grouped,
-                height=800,
-                key=f"samples_{selected_primary_site}_{selected_case_id}",
-            )
+            with tab_one_case:        
+                selected_case_id = current_case_id()
 
+                col1, col2, col3 = st.columns([2, 1, 1])
+
+                with col1:
+                    st.write(f"Selected case: {selected_case_id}")
+
+                with col2:
+                    if st.button("Previous"):
+                        st.session_state.case_idx -= 1
+                        st.experimental_rerun()
+
+                with col3:
+                    if st.button("Next"):
+                        st.session_state.case_idx += 1
+                        st.experimental_rerun()
+
+                if selected_case_id is None:
+                    st.warning("Select a case first.")
+
+                    if len(df_all_samples) > 200:
+                        df_all_samples2 = df_all_samples.head(200).copy()
+                        st.write(f"Tumor samples #{len(df_all_samples)} limited to 200")
+                    else:
+                        df_all_samples2 = df_all_samples
+                        st.write(f"Tumor samples #{len(df_all_samples)}")
+
+                    show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
+                else:
+                    df_case_samples = df_all_samples[df_all_samples["case_id"] == selected_case_id].copy()
+
+                    df_grouped = (
+                        df_case_samples.groupby(
+                            ["barcode_sample", "sample_type", "data_type", "data_format"], dropna=False
+                        )
+                        .size()
+                        .reset_index(name="n")
+                    )
+
+                    show_df(
+                        df_grouped,
+                        height=800,
+                        key=f"samples_{selected_primary_site}_samples_case",
+                    )
+
+            with tab_statistics:
+                    df_grouped = (
+                        df_all_samples.groupby(
+                            ["barcode_sample", "sample_type", "data_type", "data_format"], dropna=False
+                        )
+                        .size()
+                        .reset_index(name="n")
+                    )
+
+                    show_df(
+                        df_grouped,
+                        height=800,
+                        key=f"samples_{selected_primary_site}_samples",
+                    )
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
     # -------------------------------------------------------------------------
@@ -712,30 +735,33 @@ if st.session_state.loaded:
             show_df(df_gene_counts, height=800, key=f"gene_counts_{psi_id}")
 
         with tab_mut_raw_data:
-            if len(df_all_mut) > 500:
-                df_all_mut2 = df_all_mut.head(500).copy()
-                st.write(f"Mutation rows #{len(df_all_mut)} limited to 500")
+            if df_all_mut.empty:
+                st.write("No mutation data available.")
             else:
-                df_all_mut2 = df_all_mut
-                st.write(f"Mutation rows #{len(df_all_mut)}")
+                if len(df_all_mut) > 500:
+                    df_all_mut2 = df_all_mut.head(500).copy()
+                    st.write(f"Mutation rows #{len(df_all_mut)} limited to 500")
+                else:
+                    df_all_mut2 = df_all_mut
+                    st.write(f"Mutation rows #{len(df_all_mut)}")
 
-            cols = [
-                "barcode_sample",
-                "symbol",
-                "refseq_mrna_id",
-                "entrez_gene_id",
-                "protein_mut",
-                "mutation_type",
-                "ref_allele",
-                "variant_allele",
-                "variant_type",
-                "chr",
-                "start",
-                "end",
-                "mutation_status",
-            ]
+                cols = [
+                    "barcode_sample",
+                    "symbol",
+                    "refseq_mrna_id",
+                    "entrez_gene_id",
+                    "protein_mut",
+                    "mutation_type",
+                    "ref_allele",
+                    "variant_allele",
+                    "variant_type",
+                    "chr",
+                    "start",
+                    "end",
+                    "mutation_status",
+                ]
 
-            show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{psi_id}")
+                show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX

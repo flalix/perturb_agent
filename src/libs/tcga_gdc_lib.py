@@ -122,7 +122,7 @@ class GDC(object):
         self.fname_subtype0 = "subtype_for_%s.tsv"
         self.fname_samples0 = "samples_for_%s.tsv"
         self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
-        self.fname_rnaseq_exp_files = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
+        self.fname_rnaseq_exp = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
 
         self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
 
@@ -234,9 +234,9 @@ class GDC(object):
         self.set_program(prog_id)
 
         fname = self.fname_prim_site % (prog_id)
-        filename = os.path.join(self.root_project, fname)
+        filename = self.root_project / fname
 
-        if os.path.exists(filename) and not force:
+        if filename.exists() and not force:
             df_psi = pdreadcsv(fname, self.root_project, verbose=verbose)
             self.df_psi = df_psi
 
@@ -329,6 +329,10 @@ class GDC(object):
         self.root_samples   = create_dir(self.root_disease, 'samples')
         self.root_lfc       = create_dir(self.root_disease, 'lfc')
         self.root_mutations = create_dir(self.root_disease, 'mutations')
+
+        print("\n-----------------------------")
+        print(self.root_disease, self.root_samples, self.root_lfc, self.root_mutations)
+        print("-----------------------------\n")
 
         self.set_filenames()
 
@@ -937,9 +941,9 @@ class GDC(object):
 
         fname = self.fname_samples0 % (self.s_case)
         fname = title_replace(fname)
-        filename = os.path.join(self.root_disease, fname)
+        filename = self.root_samples / fname
 
-        if os.path.exists(filename) and not force:
+        if filename.exists() and not force:
             df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
             self.df_samples = df_samples
 
@@ -1711,11 +1715,11 @@ class GDC(object):
     def set_mutation_filenames(self):
         self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
         self.fname_mut_anal = title_replace(self.fname_mut_anal)
-        self.filename_mutanal = self.root_disease / self.fname_mut_anal
+        self.filename_mutanal = self.root_mutations / self.fname_mut_anal
 
         self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
         self.fname_mut_summ = title_replace(self.fname_mut_summ)
-        self.filename_mutsumm = self.root_disease / self.fname_mut_summ
+        self.filename_mutsumm = self.root_mutations / self.fname_mut_summ
 
     def get_df_mut_transform_mutation_table(
         self,
@@ -2050,13 +2054,13 @@ class GDC(object):
 
             fname = self.fname_samples0 % (self.s_case)
             fname = title_replace(fname)
-            filename = os.path.join(self.root_disease, fname)
+            filename = self.root_samples / fname
 
-            if not os.path.exists(filename):
+            if not filename.exists():
                 print("Error: could not find samples file:", filename)
                 continue
 
-            df_samples = pdreadcsv(fname, self.root_disease, verbose=verbose)
+            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
 
             if df_samples.empty:
                 print("Error: could not read samples file:", filename)
@@ -2079,7 +2083,7 @@ class GDC(object):
             self.set_mutation_filenames()
 
             if os.path.exists(self.filename_mutsumm):
-                df_mut = pdreadcsv(self.fname_mut_anal, self.root_disease, verbose=verbose)
+                df_mut = pdreadcsv(self.fname_mut_anal, self.root_mutations, verbose=verbose)
             else:
                 if verbose:
                     print("No mutation analysis file found for:", self.s_case)
@@ -2843,7 +2847,7 @@ class GDC(object):
 
         return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
 
-    def get_VCF_file(self, case_id: str, subtype_global: str, tumor_class: str, subtype_tissue: str, 
+    def get_VCF_file(self, case_id: str, sample_id_list: list, subtype_global: str, tumor_class: str, subtype_tissue: str, 
                      timeout: int = 100, force: bool = False, verbose: bool = False,) -> pd.DataFrame:
 
         df_vcf = pd.DataFrame()
