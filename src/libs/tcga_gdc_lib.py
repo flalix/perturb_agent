@@ -1977,7 +1977,10 @@ class GDC(object):
         return df_all_cases, df_all_samples, df_all_mutations
 
     def get_filtered_tables(
-        self, psi_id: str, sample_type_term: str = "tumor", verbose: bool = False
+        self, 
+        psi_id: str, 
+        sample_type_term: str = "tumor", 
+        verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
         self.psi_id = psi_id
@@ -3089,17 +3092,17 @@ class GDC(object):
         fname_degs_txt = self.fname_degs_txt % self.psi_id
         fname_sample_txt = self.fname_sample_txt % self.psi_id
 
-        filename_degs = self.root_disease / fname_degs
-        filename_lfc = self.root_disease / fname_lfc
-        # filename_degs_txt = self.root_disease / fname_degs_txt
-        # filename_sample_txt = self.root_disease / fname_sample_txt
+        filename_degs = self.root_lfc / fname_degs
+        filename_lfc = self.root_lfc / fname_lfc
+        # filename_degs_txt = self.root_lfc / fname_degs_txt
+        # filename_sample_txt = self.root_lfc / fname_sample_txt
 
         if filename_degs.exists() and filename_lfc.exists() and not force:
             try:
-                df_degs = pdreadcsv(fname_degs, self.root_disease, verbose=verbose)
-                df_lfc = pdreadcsv(fname_lfc, self.root_disease, verbose=verbose)
-                degs_txt = read_txt(fname_degs_txt, self.root_disease, verbose=verbose)
-                sample_txt = read_txt(fname_sample_txt, self.root_disease, verbose=verbose)
+                df_degs = pdreadcsv(fname_degs, self.root_lfc, verbose=verbose)
+                df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+                degs_txt = read_txt(fname_degs_txt, self.root_lfc, verbose=verbose)
+                sample_txt = read_txt(fname_sample_txt, self.root_lfc, verbose=verbose)
 
                 return df_degs, df_lfc, degs_txt, sample_txt
             except ValueError:
@@ -3160,6 +3163,25 @@ class GDC(object):
         _ = write_txt(msg, fname_sample_txt, self.root_lfc)
 
         return df_degs, df_lfc, degs_txt, msg
+
+
+    def get_df_lfc(self, verbose: bool = False) -> pd.DataFrame:
+
+        fname_lfc = self.fname_lfc % self.psi_id
+
+        filename = self.root_lfc / fname_lfc
+
+        if not filename.exists():
+            return pd.DataFrame()
+
+        df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+
+        if 'abs_lfc' not in df_lfc.columns:
+            df_lfc['abs_lfc'] = df_lfc['lfc'].abs()
+            _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
+
+        return df_lfc
+
 
     def read_GTEx_to_TCGA_table(self, verbose: bool = False) -> pd.DataFrame:
         """

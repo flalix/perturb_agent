@@ -694,7 +694,7 @@ if st.session_state.loaded:
             with tab_statistics:
                     df_grouped = (
                         df_all_samples.groupby(
-                            ["barcode_sample", "sample_type", "data_type", "data_format"], dropna=False
+                            ["sample_type", "data_type", "data_format"], dropna=False
                         )
                         .size()
                         .reset_index(name="n")
@@ -806,62 +806,50 @@ if st.session_state.loaded:
     with tab_head_diff_exp:
         tab_degs, tab_biotypes = st.tabs(["DEGs", "Bioptypes"])
 
-        labels = []
+        df_lfc = gdc.get_df_lfc(verbose=False)
 
-        if dfpiv.empty:
-            st.info("No mutation matrix available for this primary site.")
+        if df_lfc.empty:
+            st.write("No differentially expressed genes found.")
         else:
 
             with tab_degs:
-                if labels:
-                    st.subheader("DEGs")
 
-                    col1, col2 = st.columns([1, 7])  # label wide, input narrow
+                lfc_cutoff = st.slider(
+                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
+                )
 
-                    with col1:
-                        st.markdown("**Cluster:**")
+                fdr_cutoff = st.slider(
+                    "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
+                )
 
-                    with col2:
-                        lista = np.unique(labels)
-                        if -1 in lista:
-                            n_labels = len(lista) - 1
-                        else:
-                            n_labels = len(lista)
+                method = "deseq2"
+                
+                df_degs = df_lfc[ (df_lfc.abs_lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff) ]
 
-                        value = st.radio(
-                            "",
-                            np.arange(n_labels),
-                            horizontal=True,
-                            label_visibility="collapsed",
-                            key="cluster_radio",
-                        )
-
-                    st.write("You entered:", value)
-
-                    lfc_cutoff = 1.0
-                    fdr_cutoff = 0.05
-                    method = "deseq2"
-
-                    df_degs, df_lfc, degs_txt, msg = gdc.calc_degs(
-                        psi_id=psi_id,
-                        root_scr=gdc.root_src,
-                        run_conda=True,
-                        lfc_cutoff=lfc_cutoff,
-                        fdr_cutoff=fdr_cutoff,
-                        method=method,
-                        verbose=False,
-                        force=False,
-                    )
-
-                    st.write(msg)
-
-                    st.write(
-                        f"DEGs - lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
-                    )
-                    show_df(df_degs, height=800, key=f"degs_{psi_id}")
+                st.write(
+                    f"There are {len(df_degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
+                )
+                show_df(df_degs, height=800, key=f"degs_{psi_id}")
 
             with tab_biotypes:
-                pass
+
+                col = 'gene_type' if 'gene_type' in df_lfc.columns else 'biotype'
+                
+                df_grouped = (
+                    df_lfc.groupby(
+                        [col], dropna=False
+                    )
+                    .size()
+                    .reset_index(name="n")
+                )
+
+                df_grouped = df_grouped.sort_values("n", ascending=False)
+
+                show_df(
+                    df_grouped,
+                    height=700,
+                    key=f"biotypes_{selected_primary_site}",
+                )
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
     # -------------------------------------------------------------------------
