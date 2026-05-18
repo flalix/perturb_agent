@@ -67,8 +67,8 @@ class GDC(object):
 
         self.GTEX_API = "https://gtexportal.org/api/v2"
 
-        self.df_counts = pd.DataFrame()
-        self.df_pheno = pd.DataFrame()
+        self.df_gtex_counts = pd.DataFrame()
+        self.df_gtex_pheno = pd.DataFrame()
         self.df_meta = pd.DataFrame()
         self.df_gtex_meta = pd.DataFrame()
 
@@ -3101,12 +3101,16 @@ class GDC(object):
         self.set_primary_site(psi_id=psi_id)
 
         df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
+        self.df_tumor = df_tumor
+        self.df_normal = df_normal
+
         if df_tumor.empty:
             if verbose:
                 print(f"No tumor expression data found for {self.psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
         df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
+        self.df_gtex_ctrl = df_gtex_ctrl
 
         fname_degs = self.fname_degs % self.psi_id
         fname_lfc = self.fname_lfc % self.psi_id
@@ -3419,15 +3423,19 @@ class GDC(object):
     def read_GTEx_counts(self, verbose: bool = False):
         # load matrix'1
         print("Reading GTEx count table... be patient.")
-        df_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
-        self.df_counts = df_counts
-        return df_counts
+        df_gtex_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
+        self.df_gtex_counts = df_gtex_counts
+
+        _ = self.read_GTEx_pheno(verbose=verbose)
+        _ = self.read_GTEx_metadata(verbose=verbose)
+
+        return df_gtex_counts
 
     def read_GTEx_pheno(self, verbose: bool = False):
         # load phenotype
-        df_pheno = pdreadcsv(self.fname_GTEx_pheno, self.root_gtex, verbose=verbose)
-        self.df_pheno = df_pheno
-        return df_pheno
+        df_gtex_pheno = pdreadcsv(self.fname_GTEx_pheno, self.root_gtex, verbose=verbose)
+        self.df_gtex_pheno = df_gtex_pheno
+        return df_gtex_pheno
 
     def read_GTEx_metadata(self, verbose: bool = False):
         # load metadata
@@ -3443,6 +3451,7 @@ class GDC(object):
         self.df_gtex_meta = pd.DataFrame()
 
         gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=self.psi_id, verbose=verbose)
+        self.gtex_id = gtex_id
 
         if gtex_id == "":
             print(f"Error: could not find GTEx ID for TCGA ID '{self.psi_id}'")
@@ -3450,9 +3459,7 @@ class GDC(object):
 
         df_gtex_meta = self.prepare_gtex_df_control()
 
-        df_gtex_ctrl = self.prepare_gtex_count_table(
-            Nsamples=Nsamples, force=force, verbose=verbose
-        )
+        df_gtex_ctrl = self.prepare_gtex_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
 
         self.df_gtex_ctrl = df_gtex_ctrl
         self.df_gtex_meta = df_gtex_meta
@@ -3473,15 +3480,16 @@ class GDC(object):
             print("Metadata DataFrame is empty.")
             return pd.DataFrame()
 
-        if self.df_pheno.empty:
+        if self.df_gtex_pheno.empty:
             print("Phenotype DataFrame is empty.")
             return pd.DataFrame()
 
         # 1. Filter for Tissue
-        df_gtex_meta = self.df_meta[self.df_meta["SMTSD"] == self.gtex_id].copy()
+        gtex_id = self.gtex_id.replace('_', ' ')
+        df_gtex_meta = self.df_meta[self.df_meta["SMTS"] == gtex_id].copy()
 
         df_gtex_meta["SUBJID"] = df_gtex_meta["SAMPID"].str.split("-").str[:2].str.join("-")
-        df_gtex_meta = df_gtex_meta.merge(self.df_pheno, on="SUBJID", how="left")
+        df_gtex_meta = df_gtex_meta.merge(self.df_gtex_pheno, on="SUBJID", how="left")
 
         # 2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
         # DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
@@ -3509,12 +3517,12 @@ class GDC(object):
         if filename.exists() and not force:
             return pdreadcsv(fname, self.root_gtex, verbose=verbose)
 
-        if self.df_counts.empty:
+        if self.df_gtex_counts.empty:
             # Reading GTEx count super-file
-            if not self.running_on_render:
+            if not self.running_on_render():
                 _ = self.read_GTEx_counts(verbose=verbose)
 
-            if self.df_counts.empty:
+            if self.df_gtex_counts.empty:
                 print("Count DataFrame is empty.")
                 return pd.DataFrame()
 
@@ -3522,13 +3530,13 @@ class GDC(object):
         samples = self.df_gtex_meta.head(Nsamples * 3)["SAMPID"].to_list()
 
         cols = list(samples)
-        good_cols = [x for x in cols if x in self.df_counts.columns]
+        good_cols = [x for x in cols if x in self.df_gtex_counts.columns]
         if len(good_cols) > Nsamples:
             good_cols = good_cols[:Nsamples]
 
         good_cols = ["Name", "Description"] + good_cols
 
-        df_normal = self.df_counts.loc[:, good_cols].copy()
+        df_normal = self.df_gtex_counts.loc[:, good_cols].copy()
         df_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
         df_normal.reset_index(drop=True, inplace=True)
 
