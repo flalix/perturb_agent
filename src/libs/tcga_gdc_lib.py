@@ -6,6 +6,7 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
+from fileinput import filename
 import json
 import os
 import re
@@ -1114,7 +1115,7 @@ class GDC(object):
         force: bool = False,
         debug: bool = False,
         verbose: bool = False,
-    ) -> Any:
+    ) -> tuple[Any, Any]:
         """
         Retrieve any kind of table like: RNA or Proteomic expression
         input: case_id and file_id
@@ -1133,7 +1134,6 @@ class GDC(object):
             self.df_table = pd.DataFrame()
             return self.df_table
 
-        is_expression = False
         file_type = file_type.strip()
 
         if file_type == "Gene Expression Quantification":
@@ -1157,15 +1157,15 @@ class GDC(object):
             type_of_file,
         )
         fname = title_replace(fname)
-        filename = os.path.join(root, fname)
+        filename = root / fname
 
         if os.path.exists(filename) and not force:
             if is_expression:
                 df_table = pdreadcsv(fname, root, verbose=verbose)
                 self.df_table = df_table
-                return df_table
+                return df_table, filename
             else:
-                return filename
+                return filename, filename
 
         if verbose:
             print("Downloading: ", end="")
@@ -1181,50 +1181,46 @@ class GDC(object):
                         print("Preview:", r.text[:500])
                     except Exception:
                         print("Could not decode error body as text for file:", file_id)
-                    return None
+                    return None, filename
 
                 with open(filename, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
 
-            if is_expression:
-                df_table = pd.read_csv(filename, sep="\t", comment="#")
-                df_table = self.clean_expression_table(df_table)
+            if not is_expression:
+                return filename, filename
 
-                cols = [
-                    "gene_id",
-                    "symbol",
-                    "gene_type",
-                    "unstranded",
-                    "counts",
-                    "stranded_second",
-                    "tpm_unstranded",
-                    "fpkm_unstranded",
-                    "fpkm_uq_unstranded",
-                ]
-                df_table = df_table[cols]
+            df_table = pd.read_csv(filename, sep="\t", comment="#")
+            df_table = self.clean_expression_table(df_table)
 
-                _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
-            else:
-                return filename
+            cols = [
+                "gene_id",
+                "symbol",
+                "gene_type",
+                "unstranded",
+                "counts",
+                "stranded_second",
+                "tpm_unstranded",
+                "fpkm_unstranded",
+                "fpkm_uq_unstranded",
+            ]
+            df_table = df_table[cols]
+
+            _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
+               
 
         except Exception as e:
+            s_error = f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}"
             if verbose:
-                print(
-                    f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}"
-                )
-            if is_expression:
-                self.df_table = pd.DataFrame()
-                return self.df_table
-            else:
-                return "Error: " + filename
+                print(s_error)
 
-        if is_expression:
-            self.df_table = df_table
-            return df_table
+            self.df_table = pd.DataFrame()
+            return self.df_table, filename
 
-        return filename
+        self.df_table = df_table
+        return df_table, filename
+
 
     def clean_expression_table(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -1288,9 +1284,7 @@ class GDC(object):
 
         return df_tumor, df_normal
 
-    def get_dic_expression_tumor_and_normal(
-        self, verbose: bool = False
-    ) -> Tuple[dict, dict]:
+    def get_dic_expression_tumor_and_normal(self, verbose: bool = False) -> Tuple[dict, dict]:
 
         #----------- tumor --------------------------------------------------
         _, df_tumor_samples, _, _ = self.get_filtered_tables(
@@ -1339,7 +1333,7 @@ class GDC(object):
             case_id = row.case_id
             file_id = row.file_id
 
-            dfexp = self.get_table_given_fileID(
+            dfexp, filename_normal = self.get_table_given_fileID(
                 case_id=case_id,
                 file_id=file_id,
                 sample_type="normal",
@@ -1354,7 +1348,13 @@ class GDC(object):
 
             self.dfexp_normal = dfexp
 
-            dfexp = dfexp[cols]
+            try:
+                dfexp = dfexp[cols]
+            except Exception as e:
+                print(f"Error occurred while processing normal file {filename_normal}: {e}")
+                print(dfexp.shape)
+                print(dfexp.columns)
+                continue
             dic_normal[f"normal_{file_id}"] = dfexp
 
         print("")
@@ -1370,14 +1370,14 @@ class GDC(object):
             case_id = row.case_id
             file_id = row.file_id
 
-            dfexp = self.get_table_given_fileID(
-                case_id=case_id,
-                file_id=file_id,
-                sample_type="tumor",
-                file_type="Gene Expression Quantification",
-                force=False,
-                verbose=verbose,
-            )
+            dfexp, filename_tumor = self.get_table_given_fileID(
+                                            case_id=case_id,
+                                            file_id=file_id,
+                                            sample_type="tumor",
+                                            file_type="Gene Expression Quantification",
+                                            force=False,
+                                            verbose=verbose,
+                                        )
             if dfexp is None or dfexp.empty:
                 print("x", end="")
                 continue
@@ -1385,7 +1385,13 @@ class GDC(object):
 
             self.dfexp_tumor = dfexp
 
-            dfexp = dfexp[cols]
+            try:
+                dfexp = dfexp[cols]
+            except Exception as e:
+                print(f"Error occurred while processing tumor file {filename_tumor}: {e}")
+                print(dfexp.shape)
+                print(dfexp.columns)
+                continue
             dic_tumor[f"tumor_{file_id}"] = dfexp
 
         print("")

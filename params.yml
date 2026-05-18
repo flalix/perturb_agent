@@ -31,7 +31,7 @@ num_of_genes_cutoff: 3
 case_list: ['Tumor', 'Control']
 s_len_case: 7
 case_sel_list: ['Tumor', 'Control']
-dic_case_list: {'Tumor': 'WNT', 'Control': 'Control'}
+dic_case_list: {'Tumor': 'Tumor', 'Control': 'Control'}
 
 std_filename: True
 std_filename_list: [ [] ]
