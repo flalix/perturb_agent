@@ -37,20 +37,22 @@ from project_context_GDC import load_project_context
 
 
 class GDC(object):
-    def __init__(self, ROOT_DATA0: Path, ROOT_SRC: Path):
+    def __init__(self, ROOT0: Path, ROOT_DATA0: Path):
 
-        self.url_gdc_project = "https://api.self.cancer.gov/projects"
-        self.url_gdc_cases = "https://api.self.cancer.gov/cases"
-        self.url_gdc_files = "https://api.self.cancer.gov/files"
-        self.url_gdc_data = "https://api.self.cancer.gov/data/%s"
+        self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
+        self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
+        self.url_gdc_files = "https://api.gdc.cancer.gov/files"
+        self.url_gdc_data = "https://api.gdc.cancer.gov/data"
 
         self.url_cbioportal = "https://www.cbioportal.org/api"
 
         self.prog_id, self.psi_id = "", ""
 
+        self.ROOT0 = Path(ROOT0)
         self.ROOT_DATA0 = Path(ROOT_DATA0)
-        self.root_src = ROOT_SRC
-        self.root_gtex = create_dir(self.ROOT_DATA0, "GTEx")
+        self.root_src   =  create_dir(self.ROOT0, 'src')
+        self.ROOT_COLAB = create_dir(self.ROOT0, 'colab')
+        self.root_gtex  = create_dir(self.ROOT_COLAB, "GTEx")
 
         self.fname_gtex = "tcga_primary_site_to_gtex_ids.tsv"
         self.df_gtex_to_tcga = pd.DataFrame()
@@ -330,9 +332,13 @@ class GDC(object):
         self.root_lfc       = create_dir(self.root_disease, 'lfc')
         self.root_mutations = create_dir(self.root_disease, 'mutations')
 
-        print("\n-----------------------------")
-        print(self.root_disease, self.root_samples, self.root_lfc, self.root_mutations)
-        print("-----------------------------\n")
+        if verbose:
+            print("\n-----------------------------")
+            print(">> root disease:", self.root_disease)
+            print(">> root samples:", self.root_samples)
+            print(">> root lfc:", self.root_lfc)
+            print(">> root mutations:", self.root_mutations)
+            print("-----------------------------\n")
 
         self.set_filenames()
 
@@ -1106,6 +1112,7 @@ class GDC(object):
         file_type: str,
         timeout: int = 120,
         force: bool = False,
+        debug: bool = False,
         verbose: bool = False,
     ) -> Any:
         """
@@ -1113,6 +1120,12 @@ class GDC(object):
         input: case_id and file_id
         output: the desired file
         """
+
+        if debug:
+            print("case_id:", case_id)
+            print("file_id:", file_id)
+            print("sample_type:", sample_type)
+            print("file_type:", file_type)
 
         if not file_id and not isinstance(file_id, str):
             print("No file_id defined.")
@@ -1126,9 +1139,11 @@ class GDC(object):
         if file_type == "Gene Expression Quantification":
             is_expression = True
             type_of_file = "tsv"
+            root = self.root_lfc
         elif file_type == "Raw Simple Somatic Mutation":
-            is_expression = True
+            is_expression = False
             type_of_file = "tar.gz"
+            root = self.root_mutations
         else:
             print(f"Develope the method for this file type {file_type}")
             raise Exception("\n------------ stop ---------------\n")
@@ -1142,11 +1157,11 @@ class GDC(object):
             type_of_file,
         )
         fname = title_replace(fname)
-        filename = os.path.join(self.root_disease, fname)
+        filename = os.path.join(root, fname)
 
         if os.path.exists(filename) and not force:
             if is_expression:
-                df_table = pdreadcsv(fname, self.root_disease, verbose=verbose)
+                df_table = pdreadcsv(fname, root, verbose=verbose)
                 self.df_table = df_table
                 return df_table
             else:
@@ -1155,7 +1170,7 @@ class GDC(object):
         if verbose:
             print("Downloading: ", end="")
         try:
-            url_file = self.url_gdc_data % (file_id)
+            url_file = f"{self.url_gdc_data}/{file_id}"
 
             with requests.get(url_file, stream=True, timeout=timeout) as r:
                 if r.status_code != 200:
@@ -1254,33 +1269,36 @@ class GDC(object):
         return df_table
 
     def get_file_expression_both_tumor_and_normal(
-        self, psi_id: str, verbose: bool = False
+        self, verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
-        dic_tumor, dic_normal = self.get_file_expression_tumor_and_normal(
-            psi_id=psi_id, verbose=verbose
-        )
+        dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
+        self.dic_tumor = dic_tumor
+        self.dic_normal = dic_normal
 
-        if len(dic_tumor) == 0 or len(dic_normal) == 0:
-            if verbose:
-                print(f"Insufficient expression data found for {self.psi_id}.")
+        if len(dic_tumor) == 0 and len(dic_normal) == 0:
+            print(f"Insufficient expression data for {self.psi_id}.")
             return pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
             dic_tumor, dic_normal, imax_tumor=12, imax_normal=12, verbose=verbose
         )
+        self.dic_tumor = dic_tumor
+        self.dic_normal = dic_normal
 
         return df_tumor, df_normal
 
-    def get_file_expression_tumor_and_normal(
-        self, psi_id: str, verbose: bool = False
+    def get_dic_expression_tumor_and_normal(
+        self, verbose: bool = False
     ) -> Tuple[dict, dict]:
 
+        #----------- tumor --------------------------------------------------
         _, df_tumor_samples, _, _ = self.get_filtered_tables(
-            psi_id=psi_id, sample_type_term="Primary Tumor", verbose=verbose
+            sample_type_term="Primary Tumor", verbose=verbose
         )
+        #----------- normal --------------------------------------------------
         _, df_normal_samples, _, _ = self.get_filtered_tables(
-            psi_id=psi_id, sample_type_term="Solid Tissue Normal", verbose=verbose
+            sample_type_term="Solid Tissue Normal", verbose=verbose
         )
 
         if df_tumor_samples is None or df_tumor_samples.empty:
@@ -1295,15 +1313,10 @@ class GDC(object):
 
         self.file_type_list = np.unique(df_tumor_samples.data_type)
 
-        dff_normal = df_normal_samples[
-            df_normal_samples.data_type == "Gene Expression Quantification"
-        ]
+        dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
         dff_normal.reset_index(drop=True, inplace=True)
 
-        case_id_list = np.unique(dff_normal.case_id)
-
-        dff_tumor = df_tumor_samples[df_tumor_samples.case_id.isin(case_id_list)].copy()
-        dff_tumor = dff_tumor[dff_tumor.data_type == "Gene Expression Quantification"]
+        dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
         dff_tumor.reset_index(drop=True, inplace=True)
 
         if verbose:
@@ -1311,9 +1324,8 @@ class GDC(object):
                 f"There are {len(dff_tumor)} tumor and {len(dff_normal)} normal Gene Expression tables"
             )
 
-        if len(dff_tumor) == 0 or len(dff_normal) == 0:
-            if verbose:
-                print(f"No valid expression data found for {self.psi_id}.")
+        if len(dff_tumor) == 0 and len(dff_normal) == 0:
+            print(f"No valid expression data found for {self.psi_id}.")
             return {}, {}
 
         print("Dowloading normal files:", end=" ")
@@ -1321,10 +1333,9 @@ class GDC(object):
 
         dic_normal = {}
         for i, row in dff_normal.iterrows():
-            if int(i) % 10 == 0:
+            if i % 10 == 0:
                 print(i, end="")
-            else:
-                print(".", end="")
+                  
             case_id = row.case_id
             file_id = row.file_id
 
@@ -1334,10 +1345,14 @@ class GDC(object):
                 sample_type="normal",
                 file_type="Gene Expression Quantification",
                 force=False,
-                verbose=False,
+                verbose=verbose,
             )
             if dfexp is None or dfexp.empty:
+                print("x", end="")
                 continue
+            print(".", end="")
+
+            self.dfexp_normal = dfexp
 
             dfexp = dfexp[cols]
             dic_normal[f"normal_{file_id}"] = dfexp
@@ -1349,10 +1364,9 @@ class GDC(object):
         print("Dowloading tumor files:", end=" ")
         dic_tumor = {}
         for i, row in dff_tumor.iterrows():
-            if int(i) % 10 == 0:
+            if i % 10 == 0:
                 print(i, end="")
-            else:
-                print(".", end="")
+
             case_id = row.case_id
             file_id = row.file_id
 
@@ -1362,10 +1376,14 @@ class GDC(object):
                 sample_type="tumor",
                 file_type="Gene Expression Quantification",
                 force=False,
-                verbose=False,
+                verbose=verbose,
             )
             if dfexp is None or dfexp.empty:
+                print("x", end="")
                 continue
+            print(".", end="")
+
+            self.dfexp_tumor = dfexp
 
             dfexp = dfexp[cols]
             dic_tumor[f"tumor_{file_id}"] = dfexp
@@ -1978,13 +1996,9 @@ class GDC(object):
 
     def get_filtered_tables(
         self, 
-        psi_id: str, 
-        sample_type_term: str = "tumor", 
+        sample_type_term: str = "Primary Tumor", 
         verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
-
-        self.psi_id = psi_id
-        self.set_primary_site(psi_id=psi_id)
 
         df_cases, df_all_samples, df_all_mut, all_barcode_list = self.get_filtered_tables_subtypes(
             sample_type_term=sample_type_term, do_filter=True, verbose=verbose
@@ -2006,7 +2020,7 @@ class GDC(object):
         return df_cases, df_all_samples, df_all_mut, all_barcode_list
 
     def get_filtered_tables_subtypes(
-        self, sample_type_term: str = "tumor", do_filter: bool = True, verbose: bool = True
+        self, sample_type_term: str = "Primary Tumor", do_filter: bool = True, verbose: bool = True
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
         self.df_cases = pd.DataFrame()
@@ -2021,7 +2035,7 @@ class GDC(object):
         df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
         if "pid" in df_cases.columns:
             df_cases = df_cases.rename(columns={"pid": "psi_id"})
-            pdwritecsv(df_cases, self.fname_cases, self.root_disease)
+            pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
 
         if do_filter:
             df_cases = self.apply_filter_cases(df_cases)
@@ -2077,7 +2091,7 @@ class GDC(object):
 
             if df_samples.empty:
                 if verbose:
-                    print("Error: could not filter df_samples")
+                    print(f"Warning: could not filter df_samples for {subtype_global} {tumor_class} {subtype_tissue}")
                 continue
 
             df_samples = df_samples.copy().reset_index(drop=True)
@@ -2100,8 +2114,13 @@ class GDC(object):
         df_all_samples = (
             pd.concat(df_list_samples, ignore_index=True) if df_list_samples else pd.DataFrame()
         )
-        df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
-        list_all_barcodes = list(np.unique(list_all_barcodes))
+
+        if len(df_list_mut) == 0:
+            df_all_mut = pd.DataFrame()
+            list_all_barcodes = []
+        else:
+            df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
+            list_all_barcodes = list(np.unique(list_all_barcodes))
 
         return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
 
@@ -2542,7 +2561,7 @@ class GDC(object):
         self,
         cluster_type: str,
         psi_id: str,
-        sample_type_term: str = "tumor",
+        sample_type_term: str = "Primary Tumor",
         Kmin: int = 2,
         Kmax: int = 10,
         min_barcodes: int = 2,
@@ -2551,7 +2570,7 @@ class GDC(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
         _, _, df_all_mut, _ = self.get_filtered_tables(
-            psi_id=psi_id, sample_type_term=sample_type_term, verbose=verbose
+            sample_type_term=sample_type_term, verbose=verbose
         )
 
         dfempty = pd.DataFrame()
@@ -3075,17 +3094,13 @@ class GDC(object):
 
         self.set_primary_site(psi_id=psi_id)
 
-        df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(
-            psi_id=psi_id, verbose=verbose
-        )
+        df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
         if df_tumor.empty:
             if verbose:
                 print(f"No tumor expression data found for {self.psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        df_gtex_ctrl, _ = self.calc_gtex_control(
-            psi_id=psi_id, Nsamples=15, force=False, verbose=verbose
-        )
+        df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
 
         fname_degs = self.fname_degs % self.psi_id
         fname_lfc = self.fname_lfc % self.psi_id
@@ -3189,6 +3204,12 @@ class GDC(object):
         output: df_gtex_to_tcga
         """
 
+        filename = self.root_gtex / self.fname_gtex
+
+        if not filename.exists():
+            print(f"GTEx to TCGA table not found in {self.root_gtex}.")
+            return pd.DataFrame()
+
         self.df_gtex_to_tcga = pdreadcsv(self.fname_gtex, self.root_gtex, verbose=verbose)
 
         return self.df_gtex_to_tcga
@@ -3199,8 +3220,11 @@ class GDC(object):
         self.gtex_tissue_ids = ""
 
         if self.df_gtex_to_tcga.empty:
-            print("GTEx to TCGA table is empty.")
-            return "", ""
+            df_gtex_to_tcga = self.read_GTEx_to_TCGA_table(verbose=verbose)
+
+            if df_gtex_to_tcga.empty:
+                    print("GTEx to TCGA table is empty.")
+                    return "", ""
 
         dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == psi_id]
 
@@ -3406,13 +3430,13 @@ class GDC(object):
         return df_meta
 
     def calc_gtex_control(
-        self, psi_id: str, Nsamples: int = 15, force: bool = False, verbose: bool = False
+        self, Nsamples: int = 15, force: bool = False, verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_gtex_meta = pd.DataFrame()
 
-        gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=psi_id, verbose=verbose)
+        gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=self.psi_id, verbose=verbose)
 
         if gtex_id == "":
             print(f"Error: could not find GTEx ID for TCGA ID '{self.psi_id}'")

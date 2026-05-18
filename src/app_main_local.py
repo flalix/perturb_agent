@@ -224,18 +224,14 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# xxxx
-# def show_df_AgGrid2(df, height=800, page_size=25, key="grid"):
-
-
 def show_df(
-    df, height: int = 800, page_size: int = 25, key: str = "grid", selectable: bool = False
+    df, height: int = 600, page_size: int = 25, key: str = "grid", selectable: bool = False
 ):
     show_df_AgGrid(df, height=height, page_size=page_size, key=key, selectable=selectable)
 
 
 def show_df_AgGrid(
-    df, height: int = 800, page_size: int = 25, key: str = "grid", selectable: bool = False
+    df, height: int = 600, page_size: int = 25, key: str = "grid", selectable: bool = False
 ):
 
     if df is None or df.empty:
@@ -254,7 +250,6 @@ def show_df_AgGrid(
         paginationPageSize=page_size,
     )
 
-    # xxxx selectable
     if selectable:
         gb.configure_selection(
             selection_mode="single",
@@ -286,7 +281,7 @@ def show_df_AgGrid(
             return selected[0]
 
 
-def show_selectable_df(df, height=800, key=None):
+def show_selectable_df(df, height=600, key=None):
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_selection(selection_mode="single", use_checkbox=True)
     gb.configure_grid_options(domLayout="normal")
@@ -307,7 +302,7 @@ def show_selectable_df(df, height=800, key=None):
     return None
 
 
-def show_df_html(df, height: int = 800):
+def show_df_html(df, height: int = 600):
     if df is None or df.empty:
         st.info("Empty dataframe")
         return
@@ -602,19 +597,11 @@ if st.session_state.loaded:
     # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
     with tab_cases:
-        cols = [
-            "case_id",
-            "disease_type",
-            "diagnoses",
-            "subtype_global",
-            "subtype_tissue",
-            "primary_diagnosis",
-            "tumor_grade",
-            "tumor_stage",
-            "stage",
-            "tumor_class",
-            "histology",
-        ]
+        st.info(f"Selected case_id: {current_case_id()}")
+
+
+        cols = ["case_id", "disease_type", "diagnoses", "subtype_global", "subtype_tissue", 
+                "primary_diagnosis", "tumor_grade", "tumor_stage", "stage", "tumor_class", "histology",]
 
         if len(df_cases) > 200:
             df_cases2 = df_cases.head(200).copy()
@@ -623,15 +610,10 @@ if st.session_state.loaded:
             df_cases2 = df_cases
             st.write(f"Cases #{len(df_cases)}")
 
-        # xxxx
-        # show_df(df_cases2[cols], height=800, key=f"cases_{psi_id}")
-
-        selected_row = show_df_AgGrid(df_cases2[cols], selectable=True, key="cases")
+        selected_row = show_df(df_cases2[cols], selectable=True, key="cases")
 
         if selected_row is not None:
             set_case_from_id(selected_row["case_id"])
-
-        st.info(f"Selected case_id: {current_case_id()}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
@@ -673,7 +655,7 @@ if st.session_state.loaded:
                         df_all_samples2 = df_all_samples
                         st.write(f"Tumor samples #{len(df_all_samples)}")
 
-                    show_df(df_all_samples2, height=800, key=f"samples_{psi_id}")
+                    show_df(df_all_samples2, height=600, key=f"samples_{psi_id}")
                 else:
                     df_case_samples = df_all_samples[df_all_samples["case_id"] == selected_case_id].copy()
 
@@ -685,11 +667,7 @@ if st.session_state.loaded:
                         .reset_index(name="n")
                     )
 
-                    show_df(
-                        df_grouped,
-                        height=800,
-                        key=f"samples_{selected_primary_site}_samples_case",
-                    )
+                    show_df(df_grouped, height=600, key=f"samples_{selected_primary_site}_samples_case",)
 
             with tab_statistics:
                     df_grouped = (
@@ -700,11 +678,7 @@ if st.session_state.loaded:
                         .reset_index(name="n")
                     )
 
-                    show_df(
-                        df_grouped,
-                        height=800,
-                        key=f"samples_{selected_primary_site}_samples",
-                    )
+                    show_df(df_grouped, height=600, key=f"samples_{selected_primary_site}_samples",)
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
     # -------------------------------------------------------------------------
@@ -732,7 +706,7 @@ if st.session_state.loaded:
 
         with tab_mut_genes:
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=800, key=f"gene_counts_{psi_id}")
+            show_df(df_gene_counts, height=600, key=f"gene_counts_{psi_id}")
 
         with tab_mut_raw_data:
             if df_all_mut.empty:
@@ -761,7 +735,7 @@ if st.session_state.loaded:
                     "mutation_status",
                 ]
 
-                show_df(df_all_mut2[cols], height=800, key=f"mut_rows_{psi_id}")
+                show_df(df_all_mut2[cols], height=600, key=f"mut_rows_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
@@ -829,7 +803,7 @@ if st.session_state.loaded:
                 st.write(
                     f"There are {len(df_degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
                 )
-                show_df(df_degs, height=800, key=f"degs_{psi_id}")
+                show_df(df_degs, height=600, key=f"degs_{psi_id}")
 
             with tab_biotypes:
 

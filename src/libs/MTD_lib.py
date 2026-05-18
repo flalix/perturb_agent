@@ -43,6 +43,9 @@ from libs.biomart_lib import *
 
 from libs.graphic_lib import plotly_colors_proteins
 
+from libs.calc_degs_lib import CALC_DEGS
+from libs.tcga_gdc_lib import GDC
+
 from project_context_GDC import load_project_context
 
 ctx = load_project_context()
@@ -74,6 +77,7 @@ class MTD(object):
 
 		self.root0 = Path(root0)
 		self.root_colab = create_dir(root0, 'colab')
+		self.root_src   = create_dir(root0, 'src')
 
 		self.project = project
 		self.s_project = s_project		
@@ -669,9 +673,12 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print(f"There is no fix duplication method to {self.s_omics}")
 
 		if not filename.exists():
-			print(f"Error: could not find {filename}")
-			self.dflfc_ori = pd.DataFrame()
-			return False
+			_, _, _ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=False)
+
+			if not filename.exists():
+				print(f"Error: could not find {filename}")
+				self.dflfc_ori = pd.DataFrame()
+				return False
 
 		# read final dflfc_ori table --> the corrected one
 		dflfc_ori = pdreadcsv(fname_final_lfc_ori, self.root_lfc, verbose=verbose)
@@ -2216,9 +2223,9 @@ th {background-color: #f2f2f2; font-weight: bold;}
 	def calc_degs_cutoff_simulation(self, cutoff_list:List, force:bool=False, save_file:bool=False, 
 									n_echo:int=-1, verbose:bool=False) -> pd.DataFrame:
 
-		filename = osjoin(self.root_config, self.cfg.fname_lfc_cutoff)
+		filename = self.root_config / self.cfg.fname_lfc_cutoff
 
-		if exists(filename) and not force:
+		if filename.exists() and not force:
 			dfsim = pdreadcsv(self.cfg.fname_lfc_cutoff, self.root_config)
 			self.dfsim = dfsim
 			return dfsim
@@ -8811,3 +8818,37 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 
 		return text
+	
+
+	def import_from_GDC(self, prog_id:str = "TCGA", 
+					    force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+
+		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
+		self.gdc = gdc
+
+		_ = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
+
+		print(">>> psi_id or disease:", self.disease)
+		psi_id = self.disease
+		self.psi_id = psi_id
+
+		gdc.set_primary_site(psi_id=psi_id, verbose=False)
+
+		df_tumor, df_normal = gdc.get_file_expression_both_tumor_and_normal(verbose=verbose)
+
+		df_degs, df_lfc, degs_txt, msg = gdc.calc_degs(
+			psi_id=psi_id,
+			root_src=self.root_src,
+			run_conda=True,
+			lfc_cutoff=1.0,
+			fdr_cutoff=0.05,
+			method="deseq2",
+			verbose=verbose,
+			force=force,
+		)
+
+		if verbose:
+			print(msg)
+
+		return df_lfc, df_tumor, df_normal
+

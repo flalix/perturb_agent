@@ -54,13 +54,14 @@ class Config(object):
 		self.toi1 = -1
 		self.toi2 = -1
 
-		self.param_lfc_defaults = 1, 0.05, -1, -1, -1
+		# row.LFC_cut, row.LFC_FDR_cut, row.n_degs,  row.n_degs_up,  row.n_degs_dw
+		self.param_lfc_defaults = (1, 0.05, -1, -1, -1)
 
 		'''
 		return row.LFC_cut, row.LFC_FDR_cut, row.ptw_FDR_cut,  \
 			   row.n_genes_annot_ptw, row.n_degs, row.n_degs_in_ptw, row.n_degs_not_in_ptw, row.degs_in_all_ratio, row.toi1, row.toi2
 		'''
-		self.param_ptw_defaults = 0.5, 0.9, 1, 0.05, 0.05, 0.05, 3, -1, -1, -1, -1, -1, -1, -1, -1
+		self.param_ptw_defaults = (0.5, 0.9, 1, 0.05, 0.05, 0.05, 3, -1, -1, -1, -1, -1, -1, -1, -1)
 
 		fname_lfc_cutoff = f'all_lfc_cutoffs_{self.disease}.tsv'
 		self.fname_lfc_cutoff = title_replace(fname_lfc_cutoff)
