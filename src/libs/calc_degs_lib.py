@@ -14,13 +14,14 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
+from numpy.testing import verbose
 import pandas as pd
 
 
 class CALC_DEGS(object):
     def __init__(self, root_src: Path, run_conda: bool = False):
 
-        self.GENE_COLS = ["geneid", "symbol", "biotype"]
+        self.COMMONS = ["geneid", "symbol", "biotype"]
 
         self.root_src = Path(root_src)
         self.libs_dir = root_src / "libs"
@@ -28,10 +29,10 @@ class CALC_DEGS(object):
         self.run_conda = run_conda
 
         # R script path
-        self.rscript_path = self.libs_dir / "calc_degs.R"
+        self.rscript_calc_degs = self.libs_dir / "calc_degs.R"
 
-        if not self.rscript_path.exists():
-            raise FileNotFoundError(f"R script not found: {self.rscript_path}")
+        if not self.rscript_calc_degs.exists():
+            raise FileNotFoundError(f"R script not found: {self.rscript_calc_degs}")
 
     """
     def running_on_render(self) -> bool:
@@ -46,12 +47,7 @@ class CALC_DEGS(object):
         if df is None or df.empty:
             return pd.DataFrame()
         
-        if "gene_id" in df.columns:
-            df = df.rename(columns={"gene_id": "geneid"})
-        if "gene_type" in df.columns:
-            df = df.rename(columns={"gene_type": "biotype"})
-
-        count_cols = [c for c in df.columns if c not in self.GENE_COLS]
+        count_cols = [c for c in df.columns if c not in self.COMMONS]
         if not count_cols:
             raise ValueError("No count columns found.")
 
@@ -72,16 +68,16 @@ class CALC_DEGS(object):
         return df2
 
     def _find_count_columns(self, df: pd.DataFrame) -> list[str]:
-        return [c for c in df.columns if c not in self.GENE_COLS]
+        return [c for c in df.columns if c not in self.COMMONS]
 
     def _validate_expression_df(self, df: pd.DataFrame, name: str) -> None:
-        missing = [c for c in self.GENE_COLS if c not in df.columns]
+        missing = [c for c in self.COMMONS if c not in df.columns]
         if missing:
             raise ValueError(f"{name} is missing required columns: {missing}")
 
         count_cols = self._find_count_columns(df)
         if not count_cols:
-            raise ValueError(f"{name} has no count columns besides {self.GENE_COLS}")
+            raise ValueError(f"{name} has no count columns besides {self.COMMONS}")
 
         if df["geneid"].duplicated().any():
             dup_n = int(df["geneid"].duplicated().sum())
@@ -114,11 +110,23 @@ class CALC_DEGS(object):
         df_turmor_rev = self._rename_count_columns(df_tumor, "tumor")
         df_normal_rev = self._rename_count_columns(df_normal, "normal")
 
+        if 'biotype' in df_turmor_rev.columns:
+            df_turmor_rev = df_turmor_rev.drop(columns=['biotype'])
+ 
+        if 'symbol' in df_turmor_rev.columns:
+            df_turmor_rev = df_turmor_rev.drop(columns=['symbol'])
+
+        if 'biotype' in df_normal_rev.columns:
+            df_normal_rev = df_normal_rev.drop(columns=['biotype'])
+
+        if 'symbol' in df_normal_rev.columns:
+            df_normal_rev = df_normal_rev.drop(columns=['symbol'])
+
         dfn = pd.merge(
-            df_normal_rev, df_turmor_rev, on=self.GENE_COLS, how=how, validate="one_to_one"
+            df_turmor_rev, df_normal_rev, on='geneid', how=how, validate="one_to_one"
         )
 
-        count_cols = [c for c in dfn.columns if c not in self.GENE_COLS]
+        count_cols = [c for c in dfn.columns if c not in self.COMMONS]
         if not count_cols:
             raise ValueError("No count columns after merging tumor and normal dataframes.")
 
@@ -140,7 +148,7 @@ class CALC_DEGS(object):
             }
         )
 
-        counts = dfn[self.GENE_COLS + sample_cols].copy()
+        counts = dfn[ ['geneid'] + sample_cols].copy()
         return counts, meta
 
     def run_deg_rscript(
@@ -184,7 +192,7 @@ class CALC_DEGS(object):
         df_counts, df_meta = self.build_counts_and_metadata(
             df_tumor=df_tumor,
             df_normal=df_normal,
-            how=merge_how,
+            how=merge_how
         )
 
         tmpdir_obj = tempfile.TemporaryDirectory()
@@ -193,14 +201,14 @@ class CALC_DEGS(object):
         try:
             counts_file = tmpdir / "counts.tsv"
             meta_file = tmpdir / "meta.tsv"
-            out_file = tmpdir / "deg_results.tsv"
+            out_file = tmpdir / "lfc_results.tsv"
 
             df_counts.to_csv(counts_file, sep="\t", index=False)
             df_meta.to_csv(meta_file, sep="\t", index=False)
 
             cmd = [
                 "Rscript",
-                str(self.rscript_path),
+                str(self.rscript_calc_degs),
                 "--counts",
                 str(counts_file),
                 "--meta",
@@ -216,6 +224,7 @@ class CALC_DEGS(object):
             ]
 
             if self.run_conda and self.has_conda():
+                print(f">>> LFC calc with {method} - running inside conda environment.")
                 cmd = [
                     "conda",
                     "run",
@@ -232,25 +241,32 @@ class CALC_DEGS(object):
 
             if proc.returncode != 0:
                 raise RuntimeError(
-                    "R DEG script failed.\n"
+                    f"R DEG script failed -> {str(self.rscript_calc_degs)}.\n"
                     f"Command: {' '.join(cmd)}\n\n"
                     f"STDOUT:\n{proc.stdout.strip()}\n\n"
                     f"STDERR:\n{proc.stderr.strip()}"
                 )
+            else:
+                if verbose:
+                    print(f"R DEG script OK -> {str(self.rscript_calc_degs)}.\n")
+                    print(f"Command: {' '.join(cmd)}\n\n")
 
             if not out_file.exists():
                 raise RuntimeError(
                     "R script finished without error, but the output file was not created: "
                     f"{out_file}"
                 )
+            else:
+                if verbose:
+                    print(f">>> File saved at: {out_file}")
 
-            deg = pd.read_csv(out_file, sep="\t")
+            df_lfc = pd.read_csv(out_file, sep="\t")
 
             if keep_temp:
                 print(f"Temporary DEG files kept at: {tmpdir}")
                 tmpdir_obj = None  # prevent cleanup below
 
-            return deg
+            return df_lfc
 
         finally:
             if (tmpdir_obj is not None) and (not keep_temp):

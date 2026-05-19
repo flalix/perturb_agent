@@ -32,7 +32,7 @@ filename_metadata = opt$meta
 counts_df <- fread(filename_count, sep = "\t", header = TRUE, data.table = FALSE)
 meta <- fread(filename_metadata, sep = "\t", header = TRUE, data.table = FALSE)
 
-required_gene_cols <- c("geneid", "symbol", "biotype")
+required_gene_cols <- c("geneid")
 
 missing_gene_cols <- setdiff(required_gene_cols, colnames(counts_df))
 
@@ -62,7 +62,7 @@ for (j in seq_along(count_mat)) {
 }
 count_mat[is.na(count_mat)] <- 0
 
-rownames(count_mat) <- gene_annot$gene_id
+rownames(count_mat) <- gene_annot$geneid
 count_mat <- as.matrix(count_mat)
 
 # -----------------------------
@@ -108,7 +108,7 @@ run_edger <- function(count_mat, meta, gene_annot, out_file, manual_dispersion =
   y <- y[keep, , keep.lib.sizes = FALSE]
   y <- calcNormFactors(y)
 
-  gene_sub <- gene_annot[match(rownames(y$counts), gene_annot$gene_id), , drop = FALSE]
+  gene_sub <- gene_annot[match(rownames(y$counts), gene_annot$geneid), , drop = FALSE]
 
   design <- model.matrix(~ condition, data = meta)
 
@@ -123,7 +123,7 @@ run_edger <- function(count_mat, meta, gene_annot, out_file, manual_dispersion =
     tt <- topTags(qlf, n = Inf, sort.by = "PValue")$table
 
     res <- data.frame(
-      gene_id = rownames(tt),
+      geneid = rownames(tt),
       log2FoldChange = tt$logFC,
       logCPM = tt$logCPM,
       statistic = tt$F,
@@ -138,7 +138,7 @@ run_edger <- function(count_mat, meta, gene_annot, out_file, manual_dispersion =
     tt <- topTags(et, n = Inf, sort.by = "PValue")$table
 
     res <- data.frame(
-      gene_id = rownames(tt),
+      geneid = rownames(tt),
       log2FoldChange = tt$logFC,
       logCPM = tt$logCPM,
       statistic = NA_real_,
@@ -149,7 +149,7 @@ run_edger <- function(count_mat, meta, gene_annot, out_file, manual_dispersion =
     )
   }
 
-  res <- merge(gene_sub, res, by = "gene_id", all.y = TRUE, sort = FALSE)
+  res <- merge(gene_sub, res, by = "geneid", all.y = TRUE, sort = FALSE)
   res <- res[order(res$padj, res$pvalue), ]
   fwrite(res, file = out_file, sep = "\t", quote = FALSE, na = "NA")
 }
@@ -173,7 +173,7 @@ run_deseq2 <- function(count_mat, meta, gene_annot, out_file) {
   rr <- results(dds, contrast = c("condition", "tumor", "normal"))
 
   res <- data.frame(
-    gene_id = rownames(rr),
+    geneid = rownames(rr),
     log2FoldChange = rr$log2FoldChange,
     lfcSE = rr$lfcSE,
     statistic = rr$stat,
@@ -184,8 +184,8 @@ run_deseq2 <- function(count_mat, meta, gene_annot, out_file) {
     stringsAsFactors = FALSE
   )
 
-  gene_sub <- gene_annot[match(res$gene_id, gene_annot$gene_id), , drop = FALSE]
-  res <- cbind(gene_sub, res[, setdiff(colnames(res), "gene_id"), drop = FALSE])
+  gene_sub <- gene_annot[match(res$geneid, gene_annot$geneid), , drop = FALSE]
+  res <- cbind(gene_sub, res[, setdiff(colnames(res), "geneid"), drop = FALSE])
   res <- res[order(res$padj, res$pvalue), ]
   fwrite(res, file = out_file, sep = "\t", quote = FALSE, na = "NA")
 }

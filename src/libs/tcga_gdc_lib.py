@@ -1303,6 +1303,16 @@ class GDC(object):
 
         df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
 
+        if "gene_id" in df_tumor.columns:
+            df_tumor = df_tumor.rename(columns={"gene_id": "geneid"})
+        if "gene_type" in df_tumor.columns:
+            df_tumor = df_tumor.rename(columns={"gene_type": "biotype"})
+
+        if "gene_id" in df_normal.columns:
+            df_normal = df_normal.rename(columns={"gene_id": "geneid"})
+        if "gene_type" in df_normal.columns:
+            df_normal = df_normal.rename(columns={"gene_type": "biotype"})
+
         self.df_tumor = df_tumor
         self.df_normal = df_normal
         self.df_gtex_ctrl = df_gtex_ctrl
@@ -3102,6 +3112,8 @@ class GDC(object):
     def prepare_gtex(self, df_gtex_ctrl: pd.DataFrame) -> pd.DataFrame:
 
         df_gtex_ctrl.rename(columns={"ensemblid": "geneid"}, inplace=True)
+        df_gtex_ctrl['geneid'] = [gene.split('.')[0] for gene in df_gtex_ctrl.geneid]
+
         cols = list(df_gtex_ctrl.columns)[2:]
 
         df_gtex_ctrl["biotype"] = "protein_coding"
@@ -3122,7 +3134,6 @@ class GDC(object):
         root_src: Path = Path('.'),
         run_conda: bool = False,
         method: str = "edger",
-        force: bool = False,
         verbose: bool = False,
     ) -> tuple[pd.DataFrame, str]:
 
@@ -3135,14 +3146,6 @@ class GDC(object):
             if verbose:
                 print(msg)
             return pd.DataFrame(), msg
-
-        fname_lfc = self.fname_lfc % self.psi_id
-        filename_lfc = self.root_lfc / fname_lfc
-
-        if filename_lfc.exists() and not force:
-            msg = f"Using existing LFC table for {self.psi_id} file: {filename_lfc}"
-            df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
-            return df_lfc, msg
 
         # geneid, symbol, biotype, samples
         min_N_cols = 3 + 3
@@ -3157,11 +3160,11 @@ class GDC(object):
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
         if df_normal.empty or df_normal.shape[1] < min_N_cols:
-            msg = f"not enough normal samples --> substituting with GTEx control {df_normal.shape[1] - 3}."
-            if verbose:
-                print(msg)
             df_normal2 = self.prepare_gtex(df_gtex_ctrl)
             df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+            msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
+            if verbose:
+                print(msg)
         else:
             msg = f"enough normal samples {df_normal.shape[1] - 3}."
             if verbose:
@@ -3193,20 +3196,23 @@ class GDC(object):
             keep_temp=False,
         )
 
-        df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+        cols = df_lfc.columns.to_list()
 
-        df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
-        df_degs.reset_index(drop=True, inplace=True)
+        commons =  ["geneid"]
+        tum_cols = ["geneid", "symbol", "biotype"]
 
-        _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
-        _ = pdwritecsv(df_degs, fname_degs, self.root_lfc)
+        self.df_lfc5 = df_lfc.copy()
+        self.df_tumor = df_tumor
 
-        degs_txt = "\n".join(df_degs.symbol)
-        _ = write_txt(degs_txt, fname_degs_txt, self.root_lfc)
+        # biotype can be loose: biotypes come from df_tumor
+        df_lfc = pd.merge(df_lfc, df_tumor[tum_cols], on=commons, how="inner")
 
-        _ = write_txt(msg, fname_sample_txt, self.root_lfc)
+        cols2 = ["geneid", "symbol", "biotype"] + cols[1:]
+        df_lfc = df_lfc[cols2]
 
-        return df_degs, df_lfc, degs_txt, msg
+        df_lfc = df_lfc.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "padj": "fdr"})
+
+        return df_lfc, msg
 
 
     def calc_degs(
@@ -3268,9 +3274,9 @@ class GDC(object):
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
         if df_normal.empty or df_normal.shape[1] < min_N_cols:
-            msg = f"not enough normal samples --> substituting with GTEx control {df_normal.shape[1] - 3}."
             df_normal2 = self.prepare_gtex(df_gtex_ctrl)
             df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+            msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
         else:
             msg = f"enough normal samples {df_normal.shape[1] - 3}."
             df_normal2 = df_normal
@@ -3300,8 +3306,12 @@ class GDC(object):
             merge_how="inner",
             keep_temp=False,
         )
+        self.df_lfc2 = df_lfc.copy()
+
+        print(">>> columns:", df_lfc.columns.tolist())
 
         df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+
 
         df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
         df_degs.reset_index(drop=True, inplace=True)

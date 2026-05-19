@@ -673,7 +673,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print(f"There is no fix duplication method to {self.s_omics}")
 
 		if not filename.exists():
-			_ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=False)
+			_ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=verbose)
 
 			if not filename.exists():
 				print(f"Error: could not find {filename}")
@@ -8823,6 +8823,14 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	def import_from_GDC(self, prog_id:str = "TCGA", 
 					    force:bool = False, verbose:bool = False) -> pd.DataFrame:
 
+		fname_lfc, _, _ = self.set_lfc_names()
+		filename = self.root_lfc / fname_lfc
+
+		if filename.exists() and not force:
+			df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+			return df_lfc
+
+
 		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
 		self.gdc = gdc
 
@@ -8840,11 +8848,24 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			run_conda=True,
 			method="deseq2",
 			verbose=verbose,
-			force=force,
 		)
+
+		df_lfc["abs_lfc"] = np.abs(df_lfc.lfc)
+
+		df_lfc = (
+			df_lfc
+			.dropna(subset=["symbol"])
+			.sort_values("abs_lfc", ascending=False)
+			.drop_duplicates(subset="symbol", keep="first")
+			.reset_index(drop=True)
+		)
+
+		self.df_lfc = df_lfc
 
 		if verbose:
 			print(msg)
+
+		_ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc, verbose=verbose)
 
 		return df_lfc
 
