@@ -70,11 +70,13 @@ class GDC(object):
         self.df_gtex_counts = pd.DataFrame()
         self.df_gtex_pheno = pd.DataFrame()
         self.df_meta = pd.DataFrame()
-        self.df_gtex_meta = pd.DataFrame()
-
+  
+        # self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
+        # GTEx control - per tissue
         self.df_gtex_ctrl = pd.DataFrame()
-        self.df_gtex_meta = pd.DataFrame()
+        self.df_meta_prep = pd.DataFrame()
 
+        self.df_gtex_normal = pd.DataFrame()
         self.df_normal = pd.DataFrame()
         self.df_tumor = pd.DataFrame()
 
@@ -85,7 +87,7 @@ class GDC(object):
         self.root_lfc = Path()
         self.root_mutations = Path()
 
-        self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
+        self.GENE_COLS = ["geneid", "symbol", "biotype"]
 
         self.clean_gdc_files()
 
@@ -1194,18 +1196,13 @@ class GDC(object):
             df_table = pd.read_csv(filename, sep="\t", comment="#")
             df_table = self.clean_expression_table(df_table)
 
-            cols = [
-                "gene_id",
-                "symbol",
-                "gene_type",
-                "unstranded",
-                "counts",
-                "stranded_second",
-                "tpm_unstranded",
-                "fpkm_unstranded",
-                "fpkm_uq_unstranded",
-            ]
+            cols = ["gene_id", "symbol", "gene_type", "unstranded", "counts", "stranded_second",
+                    "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
             df_table = df_table[cols]
+
+            cols = ["geneid", "symbol", "biotype", "unstranded", "counts", "stranded_second",
+                    "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
+            df_table.columns = cols
 
             _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
                
@@ -1264,9 +1261,33 @@ class GDC(object):
 
         return df_table
 
-    def get_file_expression_both_tumor_and_normal(
-        self, verbose: bool = False
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def get_file_expression_both_tumor_and_normal(self, verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        '''
+
+        flow:
+            get_file_expression_both_tumor_and_normal
+                get_dic_expression_tumor_and_normal
+
+                    _, df_tumor_samples, _, _ = self.get_filtered_tables( sample_type_term="Primary Tumor", verbose=verbose )
+                    _, df_normal_samples, _, _ = self.get_filtered_tables( sample_type_term="Solid Tissue Normal", verbose=verbose )
+
+                    get expression filenames:
+                    dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
+                    dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
+
+                    build 2 dicts having the expression tables
+                    output:  dic_tumor, dic_normal
+
+                # from dict to df -> df tumor and normal
+                df_tumor, df_normal = self.prepare_normal_tumor_tables()
+
+                # get GTEx normal control tissue data
+                df_gtex_ctrl, _ = self.calc_gtex_control()
+
+
+            output: df_tumor, df_normal, df_gtex_ctrl
+        
+        '''
 
         dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
         self.dic_tumor = dic_tumor
@@ -1274,15 +1295,19 @@ class GDC(object):
 
         if len(dic_tumor) == 0 and len(dic_normal) == 0:
             print(f"Insufficient expression data for {self.psi_id}.")
-            return pd.DataFrame(), pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
             dic_tumor, dic_normal, imax_tumor=12, imax_normal=12, verbose=verbose
         )
-        self.dic_tumor = dic_tumor
-        self.dic_normal = dic_normal
 
-        return df_tumor, df_normal
+        df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
+
+        self.df_tumor = df_tumor
+        self.df_normal = df_normal
+        self.df_gtex_ctrl = df_gtex_ctrl
+
+        return df_tumor, df_normal, df_gtex_ctrl
 
     def get_dic_expression_tumor_and_normal(self, verbose: bool = False) -> Tuple[dict, dict]:
 
@@ -1334,13 +1359,13 @@ class GDC(object):
             file_id = row.file_id
 
             dfexp, filename_normal = self.get_table_given_fileID(
-                case_id=case_id,
-                file_id=file_id,
-                sample_type="normal",
-                file_type="Gene Expression Quantification",
-                force=False,
-                verbose=verbose,
-            )
+                                            case_id=case_id,
+                                            file_id=file_id,
+                                            sample_type="normal",
+                                            file_type="Gene Expression Quantification",
+                                            force=False,
+                                            verbose=verbose,
+                                        )
             if dfexp is None or dfexp.empty:
                 print("x", end="")
                 continue
@@ -1397,6 +1422,9 @@ class GDC(object):
         print("")
         if verbose:
             print(f" -> {len(dff_tumor)}")
+
+        self.dic_tumor = dic_tumor
+        self.dic_normal = dic_normal
 
         return dic_tumor, dic_normal
 
@@ -3073,10 +3101,10 @@ class GDC(object):
 
     def prepare_gtex(self, df_gtex_ctrl: pd.DataFrame) -> pd.DataFrame:
 
-        df_gtex_ctrl.rename(columns={"ensemblid": "gene_id"}, inplace=True)
+        df_gtex_ctrl.rename(columns={"ensemblid": "geneid"}, inplace=True)
         cols = list(df_gtex_ctrl.columns)[2:]
 
-        df_gtex_ctrl["gene_type"] = "Protein Coding"
+        df_gtex_ctrl["biotype"] = "protein_coding"
         df_gtex_ctrl = df_gtex_ctrl[self.GENE_COLS + cols]
 
         _ = [
@@ -3085,6 +3113,101 @@ class GDC(object):
         ]
 
         return df_gtex_ctrl
+
+
+
+    def calc_lfc_table(
+        self,
+        psi_id: str,
+        root_src: Path = Path('.'),
+        run_conda: bool = False,
+        method: str = "edger",
+        force: bool = False,
+        verbose: bool = False,
+    ) -> tuple[pd.DataFrame, str]:
+
+        self.set_primary_site(psi_id=psi_id)
+
+        df_tumor, df_normal, df_gtex_ctrl = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
+
+        if df_tumor.empty:
+            msg = f"No tumor expression data found for {self.psi_id}"
+            if verbose:
+                print(msg)
+            return pd.DataFrame(), msg
+
+        fname_lfc = self.fname_lfc % self.psi_id
+        filename_lfc = self.root_lfc / fname_lfc
+
+        if filename_lfc.exists() and not force:
+            msg = f"Using existing LFC table for {self.psi_id} file: {filename_lfc}"
+            df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+            return df_lfc, msg
+
+        # geneid, symbol, biotype, samples
+        min_N_cols = 3 + 3
+        if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
+            msg = "Error: Normal samples and GTEx control do not have enough samples."
+            if verbose:
+                print(msg)
+            return pd.DataFrame(), msg
+
+        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
+
+        df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+
+        if df_normal.empty or df_normal.shape[1] < min_N_cols:
+            msg = f"not enough normal samples --> substituting with GTEx control {df_normal.shape[1] - 3}."
+            if verbose:
+                print(msg)
+            df_normal2 = self.prepare_gtex(df_gtex_ctrl)
+            df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+        else:
+            msg = f"enough normal samples {df_normal.shape[1] - 3}."
+            if verbose:
+                print(msg)
+            df_normal2 = df_normal
+
+        self.df_normal2 = df_normal2
+
+        msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
+
+        df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
+        self.df_tumor = df_tumor
+
+        if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
+            msg = "Error: Tumor expression data has fewer than 3 samples."
+            return pd.DataFrame(), msg
+
+        if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
+            print("Error: Normal expression data has fewer than 3 samples.")
+            return pd.DataFrame(), msg
+
+        df_lfc = cdegs.run_deg_rscript(
+            df_tumor=df_tumor,
+            df_normal=df_normal2,
+            method=method,
+            manual_dispersion=0.1,
+            min_total_count=10,
+            merge_how="inner",
+            keep_temp=False,
+        )
+
+        df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+
+        df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
+        df_degs.reset_index(drop=True, inplace=True)
+
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
+        _ = pdwritecsv(df_degs, fname_degs, self.root_lfc)
+
+        degs_txt = "\n".join(df_degs.symbol)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_lfc)
+
+        _ = write_txt(msg, fname_sample_txt, self.root_lfc)
+
+        return df_degs, df_lfc, degs_txt, msg
+
 
     def calc_degs(
         self,
@@ -3100,17 +3223,12 @@ class GDC(object):
 
         self.set_primary_site(psi_id=psi_id)
 
-        df_tumor, df_normal = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
-        self.df_tumor = df_tumor
-        self.df_normal = df_normal
+        df_tumor, df_normal, df_gtex_ctrl = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
 
         if df_tumor.empty:
             if verbose:
                 print(f"No tumor expression data found for {self.psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
-
-        df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
-        self.df_gtex_ctrl = df_gtex_ctrl
 
         fname_degs = self.fname_degs % self.psi_id
         fname_lfc = self.fname_lfc % self.psi_id
@@ -3123,18 +3241,24 @@ class GDC(object):
         # filename_sample_txt = self.root_lfc / fname_sample_txt
 
         if filename_degs.exists() and filename_lfc.exists() and not force:
+            df_degs = pdreadcsv(fname_degs, self.root_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+            
             try:
-                df_degs = pdreadcsv(fname_degs, self.root_lfc, verbose=verbose)
-                df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
                 degs_txt = read_txt(fname_degs_txt, self.root_lfc, verbose=verbose)
-                sample_txt = read_txt(fname_sample_txt, self.root_lfc, verbose=verbose)
-
-                return df_degs, df_lfc, degs_txt, sample_txt
             except ValueError:
-                pass
+                degs_txt = ''
 
-        # geneid, symbol, type, samples
-        min_N_cols = 3 + 2
+            try:
+                sample_txt = read_txt(fname_sample_txt, self.root_lfc, verbose=verbose)
+            except ValueError:
+                sample_txt = ''
+
+            return df_degs, df_lfc, degs_txt, sample_txt
+
+
+        # geneid, symbol, biotype, samples
+        min_N_cols = 3 + 3
         if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             return pd.DataFrame(), pd.DataFrame(), "", msg
@@ -3143,30 +3267,33 @@ class GDC(object):
 
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
-        if df_normal.shape[1] < min_N_cols:
+        if df_normal.empty or df_normal.shape[1] < min_N_cols:
             msg = f"not enough normal samples --> substituting with GTEx control {df_normal.shape[1] - 3}."
-            df_normal = self.prepare_gtex(df_gtex_ctrl)
-            df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+            df_normal2 = self.prepare_gtex(df_gtex_ctrl)
+            df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
         else:
             msg = f"enough normal samples {df_normal.shape[1] - 3}."
+            df_normal2 = df_normal
 
-        msg = f"There are {df_tumor.shape[1] - 3} tumor samples; {msg}"
+        msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
 
         df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
         self.df_tumor = df_tumor
 
-        if method == "deseq2":
-            if df_tumor.shape[0] < 2:
-                print("Error: Tumor expression data has fewer than 2 samples.")
-                return pd.DataFrame(), pd.DataFrame(), "", ""
+        # if method == "deseq2":
+        # at least 3 columns
 
-            if df_normal.shape[0] < 2:
-                print("Error: Normal expression data has fewer than 2 samples.")
-                return pd.DataFrame(), pd.DataFrame(), "", ""
+        if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
+            print("Error: Tumor expression data has fewer than 3 samples.")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
+
+        if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
+            print("Error: Normal expression data has fewer than 3 samples.")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
 
         df_lfc = cdegs.run_deg_rscript(
             df_tumor=df_tumor,
-            df_normal=df_normal,
+            df_normal=df_normal2,
             method=method,
             manual_dispersion=0.1,
             min_total_count=10,
@@ -3426,8 +3553,11 @@ class GDC(object):
         df_gtex_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
         self.df_gtex_counts = df_gtex_counts
 
-        _ = self.read_GTEx_pheno(verbose=verbose)
-        _ = self.read_GTEx_metadata(verbose=verbose)
+        if self.df_gtex_pheno.empty:
+            _ = self.read_GTEx_pheno(verbose=verbose)
+
+        if self.df_meta.empty:
+            _ = self.read_GTEx_metadata(verbose=verbose)
 
         return df_gtex_counts
 
@@ -3448,7 +3578,7 @@ class GDC(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         self.df_gtex_ctrl = pd.DataFrame()
-        self.df_gtex_meta = pd.DataFrame()
+        self.df_meta_prep = pd.DataFrame()
 
         gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=self.psi_id, verbose=verbose)
         self.gtex_id = gtex_id
@@ -3457,14 +3587,16 @@ class GDC(object):
             print(f"Error: could not find GTEx ID for TCGA ID '{self.psi_id}'")
             return pd.DataFrame(), pd.DataFrame()
 
-        df_gtex_meta = self.prepare_gtex_df_control()
+        # prepare metadata
+        df_meta_prep = self.prepare_gtex_df_control()
 
+        # get all GTEx samples for self.psi_id
         df_gtex_ctrl = self.prepare_gtex_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
 
         self.df_gtex_ctrl = df_gtex_ctrl
-        self.df_gtex_meta = df_gtex_meta
+        self.df_meta_prep = df_meta_prep
 
-        return df_gtex_ctrl, df_gtex_meta
+        return df_gtex_ctrl, df_meta_prep
 
     def prepare_gtex_df_control(self) -> pd.DataFrame:
         """
@@ -3473,36 +3605,43 @@ class GDC(object):
           . DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
         3. Sort by RIN score (SMRIN) to get the best preserved RNA - Then take the top 15
 
-        output: df_gtex_meta
+        output: df_meta_prep
         """
 
         if self.df_meta.empty:
-            print("Metadata DataFrame is empty.")
-            return pd.DataFrame()
+            self.read_GTEx_metadata()
+
+            if self.df_meta.empty:
+                print("Metadata DataFrame is empty.")
+                return pd.DataFrame()
 
         if self.df_gtex_pheno.empty:
-            print("Phenotype DataFrame is empty.")
-            return pd.DataFrame()
+            self.read_GTEx_pheno()
+
+            if self.df_gtex_pheno.empty:
+                print("Phenotype DataFrame is empty.")
+                return pd.DataFrame()
 
         # 1. Filter for Tissue
+        # df_meta_prep is df_meta filtered by gtex_id
         gtex_id = self.gtex_id.replace('_', ' ')
-        df_gtex_meta = self.df_meta[self.df_meta["SMTS"] == gtex_id].copy()
+        df_meta_prep = self.df_meta[self.df_meta["SMTS"] == gtex_id].copy()
 
-        df_gtex_meta["SUBJID"] = df_gtex_meta["SAMPID"].str.split("-").str[:2].str.join("-")
-        df_gtex_meta = df_gtex_meta.merge(self.df_gtex_pheno, on="SUBJID", how="left")
+        df_meta_prep["SUBJID"] = df_meta_prep["SAMPID"].str.split("-").str[:2].str.join("-")
+        df_meta_prep = df_meta_prep.merge(self.df_gtex_pheno, on="SUBJID", how="left")
 
         # 2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
         # DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
-        df_gtex_meta = df_gtex_meta[df_gtex_meta["DTHHRDY"].isin([1, 2])]
+        df_meta_prep = df_meta_prep[df_meta_prep["DTHHRDY"].isin([1, 2])]
 
         # 3. Sort by RIN score (SMRIN) to get the best preserved RNA
         # Then take the top 15
-        df_gtex_meta = df_gtex_meta.sort_values("SMRIN", ascending=False)
-        df_gtex_meta.reset_index(drop=True, inplace=True)
+        df_meta_prep = df_meta_prep.sort_values("SMRIN", ascending=False)
+        df_meta_prep.reset_index(drop=True, inplace=True)
 
-        self.df_gtex_meta = df_gtex_meta
+        self.df_meta_prep = df_meta_prep
 
-        return df_gtex_meta
+        return df_meta_prep
 
     def running_on_render(self) -> bool:
         return "RENDER_SERVICE_ID" in os.environ
@@ -3519,6 +3658,7 @@ class GDC(object):
 
         if self.df_gtex_counts.empty:
             # Reading GTEx count super-file
+            # to big, do not store in Render
             if not self.running_on_render():
                 _ = self.read_GTEx_counts(verbose=verbose)
 
@@ -3526,8 +3666,8 @@ class GDC(object):
                 print("Count DataFrame is empty.")
                 return pd.DataFrame()
 
-        self.df_gtex_meta = self.df_gtex_meta.sort_values("SMRIN", ascending=False)
-        samples = self.df_gtex_meta.head(Nsamples * 3)["SAMPID"].to_list()
+        self.df_meta_prep = self.df_meta_prep.sort_values("SMRIN", ascending=False)
+        samples = self.df_meta_prep.head(Nsamples * 3)["SAMPID"].to_list()
 
         cols = list(samples)
         good_cols = [x for x in cols if x in self.df_gtex_counts.columns]
@@ -3536,15 +3676,15 @@ class GDC(object):
 
         good_cols = ["Name", "Description"] + good_cols
 
-        df_normal = self.df_gtex_counts.loc[:, good_cols].copy()
-        df_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
-        df_normal.reset_index(drop=True, inplace=True)
+        df_gtex_normal = self.df_gtex_counts.loc[:, good_cols].copy()
+        df_gtex_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
+        df_gtex_normal.reset_index(drop=True, inplace=True)
 
-        self.df_normal = df_normal
+        self.df_gtex_normal = df_gtex_normal
 
-        _ = pdwritecsv(df_normal, fname, self.root_gtex, verbose=verbose)
+        _ = pdwritecsv(df_gtex_normal, fname, self.root_gtex, verbose=verbose)
 
-        return df_normal
+        return df_gtex_normal
 
     def download_file(self, url: str, filename_out: str):
         with requests.get(url, stream=True) as r:

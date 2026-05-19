@@ -20,7 +20,7 @@ import pandas as pd
 class CALC_DEGS(object):
     def __init__(self, root_src: Path, run_conda: bool = False):
 
-        self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
+        self.GENE_COLS = ["geneid", "symbol", "biotype"]
 
         self.root_src = Path(root_src)
         self.libs_dir = root_src / "libs"
@@ -42,6 +42,15 @@ class CALC_DEGS(object):
         return shutil.which("conda") is not None
 
     def deduplicate_by_max_reads(self, df: pd.DataFrame) -> pd.DataFrame:
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+        
+        if "gene_id" in df.columns:
+            df = df.rename(columns={"gene_id": "geneid"})
+        if "gene_type" in df.columns:
+            df = df.rename(columns={"gene_type": "biotype"})
+
         count_cols = [c for c in df.columns if c not in self.GENE_COLS]
         if not count_cols:
             raise ValueError("No count columns found.")
@@ -54,8 +63,8 @@ class CALC_DEGS(object):
         df2["_total_reads"] = df2[count_cols].sum(axis=1)
 
         df2 = (
-            df2.sort_values(["gene_id", "_total_reads"], ascending=[True, False])
-            .drop_duplicates(subset="gene_id", keep="first")
+            df2.sort_values(["geneid", "_total_reads"], ascending=[True, False])
+            .drop_duplicates(subset="geneid", keep="first")
             .drop(columns="_total_reads")
             .reset_index(drop=True)
         )
@@ -74,9 +83,9 @@ class CALC_DEGS(object):
         if not count_cols:
             raise ValueError(f"{name} has no count columns besides {self.GENE_COLS}")
 
-        if df["gene_id"].duplicated().any():
-            dup_n = int(df["gene_id"].duplicated().sum())
-            raise ValueError(f"{name} has duplicated gene_id values ({dup_n} duplicates).")
+        if df["geneid"].duplicated().any():
+            dup_n = int(df["geneid"].duplicated().sum())
+            raise ValueError(f"{name} has duplicated geneid values ({dup_n} duplicates).")
 
     def _rename_count_columns(self, df: pd.DataFrame, prefix: str) -> pd.DataFrame:
         count_cols = self._find_count_columns(df)

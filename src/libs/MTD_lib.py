@@ -673,7 +673,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print(f"There is no fix duplication method to {self.s_omics}")
 
 		if not filename.exists():
-			_, _, _ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=False)
+			_ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=False)
 
 			if not filename.exists():
 				print(f"Error: could not find {filename}")
@@ -8821,7 +8821,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	
 
 	def import_from_GDC(self, prog_id:str = "TCGA", 
-					    force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+					    force:bool = False, verbose:bool = False) -> pd.DataFrame:
 
 		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
 		self.gdc = gdc
@@ -8834,14 +8834,10 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		gdc.set_primary_site(psi_id=psi_id, verbose=False)
 
-		df_tumor, df_normal = gdc.get_file_expression_both_tumor_and_normal(verbose=verbose)
-
-		df_degs, df_lfc, degs_txt, msg = gdc.calc_degs(
+		df_lfc, msg = gdc.calc_lfc_table(
 			psi_id=psi_id,
 			root_src=self.root_src,
 			run_conda=True,
-			lfc_cutoff=1.0,
-			fdr_cutoff=0.05,
 			method="deseq2",
 			verbose=verbose,
 			force=force,
@@ -8850,5 +8846,5 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		if verbose:
 			print(msg)
 
-		return df_lfc, df_tumor, df_normal
+		return df_lfc
 
