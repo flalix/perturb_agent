@@ -17,6 +17,7 @@
 
 import sys
 import os
+from urllib import response
 import yaml
 import numpy as np
 
@@ -114,28 +115,33 @@ min_genes = 5
 def show_profile_box():
     st.markdown(
         """
-    <div style="display:flex; justify-content:left; margin-top:40px;">
-        <div style="
-            margin-top: 40px;
-            background-color: lightblue;
-            padding: 25px;
-            border-radius: 12px;
-            border: 1px solid #A0C4FF;
-            max-width: 600px;
-        ">
-            <h3 style="margin-bottom:5px;">PhD Flavio Lichtenstein</h3>
-            <p style="color:#A0A0A0;">
-                Bioinformatics, Immunoinformatics, Biostatistics,<br>
-                Systems Biology and Artificial Intelligence
-            </p>
-            <hr>
-            <p>📍 Sao Paulo, SP - Brazil</p>
-            <p>📞 (+55) 11 96560-1960</p>
-            <p>✉️ flalix@gmail.com</p>
-            <p>🔗 <a href="https://www.linkedin.com/in/flaviolichtenstein/" target="_blank" style="color:#0A66C2; text-decoration:none;">LinkedIn Profile</a>
-            </p>
-    </div>
-    """,
+        <div style="display:flex; justify-content:left; margin-top:40px; margin-bottom:40px;">
+            <div style="
+                margin-top: 40px;
+                background-color: lightblue;
+                padding: 25px;
+                border-radius: 12px;
+                border: 1px solid #A0C4FF;
+                max-width: 600px;
+            ">
+                <h3 style="margin-bottom:5px;">PhD Flavio Lichtenstein</h3>
+                <p style="color:#A0A0A0;">
+                    Bioinformatics, Immunoinformatics, Biostatistics,<br>
+                    Systems Biology and Artificial Intelligence
+                </p>
+                <hr>
+                <p>📍 Sao Paulo, SP - Brazil</p>
+                <p>📞 (+55) 11 96560-1960</p>
+                <p>✉️ flalix@gmail.com</p>
+                <p>
+                    🔗 <a href="https://www.linkedin.com/in/flaviolichtenstein/"
+                    target="_blank"
+                    style="color:#0A66C2; text-decoration:none;">
+                    LinkedIn Profile</a>
+                </p>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -219,15 +225,11 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def show_df(
-    df, height: int = 600, page_size: int = 25, key: str = "grid", selectable: bool = False
-):
-    show_df_AgGrid(df, height=height, page_size=page_size, key=key, selectable=selectable)
+def show_df( df, height: int | None = None, page_size: int = 25, key: str = "grid", selectable: bool = False):
+    return show_df_AgGrid(df, height=height, page_size=page_size, key=key, selectable=selectable)
 
 
-def show_df_AgGrid(
-    df, height: int = 600, page_size: int = 25, key: str = "grid", selectable: bool = False
-):
+def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str = "grid", selectable: bool = False):
 
     if df is None or df.empty:
         st.info("Empty dataframe")
@@ -235,9 +237,17 @@ def show_df_AgGrid(
 
     df = make_aggrid_safe(df)
 
+    if height is None:
+        height = 400
+
     gb = GridOptionsBuilder.from_dataframe(df)
 
-    gb.configure_default_column(sortable=True, minWidth=150, filter=True, resizable=True)
+    gb.configure_default_column(
+        sortable=True,
+        minWidth=150,
+        filter=True,
+        resizable=True,
+    )
 
     gb.configure_pagination(
         enabled=True,
@@ -245,41 +255,70 @@ def show_df_AgGrid(
         paginationPageSize=page_size,
     )
 
+    gb.configure_grid_options(
+        pagination=True,
+        paginationPageSize=page_size,
+        suppressPaginationPanel=False,
+        domLayout="autoHeight",
+    )
+
     if selectable:
         gb.configure_selection(
             selection_mode="single",
             use_checkbox=True,
         )
-
     grid_options = gb.build()
-    grid_options["pagination"] = True
-    grid_options["paginationPageSize"] = page_size
 
-    if not isinstance(grid_options, dict):
-        raise TypeError(f"grid_options must be dict, got {type(grid_options)}")
+
+    custom_css = {
+        ".ag-root-wrapper": {
+            "border-bottom": "1px solid #ddd !important",
+        },
+        ".ag-paging-panel": {
+            "display": "flex !important",
+            "visibility": "visible !important",
+            "height": "45px !important",
+            "min-height": "45px !important",
+            "overflow": "visible !important",
+        },
+    }
 
     response = AgGrid(
         df,
         gridOptions=grid_options,
         height=height,
-        # fit_columns_on_grid_load=True, # nice UX, no horizontal scroll
-        allow_unsafe_jscode=False,  # safe (good default)
-        enable_enterprise_modules=False,  # lightweight
-        reload_data=False,  # avoids flicker / rerender
+        allow_unsafe_jscode=False,
+        enable_enterprise_modules=False,
+        reload_data=False,
         key=key,
-        update_mode=GridUpdateMode.SELECTION_CHANGED if selectable else GridUpdateMode.NO_UPDATE,
+        update_mode=(
+            GridUpdateMode.SELECTION_CHANGED
+            if selectable
+            else GridUpdateMode.NO_UPDATE
+        ),
+        theme="alpine",  # or "streamlit"
+        custom_css=custom_css,
     )
+
+    st.markdown("<div style='height:30px;'></div>", unsafe_allow_html=True)
 
     if selectable:
         selected = response.get("selected_rows", [])
-        if selected:
+
+        if isinstance(selected, list) and len(selected) > 0:
             return selected[0]
 
+        if isinstance(selected, pd.DataFrame) and not selected.empty:
+            return selected.iloc[0].to_dict()
 
-def show_selectable_df(df, height=600, key=None):
+        return None
+
+    return response
+
+def show_selectable_df(df, height=None, key=None):
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_selection(selection_mode="single", use_checkbox=True)
-    gb.configure_grid_options(domLayout="normal")
+    # gb.configure_grid_options(domLayout="normal")
 
     response = AgGrid(
         df,
@@ -570,10 +609,10 @@ if st.session_state.loaded:
 
     with col2:
         selected_primary_site = st.selectbox(
-            "",
+            "Primary site",
             options=primary_sites,
             index=0,
-            label_visibility="collapsed",  # removes empty label spacing
+            label_visibility="collapsed",
         )
     # -------------------------------------------------------------------------
     # FILTERED TABLES
@@ -627,6 +666,7 @@ if st.session_state.loaded:
     # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
     if not dfpiv.empty:
         st.write("dfpiv is empty.")
+    else:
         dfpiv = dfpiv.astype(int)
 
     df_gene_counts = summarize_mutations(df_all_mut)
@@ -662,7 +702,7 @@ if st.session_state.loaded:
             df_cases2 = df_cases
             st.write(f"Cases #{len(df_cases)}")
 
-        selected_row = show_df(df_cases2[cols], selectable=True, key="cases")
+        selected_row = show_df(df_cases2[cols], height=None, selectable=True, key="cases")
 
         if selected_row is not None:
             set_case_from_id(selected_row["case_id"])
@@ -707,7 +747,7 @@ if st.session_state.loaded:
                         df_all_samples2 = df_all_samples
                         st.write(f"Tumor samples #{len(df_all_samples)}")
 
-                    show_df(df_all_samples2, height=600, key=f"samples_{psi_id}")
+                    show_df(df_all_samples2, height=None, key=f"samples_{psi_id}")
                 else:
                     df_case_samples = df_all_samples[df_all_samples["case_id"] == selected_case_id].copy()
 
@@ -719,7 +759,7 @@ if st.session_state.loaded:
                         .reset_index(name="n")
                     )
 
-                    show_df(df_grouped, height=600, key=f"samples_{selected_primary_site}_samples_case",)
+                    show_df(df_grouped, height=None, key=f"samples_{selected_primary_site}_samples_case",)
 
             with tab_statistics:
                     df_grouped = (
@@ -730,7 +770,7 @@ if st.session_state.loaded:
                         .reset_index(name="n")
                     )
 
-                    show_df(df_grouped, height=600, key=f"samples_{selected_primary_site}_samples",)
+                    show_df(df_grouped, height=None, key=f"samples_{selected_primary_site}_samples",)
     # -------------------------------------------------------------------------
     # TAB 3 - MUTATIONS
     # -------------------------------------------------------------------------
@@ -758,7 +798,7 @@ if st.session_state.loaded:
 
         with tab_mut_genes:
             st.write("Number of patients/barcodes mutated per gene")
-            show_df(df_gene_counts, height=600, key=f"gene_counts_{psi_id}")
+            show_df(df_gene_counts, height=None, key=f"gene_counts_{psi_id}")
 
         with tab_mut_raw_data:
             if df_all_mut.empty:
@@ -787,7 +827,7 @@ if st.session_state.loaded:
                     "mutation_status",
                 ]
 
-                show_df(df_all_mut2[cols], height=600, key=f"mut_rows_{psi_id}")
+                show_df(df_all_mut2[cols], height=None, key=f"mut_rows_{psi_id}")
 
     # -------------------------------------------------------------------------
     # TAB 4 - MUTATION MATRIX
@@ -830,23 +870,22 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes = st.tabs(["DEGs", "Echo", "Bioptypes"])
+        tab_degs, tab_echo, tab_biotypes = st.tabs(["DEGs", "Echo", "Biotypes"])
 
         method = "deseq2"
         mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, LFC_FDR_cut=0.05, verbose=False)
 
         icase=0
         case = ctx.case_list[icase]
-        ret, _, _, _ = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
 
-        degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
-        ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
+        ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
 
         if dflfc.empty:
             st.write("No differentially expressed genes found.")
         else:
 
             with tab_degs:
+
                 lfc_cutoff = st.slider(
                     "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
                 )
@@ -858,17 +897,19 @@ if st.session_state.loaded:
                 mtd.LFC_cut = lfc_cutoff
                 mtd.lfc_FDR_cut = fdr_cutoff
 
-                degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
-                ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
+                degs, _, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
 
+                # ret_enr = mtd.open_enrichment_analysis(force=force, save_EP_xls=False, verbose=verbose)
 
-                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pvalue','fdr',]
+                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr',]
                 dflfc = dflfc[cols]
 
                 st.write(
                     f"There are {len(degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
                 )
-                show_df(dflfc, height=600, key=f"degs_{psi_id}")
+
+                grid_key = f"degs_{psi_id}_lfc_{lfc_cutoff}_fdr_{fdr_cutoff}"
+                show_df(dflfc, height=None, key=grid_key)
 
             with tab_echo:
                 stri = mtd.echo_parameters(want_echo_default=True, jump_line=True, echo=False)
@@ -881,7 +922,7 @@ if st.session_state.loaded:
 
                 show_df(
                     df_grouped,
-                    height=400,
+                    height=None,
                     key=f"biotypes_{selected_primary_site}",
                 )
 

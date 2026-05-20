@@ -124,3 +124,32 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
     background-color: #dc2626;
     box-shadow: 0 4px 10px rgba(220, 38, 38, 0.25);
 }
+
+/* AgGrid: force pagination footer to be visible */
+.ag-root-wrapper {
+    border-bottom: 1px solid #ddd !important;
+    overflow: visible !important;
+}
+
+.ag-paging-panel {
+    display: flex !important;
+    visibility: visible !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    overflow: visible !important;
+}
+
+/* Sometimes Streamlit/AgGrid clips the bottom */
+.ag-root {
+    overflow: visible !important;
+}
+
+.ag-body-viewport {
+    overflow-y: auto !important;
+}
+
+/* Give some visual breathing room below the grid */
+.ag-theme-alpine,
+.ag-theme-streamlit {
+    margin-bottom: 40px !important;
+}

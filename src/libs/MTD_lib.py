@@ -692,6 +692,10 @@ th {background-color: #f2f2f2; font-weight: bold;}
 			dflfc_ori = dflfc_ori.rename(columns={"gene_id": "ensembl_id"})
 			changed = True
 
+		if 'geneid' in dflfc_ori.columns:
+			dflfc_ori = dflfc_ori.rename(columns={"geneid": "ensembl_id"})
+			changed = True
+
 		if 'gene_type' in dflfc_ori.columns:
 			dflfc_ori = dflfc_ori.rename(columns={"gene_type": "biotype"})
 			changed = True
@@ -2235,7 +2239,6 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				continue
 
 			for LFC_cut, lfc_FDR_cut in cutoff_list:
-				# print("\t###", LFC_cut, lfc_FDR_cut)
 				_, _, _ = self.list_of_degs_set_params(LFC_cut, lfc_FDR_cut, force=force, save_file=save_file, verbose=verbose)
 
 				icount += 1
