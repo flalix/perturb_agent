@@ -1127,28 +1127,24 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		stri = ''
 		if want_echo_default:
 			stri += self.echo_default(echo=echo)
-			stri += '\n' 
 			if jump_line: stri += '\n'
 
 		stri += self.echo_degs_all(echo=echo)
-		stri += '\n'
-		
 		if jump_line: stri += '\n'
-
 		stri += self.echo_enriched_pathways(echo=echo)
 		return stri
 
 
 	def echo_default(self, echo:bool=False) -> str:
 		stri  = f"geneset lib '{self.geneset_lib}' num={self.geneset_num}\n"
-		stri += f"Normalization={self.normalization}; has age={self.has_age} and has gender={self.has_gender}"
+		stri += f"Normalization={self.normalization}; has age={self.has_age} and has gender={self.has_gender}\n"
 		if echo: print(stri)
 		return stri
 
 
 	def echo_degs(self, echo:bool=False) -> str:
 		stri  = f"For case {self.icase} '{self.case}' ('{self.translate_case(self.case)}'), there are {self.n_degs}/{self.n_degs_ensembl} {self.s_deg_dap}s/{self.s_deg_dap}s with ensembl_id\n"
-		stri += f"{self.s_deg_dap}'s cutoffs: abs(LFC)={self.LFC_cut:.3f}; FDR={self.lfc_FDR_cut:.3f}"
+		stri += f"{self.s_deg_dap}'s cutoffs: abs(LFC)={self.LFC_cut:.3f}; FDR={self.lfc_FDR_cut:.3f}\n"
 		if echo: print(stri)
 		return stri
 

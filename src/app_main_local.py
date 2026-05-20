@@ -413,6 +413,42 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, LFC_FDR_cut:flo
 
     return mtd
 
+def classify_biotype(b):
+    if b == "protein_coding":
+        return "protein_coding"
+    elif "pseudogene" in b:
+        return "pseudogene"
+    elif b == "lncRNA":
+        return "lncRNA"
+    elif b.startswith("IG_") or b.startswith("TR_"):
+        return "immune_receptor"
+    elif b in ["miRNA", "snRNA", "snoRNA", "scaRNA", "misc_RNA", "vault_RNA", "scRNA"]:
+        return "small_RNA"
+    elif b == "TEC":
+        return "TEC"
+    elif b.startswith("Mt_"):
+        return "mitochondrial_RNA"
+    else:
+        return "other"
+
+def group_biotypes(dflfc: pd.DataFrame) -> pd.DataFrame:
+
+    df_de = dflfc.copy()
+
+    df_de["biotype_class"] = df_de["biotype"].apply(classify_biotype)
+    df_de['direction'] = df_de['lfc'].apply(lambda x: "up" if x > 1 else ("down" if x < -1 else "neutral"))
+
+    df_grouped = (
+        df_de
+        .groupby(["direction", "biotype_class"])
+        .size()
+        .reset_index(name="n")
+        .sort_values(["direction", "n"], ascending=[False, False])
+    )
+
+    return df_grouped
+    
+
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
 # -----------------------------------------------------------------------------
@@ -806,52 +842,55 @@ if st.session_state.loaded:
         degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
         ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
 
-
         if dflfc.empty:
             st.write("No differentially expressed genes found.")
         else:
 
+            lfc_cutoff = st.slider(
+                "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
+            )
+
+            fdr_cutoff = st.slider(
+                "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
+            )
+
+            mtd.LFC_cut = lfc_cutoff
+            mtd.lfc_FDR_cut = fdr_cutoff
+
+            degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
+            ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
+
+
+            cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pvalue','fdr',]
+            dflfc = dflfc[cols]
+
             with tab_degs:
-
-                lfc_cutoff = st.slider(
-                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
-                )
-
-                fdr_cutoff = st.slider(
-                    "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
-                )
-
-                mtd.LFC_cut = lfc_cutoff
-                mtd.lfc_FDR_cut = fdr_cutoff
-
-                degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
-                ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
-
                 st.write(
                     f"There are {len(degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
                 )
                 show_df(dflfc, height=600, key=f"degs_{psi_id}")
 
             with tab_echo:
-                st.write(mtd.echo_parameters(want_echo_default=True))
+                stri = mtd.echo_parameters(want_echo_default=True, jump_line=True, echo=False)
+                stri = stri.replace('\n', '<br>').replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
+                st.markdown(stri, unsafe_allow_html=True)
 
             with tab_biotypes:
               
-                df_grouped = (
-                    dflfc.groupby(
-                        ['biotype'], dropna=False
-                    )
-                    .size()
-                    .reset_index(name="n")
-                )
-
-                df_grouped = df_grouped.sort_values("n", ascending=False)
+                df_grouped = group_biotypes(dflfc)
 
                 show_df(
                     df_grouped,
-                    height=700,
+                    height=400,
                     key=f"biotypes_{selected_primary_site}",
                 )
+
+
+                explain = "protein_coding, pseudogene, lncRNA, "
+                explain += "immune_receptor (IG_, TR_), small_RNA (miRNA, snRNA, snoRNA, scaRNA, misc_RNA, vault_RNA, scRNA), "
+                explain += "TEC (To be Experimentally Confirmed), mitochondrial_RNA, and other"
+
+                st.write(explain)
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
     # -------------------------------------------------------------------------
