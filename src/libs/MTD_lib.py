@@ -8827,7 +8827,6 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			df_lfc_all = pdreadcsv(fname_lfc_all, self.root_lfc, verbose=verbose)
 			return df_lfc, df_lfc_all
 
-
 		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
 		self.gdc = gdc
 
@@ -8846,6 +8845,10 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			method="deseq2",
 			verbose=verbose,
 		)
+
+		if df_lfc_all is None or df_lfc_all.empty:
+			print(f"Error: No data available for the specified {psi_id}.")
+			return pd.DataFrame(), pd.DataFrame()
 
 		df_lfc_all["abs_lfc"] = np.abs(df_lfc_all.lfc)
 

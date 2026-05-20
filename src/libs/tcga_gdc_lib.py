@@ -71,7 +71,7 @@ class GDC(object):
         self.df_gtex_pheno = pd.DataFrame()
         self.df_meta = pd.DataFrame()
   
-        # self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
+        # self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
         # GTEx control - per tissue
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
@@ -1282,7 +1282,7 @@ class GDC(object):
                 df_tumor, df_normal = self.prepare_normal_tumor_tables()
 
                 # get GTEx normal control tissue data
-                df_gtex_ctrl, _ = self.calc_gtex_control()
+                df_gtex_ctrl, _ = self.get_gtex_control()
 
 
             output: df_tumor, df_normal, df_gtex_ctrl
@@ -1301,7 +1301,7 @@ class GDC(object):
             dic_tumor, dic_normal, imax_tumor=12, imax_normal=12, verbose=verbose
         )
 
-        df_gtex_ctrl, _ = self.calc_gtex_control(Nsamples=15, force=False, verbose=verbose)
+        df_gtex_ctrl, _ = self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
 
         if "gene_id" in df_tumor.columns:
             df_tumor = df_tumor.rename(columns={"gene_id": "geneid"})
@@ -1358,7 +1358,7 @@ class GDC(object):
             return {}, {}
 
         print("Dowloading normal files:", end=" ")
-        cols = ["gene_id", "symbol", "gene_type", "counts"]
+        cols = ["geneid", "symbol", "biotype", "counts"]
 
         dic_normal = {}
         for i, row in dff_normal.iterrows():
@@ -1489,8 +1489,8 @@ class GDC(object):
 
         """
 
-        cols = ["gene_id", "symbol", "gene_type", "counts"]
-        common_cols = ["gene_id", "symbol", "gene_type"]
+        cols = ["geneid", "symbol", "biotype", "counts"]
+        common_cols = ["geneid", "symbol", "biotype"]
 
         # ----------- Normal tissue ----------------
         df_normal = pd.DataFrame()
@@ -2329,7 +2329,8 @@ class GDC(object):
 
         embedding = MDS(
             n_components=2,
-            dissimilarity="precomputed",
+            # dissimilarity="precomputed",
+            metric_mds=True,
             n_init=8,
             init="classical_mds",
             random_state=42,
@@ -2459,7 +2460,7 @@ class GDC(object):
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
 
-        plt.show()
+        if fig: plt.show()
         return fig, embedding, labels
 
     def plot_HDBSCAN(
@@ -2507,7 +2508,7 @@ class GDC(object):
             legend_handles.append(patch)
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
-        plt.show()
+        if fig: plt.show()
 
         return fig, embedding, labels, d
 
@@ -2700,8 +2701,8 @@ class GDC(object):
         n_list = []
         pairs = []
 
-        for label in lab_list:
-            idx = labels == label
+        for idx, label in enumerate(lab_list):
+            # idx = labels == label
             X = dfpiv[idx].to_numpy(dtype=bool)
 
             n_bardodes = len(X)
@@ -3149,7 +3150,8 @@ class GDC(object):
 
         # geneid, symbol, biotype, samples
         min_N_cols = 3 + 3
-        if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
+        # df_gtex_ctrl - has no biotype
+        if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < (min_N_cols-1):
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             if verbose:
                 print(msg)
@@ -3386,7 +3388,7 @@ class GDC(object):
 
         elif len(dfa) == 0:
             if verbose:
-                print("Not found")
+                print("GTEx metada was not found")
         else:
             print("Multiple matches found")
             for i, row in dfa.iterrows():
@@ -3559,9 +3561,11 @@ class GDC(object):
 
     def read_GTEx_counts(self, verbose: bool = False):
         # load matrix'1
-        print("Reading GTEx count table... be patient.")
-        df_gtex_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
-        self.df_gtex_counts = df_gtex_counts
+
+        if self.df_gtex_counts.empty:
+            print("Reading GTEx count table... be patient.")
+            df_gtex_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
+            self.df_gtex_counts = df_gtex_counts
 
         if self.df_gtex_pheno.empty:
             _ = self.read_GTEx_pheno(verbose=verbose)
@@ -3583,7 +3587,7 @@ class GDC(object):
         self.df_meta = df_meta
         return df_meta
 
-    def calc_gtex_control(
+    def get_gtex_control(
         self, Nsamples: int = 15, force: bool = False, verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -3598,7 +3602,7 @@ class GDC(object):
             return pd.DataFrame(), pd.DataFrame()
 
         # prepare metadata
-        df_meta_prep = self.prepare_gtex_df_control()
+        df_meta_prep = self.prepare_gtex_df_meta()
 
         # get all GTEx samples for self.psi_id
         df_gtex_ctrl = self.prepare_gtex_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
@@ -3608,15 +3612,33 @@ class GDC(object):
 
         return df_gtex_ctrl, df_meta_prep
 
-    def prepare_gtex_df_control(self) -> pd.DataFrame:
+    def prepare_gtex_df_meta(self) -> pd.DataFrame:
         """
         1. Filter for Tissue
         2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
           . DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
         3. Sort by RIN score (SMRIN) to get the best preserved RNA - Then take the top 15
 
+        Test:
+            gtex_id = 'Skin_Sun_Exposed_Lower_leg'
+            gtex_id = 'Muscle_Skeletal'
+            gtex_id = 'Colon_Transverse'
+            gtex_id = 'Brain'
+            gtex_id = 'Whole Blood'
+
+            print(gtex_id)
+            term = " - ".join(gtex_id.split('_')[:2])
+            print("term", term)
+            df_meta = mtd.gdc.df_meta
+
+            df2 = df_meta[df_meta["SMTSD"].str.startswith(term)]
+            print(len(df2))
+            df2
+
         output: df_meta_prep
         """
+
+        print("Preparing GTEx metadata...")
 
         if self.df_meta.empty:
             self.read_GTEx_metadata()
@@ -3634,10 +3656,21 @@ class GDC(object):
 
         # 1. Filter for Tissue
         # df_meta_prep is df_meta filtered by gtex_id
-        gtex_id = self.gtex_id.replace('_', ' ')
-        df_meta_prep = self.df_meta[self.df_meta["SMTS"] == gtex_id].copy()
+        # 'Colon_Transverse' --> 'Colon - Transverse'
+        term = " - ".join(self.gtex_id.split('_')[:2])
+        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)]
+        self.df_meta_prep = df_meta_prep
 
-        df_meta_prep["SUBJID"] = df_meta_prep["SAMPID"].str.split("-").str[:2].str.join("-")
+        if df_meta_prep.empty:
+            print(f"Error: could not find metadata for gtex_id '{self.gtex_id}' to term ''")
+            return pd.DataFrame()
+
+        if len(df_meta_prep) < 3:
+            print(f"Warning: could not find enough metadata for gtex_id '{self.gtex_id}' to term '{term}'")
+
+
+        lista = df_meta_prep["SAMPID"].str.split("-").str[:2].str.join("-")
+        df_meta_prep.loc[:, "SUBJID"] = lista
         df_meta_prep = df_meta_prep.merge(self.df_gtex_pheno, on="SUBJID", how="left")
 
         # 2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
@@ -3650,6 +3683,7 @@ class GDC(object):
         df_meta_prep.reset_index(drop=True, inplace=True)
 
         self.df_meta_prep = df_meta_prep
+        print(f"GTEx metadata prepared on df_meta_prep length: {len(df_meta_prep)}")
 
         return df_meta_prep
 
@@ -3664,7 +3698,9 @@ class GDC(object):
         filename = self.root_gtex / fname
 
         if filename.exists() and not force:
-            return pdreadcsv(fname, self.root_gtex, verbose=verbose)
+            df_gtex_normal = pdreadcsv(fname, self.root_gtex, verbose=verbose)
+            self.df_gtex_normal = df_gtex_normal            
+            return df_gtex_normal
 
         if self.df_gtex_counts.empty:
             # Reading GTEx count super-file

@@ -846,25 +846,25 @@ if st.session_state.loaded:
             st.write("No differentially expressed genes found.")
         else:
 
-            lfc_cutoff = st.slider(
-                "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
-            )
-
-            fdr_cutoff = st.slider(
-                "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
-            )
-
-            mtd.LFC_cut = lfc_cutoff
-            mtd.lfc_FDR_cut = fdr_cutoff
-
-            degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
-            ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
-
-
-            cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pvalue','fdr',]
-            dflfc = dflfc[cols]
-
             with tab_degs:
+                lfc_cutoff = st.slider(
+                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
+                )
+
+                fdr_cutoff = st.slider(
+                    "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
+                )
+
+                mtd.LFC_cut = lfc_cutoff
+                mtd.lfc_FDR_cut = fdr_cutoff
+
+                degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
+                ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
+
+
+                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pvalue','fdr',]
+                dflfc = dflfc[cols]
+
                 st.write(
                     f"There are {len(degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
                 )
