@@ -8821,14 +8821,18 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 	
 
 	def import_from_GDC(self, prog_id:str = "TCGA", 
-					    force:bool = False, verbose:bool = False) -> pd.DataFrame:
+					    force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 		fname_lfc, _, _ = self.set_lfc_names()
-		filename = self.root_lfc / fname_lfc
+		fname_lfc_all = fname_lfc.replace('.tsv', '_all_transcripts.tsv')
 
-		if filename.exists() and not force:
-			df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
-			return df_lfc
+		filename = self.root_lfc / fname_lfc
+		filename_all = self.root_lfc / fname_lfc
+
+		if filename.exists() and filename_all.exists() and not force:
+			df_lfc     = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+			df_lfc_all = pdreadcsv(fname_lfc_all, self.root_lfc, verbose=verbose)
+			return df_lfc, df_lfc_all
 
 
 		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
@@ -8842,7 +8846,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		gdc.set_primary_site(psi_id=psi_id, verbose=False)
 
-		df_lfc, msg = gdc.calc_lfc_table(
+		df_lfc_all, msg = gdc.calc_lfc_table(
 			psi_id=psi_id,
 			root_src=self.root_src,
 			run_conda=True,
@@ -8850,10 +8854,10 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			verbose=verbose,
 		)
 
-		df_lfc["abs_lfc"] = np.abs(df_lfc.lfc)
+		df_lfc_all["abs_lfc"] = np.abs(df_lfc_all.lfc)
 
 		df_lfc = (
-			df_lfc
+			df_lfc_all
 			.dropna(subset=["symbol"])
 			.sort_values("abs_lfc", ascending=False)
 			.drop_duplicates(subset="symbol", keep="first")
@@ -8866,6 +8870,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			print(msg)
 
 		_ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc, verbose=verbose)
+		_ = pdwritecsv(df_lfc_all, fname_lfc_all, self.root_lfc, verbose=verbose)
 
-		return df_lfc
+		return df_lfc, df_lfc_all
 

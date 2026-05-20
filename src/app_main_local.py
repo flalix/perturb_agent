@@ -16,6 +16,7 @@
 
 
 import sys
+import os
 import yaml
 import numpy as np
 
@@ -49,9 +50,11 @@ print("ROOT_DATA:", ROOT_DATA)
 if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
+from libs.MTD_lib import MTD
 from libs.tcga_gdc_lib import GDC
-from libs.MTD_lib import *
-from libs.dashcyto_lib import DASH_CYTO
+# from libs.dashcyto_lib import DASH_CYTO
+# from libs.calc_degs_lib import CALC_DEGS
+from libs.config_lib import Config
 
 from project_context_MTD import load_project_context
 
@@ -66,26 +69,18 @@ except:
 
 from project_context_MTD import load_project_context
 
+PSI_ID = "TCGA-BRCA"
+disease = PSI_ID
+
 ctx = load_project_context(
     dic_yml=dic_yml,
-    PSI_ID="TCGA-BRCA",
+    PSI_ID=PSI_ID,
     i_project=0,
 )
+
 colors = ctx.colors
 
-gdc = GDC(ROOT_DATA0=ROOT_DATA, ROOT_SRC=ROOT_SRC)
-
-mtd = MTD(disease=ctx.disease, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
-          root0=ctx.root0, root0_data=ctx.root0_data,
-          case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
-          has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
-          std_filename=ctx.std_filename, std_filename_list=ctx.std_filename_list,
-          geneset_num=0, ptw_min_num_of_degs_cut=ctx.ptw_min_num_of_degs_cut,
-          tolerance_pPMI=ctx.tolerance_pPMI, s_pathw_enrichm_method=ctx.s_pathw_enrichm_method,
-          LFC_cut_inf=ctx.LFC_cut_inf, fdr_ptw_cutoff_list=ctx.fdr_ptw_cutoff_list,
-          num_of_genes_list=ctx.num_of_genes_list, lfc_list=ctx.lfc_list, fdr_list=ctx.fdr_list, 
-          min_lfc_modulation=ctx.min_lfc_modulation, type_sat_ptw_index=ctx.type_sat_ptw_index,
-          saturation_lfc_param=ctx.saturation_lfc_param, enr_db_list=ctx.enr_db_list, pPMI_normalized=ctx.pPMI_normalized)
+gdc = GDC(ROOT0=ROOT0, ROOT_DATA0=ROOT_DATA)
 
 verbose = False
 
@@ -397,6 +392,27 @@ def plot_hdbscan(
     return fig, embedding, labels
 
 
+def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, LFC_FDR_cut:float=0.05, verbose:bool=False):
+
+    cfg = Config(root0=ctx.root0, root_disease=root_disease, disease=disease, case_list=ctx.case_list)
+
+    mtd = MTD(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
+            root0=ctx.root0, root0_data=ctx.root0_data,
+            case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
+            has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
+            std_filename=ctx.std_filename, std_filename_list=ctx.std_filename_list,
+            geneset_num=0, ptw_min_num_of_degs_cut=ctx.ptw_min_num_of_degs_cut,
+            tolerance_pPMI=ctx.tolerance_pPMI, s_pathw_enrichm_method=ctx.s_pathw_enrichm_method,
+            LFC_cut_inf=ctx.LFC_cut_inf, fdr_ptw_cutoff_list=ctx.fdr_ptw_cutoff_list,
+            num_of_genes_list=ctx.num_of_genes_list, lfc_list=ctx.lfc_list, fdr_list=ctx.fdr_list, 
+            min_lfc_modulation=ctx.min_lfc_modulation, type_sat_ptw_index=ctx.type_sat_ptw_index,
+            saturation_lfc_param=ctx.saturation_lfc_param, enr_db_list=ctx.enr_db_list, pPMI_normalized=ctx.pPMI_normalized)
+
+
+    mtd.cfg.set_default_best_lfc_cutoff(mtd.normalization, LFC_cut=LFC_cut, LFC_FDR_cut=LFC_FDR_cut)
+
+    return mtd
+
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
 # -----------------------------------------------------------------------------
@@ -411,7 +427,7 @@ def load_primary_site_data(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
     df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(
-        psi_id=psi_id, sample_type_term="tumor", verbose=verbose
+        sample_type_term="tumor", verbose=verbose
     )
 
     return (
@@ -778,11 +794,20 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_biotypes = st.tabs(["DEGs", "Bioptypes"])
+        tab_degs, tab_echo, tab_biotypes = st.tabs(["DEGs", "Echo", "Bioptypes"])
 
-        df_lfc = gdc.get_df_lfc(verbose=False)
+        method = "deseq2"
+        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, LFC_FDR_cut=0.05, verbose=False)
 
-        if df_lfc.empty:
+        icase=0
+        case = ctx.case_list[icase]
+        ret, _, _, _ = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
+
+        degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
+        ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
+
+
+        if dflfc.empty:
             st.write("No differentially expressed genes found.")
         else:
 
@@ -796,22 +821,25 @@ if st.session_state.loaded:
                     "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
                 )
 
-                method = "deseq2"
-                
-                df_degs = df_lfc[ (df_lfc.abs_lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff) ]
+                mtd.LFC_cut = lfc_cutoff
+                mtd.lfc_FDR_cut = fdr_cutoff
+
+                degs, degs_ensembl, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=False)
+                ret_enr = mtd.open_enrichment_analysis(force=False, save_EP_xls=False, verbose=False)
 
                 st.write(
-                    f"There are {len(df_degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
+                    f"There are {len(degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
                 )
-                show_df(df_degs, height=600, key=f"degs_{psi_id}")
+                show_df(dflfc, height=600, key=f"degs_{psi_id}")
+
+            with tab_echo:
+                st.write(mtd.echo_parameters())
 
             with tab_biotypes:
-
-                col = 'gene_type' if 'gene_type' in df_lfc.columns else 'biotype'
-                
+              
                 df_grouped = (
-                    df_lfc.groupby(
-                        [col], dropna=False
+                    dflfc.groupby(
+                        ['biotype'], dropna=False
                     )
                     .size()
                     .reset_index(name="n")
