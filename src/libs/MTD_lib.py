@@ -1123,71 +1123,68 @@ th {background-color: #f2f2f2; font-weight: bold;}
 
 		self.set_db(self.geneset_num, verbose=verbose)
 
-	def echo_parameters(self, want_echo_default:bool=False, jump_line:bool=True):
+	def echo_parameters(self, want_echo_default:bool=False, jump_line:bool=True, echo:bool=False):
+		stri = ''
 		if want_echo_default:
-			self.echo_default()
-			if jump_line: print("")
+			stri += self.echo_default(echo=echo)
+			stri += '\n' 
+			if jump_line: stri += '\n'
 
-		self.echo_degs_all()
-		if jump_line: print("")
+		stri += self.echo_degs_all(echo=echo)
+		stri += '\n'
+		
+		if jump_line: stri += '\n'
 
-		self.echo_enriched_pathways()
-
-
-	def echo_default(self):
-		print(f"geneset lib '{self.geneset_lib}' num={self.geneset_num}")
-		print(f"Normalization={self.normalization}; has age={self.has_age} and has gender={self.has_gender}")
+		stri += self.echo_enriched_pathways(echo=echo)
+		return stri
 
 
-	def echo_degs(self):
-		print(f"For case {self.icase} '{self.case}' ('{self.translate_case(self.case)}'), there are {self.n_degs}/{self.n_degs_ensembl} {self.s_deg_dap}s/{self.s_deg_dap}s with ensembl_id")
-		print(f"{self.s_deg_dap}'s cutoffs: abs(LFC)={self.LFC_cut:.3f}; FDR={self.lfc_FDR_cut:.3f}")
+	def echo_default(self, echo:bool=False) -> str:
+		stri  = f"geneset lib '{self.geneset_lib}' num={self.geneset_num}\n"
+		stri += f"Normalization={self.normalization}; has age={self.has_age} and has gender={self.has_gender}"
+		if echo: print(stri)
+		return stri
 
-	def echo_degs_all(self):
+
+	def echo_degs(self, echo:bool=False) -> str:
+		stri  = f"For case {self.icase} '{self.case}' ('{self.translate_case(self.case)}'), there are {self.n_degs}/{self.n_degs_ensembl} {self.s_deg_dap}s/{self.s_deg_dap}s with ensembl_id\n"
+		stri += f"{self.s_deg_dap}'s cutoffs: abs(LFC)={self.LFC_cut:.3f}; FDR={self.lfc_FDR_cut:.3f}"
+		if echo: print(stri)
+		return stri
+
+	def echo_degs_all(self, echo:bool=False) -> str:
 		self.echo_degs()
 
-		#if self.n_degs > 100:
-		print(f"\t{self.n_degs}/{self.n_degs_ensembl} {self.s_deg_dap}s/ensembl.")
-		# else:
-		# print(f"\t{self.n_degs} {self.s_deg_dap}s: {', '.join(self.degs)}")
+		stri  = f"\t{self.n_degs}/{self.n_degs_ensembl} {self.s_deg_dap}s/ensembl.\n"
+		stri += f"\t\tUp {self.n_degs_up}/{self.n_degs_up_ensembl} {self.s_deg_dap}s/ensembl.\n"
+		stri += f"\t\tDw {self.n_degs_dw}/{self.n_degs_dw_ensembl} {self.s_deg_dap}s/ensembl.\n"
+		if echo: print(stri)
+		return stri
 
-		print(f"\t\tUp {self.n_degs_up}/{self.n_degs_up_ensembl} {self.s_deg_dap}s/ensembl.")
-		print(f"\t\tDw {self.n_degs_dw}/{self.n_degs_dw_ensembl} {self.s_deg_dap}s/ensembl.")
+	def echo_enriched_pathways(self, echo:bool=False) -> str:
 
-		'''
-		if self.n_degs_up > 100:
-			print(f"\t\tUp {self.n_degs_up} {self.s_deg_dap}s: '{', '.join(self.degs_up[:100])}...'")
-		else:
-			print(f"\t\tUp {self.n_degs_up} {self.s_deg_dap}s: '{', '.join(self.degs_up)}'")
-
-		if self.n_degs_dw > 100:
-			print(f"\t\tDw {self.n_degs_dw} {self.s_deg_dap}s: '{', '.join(self.degs_dw[:100])}...'")
-		else:
-			print(f"\t\tDw {self.n_degs_dw} {self.s_deg_dap}s: '{', '.join(self.degs_dw)}'")
-		'''
-
-	def echo_enriched_pathways(self):
-
-		print(f"Found {self.n_pathways} (best={self.n_pathways_best}) pathways for geneset num={self.geneset_num} '{self.geneset_lib}'")
-		print(f"Pathway cutoffs p-value={self.ptw_pval_cut:.3f} fdr={self.ptw_FDR_cut:.3f} min genes={self.ptw_min_num_of_degs_cut}")
+		stri  = f"Found {self.n_pathways} (best={self.n_pathways_best}) pathways for geneset num={self.geneset_num} '{self.geneset_lib}'\n"
+		stri += f"Pathway cutoffs p-value={self.ptw_pval_cut:.3f} fdr={self.ptw_FDR_cut:.3f} min genes={self.ptw_min_num_of_degs_cut}"
 
 		if self.df_enr is not None and not self.df_enr.empty:
-			print(f"{self.s_deg_dap}s found in enriched pathways:")
-			print(f"\tThere are {self.n_degs_ensembl} {self.s_deg_dap}s found in pathways")
-			print(f"\t{self.n_degs_in_pathways} (best={self.n_degs_in_pathways_best}) {self.s_deg_dap}s in pathways and {self.n_degs_not_in_pathways}/{self.n_degs_ensembl_not_in_pathways} {self.s_deg_dap}s/ensembl not in pathways")
-			print("")
+			stri += f"{self.s_deg_dap}s found in enriched pathways:\n"
+			stri += f"\tThere are {self.n_degs_ensembl} {self.s_deg_dap}s found in pathways\n"
+			stri += f"\t{self.n_degs_in_pathways} (best={self.n_degs_in_pathways_best}) {self.s_deg_dap}s in pathways and {self.n_degs_not_in_pathways}/{self.n_degs_ensembl_not_in_pathways} {self.s_deg_dap}s/ensembl not in pathways\n"
+			stri += "\n"
 
-			# : {', '.join(self.degs_up_ensembl_in_pathways)}
-			print(f"\t{self.n_degs_up_ensembl_in_pathways} {self.s_deg_dap}s ensembl Up in pathways")
-			print(f"\t{self.n_degs_up_ensembl_not_in_pathways} {self.s_deg_dap}s Up ensembl not in pathways")
+			stri += f"\t{self.n_degs_up_ensembl_in_pathways} {self.s_deg_dap}s ensembl Up in pathways\n"
+			stri += f"\t{self.n_degs_up_ensembl_not_in_pathways} {self.s_deg_dap}s Up ensembl not in pathways\n"
 
-			print("")
+			stri += "\n"
 
-			print(f"\t{self.n_degs_dw_ensembl_in_pathways} {self.s_deg_dap}s ensembl Dw in pathways")
-			print(f"\t{self.n_degs_dw_ensembl_not_in_pathways} {self.s_deg_dap}s Dw ensembl not in pathways")
+			stri += f"\t{self.n_degs_dw_ensembl_in_pathways} {self.s_deg_dap}s ensembl Dw in pathways\n"
+			stri += f"\t{self.n_degs_dw_ensembl_not_in_pathways} {self.s_deg_dap}s Dw ensembl not in pathways"
 
 		else:
-			print("No enrichment analysis was calculated.")
+			stri += "No enrichment analysis was calculated."
+
+		if echo: print(stri)
+		return stri
 
 
 	def summary_degs_and_pathways(self, check:bool=False, force:bool=False, verbose:bool=False) -> pd.DataFrame:

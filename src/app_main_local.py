@@ -833,7 +833,7 @@ if st.session_state.loaded:
                 show_df(dflfc, height=600, key=f"degs_{psi_id}")
 
             with tab_echo:
-                st.write(mtd.echo_parameters())
+                st.write(mtd.echo_parameters(want_echo_default=True))
 
             with tab_biotypes:
               
