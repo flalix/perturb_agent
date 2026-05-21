@@ -2340,7 +2340,7 @@ class GDC(object):
         embedding = MDS(
             n_components=2,
             # dissimilarity="precomputed",
-            metric_mds=True,
+            metric='precomputed',
             n_init=8,
             init="classical_mds",
             random_state=42,
@@ -2470,7 +2470,6 @@ class GDC(object):
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
 
-        if fig: plt.show()
         return fig, embedding, labels
 
     def plot_HDBSCAN(
@@ -2518,7 +2517,6 @@ class GDC(object):
             legend_handles.append(patch)
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
-        if fig: plt.show()
 
         return fig, embedding, labels, d
 

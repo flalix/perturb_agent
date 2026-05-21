@@ -330,7 +330,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         height=height,
         allow_unsafe_jscode=True,   # important for valueFormatter strings
         enable_enterprise_modules=False,
-        reload_data=False,
+        reload_data=True,
         key=key,
         update_mode=(
             GridUpdateMode.SELECTION_CHANGED
