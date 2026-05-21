@@ -24,7 +24,7 @@ class ProjectContext:
 
     # plotting
     colors: list
-
+    nc_biotype_list: list
 
 def load_project_context() -> ProjectContext:
     """
@@ -177,27 +177,17 @@ def load_project_context() -> ProjectContext:
         },
     }
 
-    colors = [
-        "red",
-        "green",
-        "blue",
-        "orange",
-        "pink",
-        "purple",
-        "black",
-        "cyan",
-        "tomato",
-        "lime",
-        "magenta",
-        "yellow",
-        "gray",
-        "brown",
-        "olive",
-        "navy",
-        "teal",
-        "maroon",
-        "silver",
-    ]
+    colors = ["red", "green", "blue", "orange", "pink", "purple", "black", "cyan", "tomato", "lime", 
+              "magenta", "yellow", "gray", "brown", "olive", "navy", "teal", "maroon", "silver",]
+
+    nc_biotype_list = ['lncRNA', 'transcribed_unitary_pseudogene',
+                        'unprocessed_pseudogene', 
+                        'transcribed_unprocessed_pseudogene', 'processed_pseudogene',
+                        'snoRNA', 'miRNA',
+                        'polymorphic_pseudogene', 'transcribed_processed_pseudogene',
+                        'snRNA', 'misc_RNA', 'IG_V_pseudogene',
+                        'unitary_pseudogene', 'rRNA_pseudogene',
+                        'translated_unprocessed_pseudogene']
 
     return ProjectContext(
         SUBTYPE_GENES=SUBTYPE_GENES,
@@ -207,4 +197,5 @@ def load_project_context() -> ProjectContext:
         HISTOLOGY=HISTOLOGY,
         SITE_MAP=SITE_MAP,
         colors=colors,
+        nc_biotype_list=nc_biotype_list,
     )

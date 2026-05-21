@@ -28,7 +28,7 @@ setattr(pd.Series, "iteritems", pd.Series.items)
 setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
 
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 from pathlib import Path
 from typing import Tuple
@@ -220,7 +220,6 @@ def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
                 else x
             )
         )
-        out[col] = out[col].astype(object)
 
     return out
 
@@ -237,6 +236,15 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
 
     df = make_aggrid_safe(df)
 
+    for col in df.columns:
+        converted = pd.to_numeric(df[col], errors="coerce")
+
+        # Only replace if conversion produced at least some real numbers
+        if converted.notna().sum() > 0 and converted.notna().sum() >= df[col].notna().sum() * 0.8:
+            df[col] = converted
+
+    float_cols = df.select_dtypes(include="number").columns
+
     if height is None:
         height = 400
 
@@ -248,6 +256,39 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         filter=True,
         resizable=True,
     )
+
+    pval_keywords = ["pvalue", "p_value", "pval", "p_val", "padj", "fdr", "qvalue", "q_value"]
+
+    float_cols = df.select_dtypes(include=["float", "float64", "float32"]).columns
+
+    pval_formatter = JsCode("""
+    function(params) {
+        if (params.value === null || params.value === undefined || isNaN(params.value)) {
+            return "";
+        }
+        return Number(params.value).toExponential(2);
+    }
+    """)
+
+    float_formatter = JsCode("""
+    function(params) {
+        if (params.value === null || params.value === undefined || isNaN(params.value)) {
+            return "";
+        }
+        return Number(params.value).toFixed(3);
+    }
+    """)
+
+    for col in float_cols:
+        col_l = col.lower()
+        is_pval_col = any(k in col_l for k in pval_keywords)
+
+        gb.configure_column(
+            col,
+            type=["numericColumn"],
+            valueFormatter=pval_formatter if is_pval_col else float_formatter,
+        )
+
 
     gb.configure_pagination(
         enabled=True,
@@ -267,8 +308,8 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
             selection_mode="single",
             use_checkbox=True,
         )
+    
     grid_options = gb.build()
-
 
     custom_css = {
         ".ag-root-wrapper": {
@@ -287,7 +328,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         df,
         gridOptions=grid_options,
         height=height,
-        allow_unsafe_jscode=False,
+        allow_unsafe_jscode=True,   # important for valueFormatter strings
         enable_enterprise_modules=False,
         reload_data=False,
         key=key,
@@ -431,7 +472,7 @@ def plot_hdbscan(
     return fig, embedding, labels
 
 
-def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, LFC_FDR_cut:float=0.05, verbose:bool=False):
+def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:float=0.05, verbose:bool=False):
 
     cfg = Config(root0=ctx.root0, root_disease=root_disease, disease=disease, case_list=ctx.case_list)
 
@@ -448,7 +489,7 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, LFC_FDR_cut:flo
             saturation_lfc_param=ctx.saturation_lfc_param, enr_db_list=ctx.enr_db_list, pPMI_normalized=ctx.pPMI_normalized)
 
 
-    mtd.cfg.set_default_best_lfc_cutoff(mtd.normalization, LFC_cut=LFC_cut, LFC_FDR_cut=LFC_FDR_cut)
+    mtd.cfg.set_default_best_lfc_cutoff(mtd.normalization, LFC_cut=LFC_cut, lfc_FDR_cut=lfc_FDR_cut)
 
     return mtd
 
@@ -870,10 +911,10 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes = st.tabs(["DEGs", "Echo", "Biotypes"])
+        tab_degs, tab_echo, tab_biotypes, tab_nonc = st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding"])
 
         method = "deseq2"
-        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, LFC_FDR_cut=0.05, verbose=False)
+        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
 
         icase=0
         case = ctx.case_list[icase]
@@ -887,7 +928,7 @@ if st.session_state.loaded:
             with tab_degs:
 
                 lfc_cutoff = st.slider(
-                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0
+                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0, key='lfc_cutoff'
                 )
 
                 fdr_cutoff = st.slider(
@@ -901,7 +942,7 @@ if st.session_state.loaded:
 
                 # ret_enr = mtd.open_enrichment_analysis(force=force, save_EP_xls=False, verbose=verbose)
 
-                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr',]
+                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 dflfc = dflfc[cols]
 
                 st.write(
@@ -932,6 +973,25 @@ if st.session_state.loaded:
                 explain += "TEC (To be Experimentally Confirmed), mitochondrial_RNA, and other"
 
                 st.write(explain)
+
+            with tab_nonc:
+
+                lfc_cutoff_nc = st.slider(
+                    "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0, key="lfc_cutoff_nc"
+                )
+
+                fdr_cutoff_nc = st.slider(
+                    "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05, key="fdr_cutoff_nc"
+                )
+
+                dfnc, msg = mtd.filter_non_coding(lfc_cut=lfc_cutoff_nc, fdr_cut=fdr_cutoff_nc, verbose=False, force=False)
+
+                st.write(msg)
+
+                cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
+                grid_key = f"non-coding_{psi_id}_lfc_{lfc_cutoff_nc}_fdr_{fdr_cutoff_nc}"
+                show_df(dfnc[cols], height=None, key=grid_key)
+
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS
     # -------------------------------------------------------------------------

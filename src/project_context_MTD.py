@@ -72,8 +72,7 @@ class ProjectContext:
     fdr_list: np.ndarray
 
     colors: list
-
-
+  
 
 def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int = 0) -> ProjectContext:
     
@@ -144,8 +143,7 @@ def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int
 
     colors = ["red", "green", "blue", "orange", "pink", "purple", "black", "cyan", "tomato", "lime", 
               "magenta", "yellow", "gray", "brown", "olive", "navy", "teal", "maroon", "silver",]
-
-
+    
     return ProjectContext(
         root0=root0,
         root0_data=root0_data,
@@ -205,4 +203,4 @@ def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int
         lfc_list=lfc_list,
         fdr_list=fdr_list,
         colors=colors,
-    )
+        )

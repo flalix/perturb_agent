@@ -57,7 +57,7 @@ GLOBAL_SUBTYPE=ctx.GLOBAL_SUBTYPE
 HISTOLOGY=ctx.HISTOLOGY
 SITE_MAP=ctx.SITE_MAP
 colors=ctx.colors
-
+nc_biotype_list = ctx.nc_biotype_list
 
 # print('recursionlimit', sys.getrecursionlimit())
 # sys.setrecursionlimit(20000)
@@ -165,6 +165,7 @@ class MTD(object):
 		self.fname_given_lfc_table0 = f"{self.disease}_ALL_LFC_%s_x_CTRL_%s.tsv"
 		# open(fname_final_lfc_ori) - corrected --> dflfc_ori
 		self.fname_final_lfc_table0 = f"{self.disease}_final_LFC_%s_x_CTRL_%s.tsv"
+		self.fname_nc = f'non_codings_for_%s.tsv'
 
 		# lfc columns for given lfc table
 		self.lfc_cols_default = ['ensembl_id', 'symbol', 'biotype', 'description', 'lfc', 'abs_lfc', 'pval', 'fdr']
@@ -6394,21 +6395,30 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			fig.add_trace(go.Bar(x=df2.cutoff, y=df2.n_degs_up, marker={'color':color_up}, name='Up',   showlegend=showlegend), row=row, col=col)
 			fig.add_trace(go.Bar(x=df2.cutoff, y=df2.n_degs_dw, marker={'color':color_dw}, name='Down', showlegend=showlegend), row=row, col=col)
 
-
+		fig.update_xaxes(title_text="LFC-FDR cutoffs", row=len(cases), col=col)
+		
 		yaxis_title = f"number of Up/Down {self.s_deg_dap}s"
 
-		fig.update_layout(title=title,
-						  width=width,
-						  height=height*len(cases),
-						  xaxis_title="",
-						  xaxis2_title="LFC-FDR cutoffs",
-						  yaxis_title=yaxis_title,
-						  yaxis2_title=yaxis_title,
-						  legend_title=f"{self.s_deg_dap}s regulation",
-						  legend=dict( orientation="h",  yanchor="top", y=y_anchor, xanchor="right", x=1),
-						  plot_bgcolor=plot_bgcolor,
-						  showlegend=True)
-
+		if len(cases) > 1:
+			fig.update_layout(title=title,
+							width=width,
+							height=height*len(cases),
+							yaxis_title=yaxis_title,
+							yaxis2_title=yaxis_title,
+							legend_title=f"{self.s_deg_dap}s regulation",
+							legend=dict( orientation="h",  yanchor="top", y=y_anchor, xanchor="right", x=1),
+							plot_bgcolor=plot_bgcolor,
+							showlegend=True)
+		else:
+			fig.update_layout(title=title,
+							width=width,
+							height=height*len(cases),
+							yaxis_title=yaxis_title,
+							legend_title=f"{self.s_deg_dap}s regulation",
+							legend=dict( orientation="h",  yanchor="top", y=y_anchor, xanchor="right", x=1),
+							plot_bgcolor=plot_bgcolor,
+							showlegend=False)
+			
 		figname = title_replace(title)
 		figname = osjoin(self.root_figure, figname+'.html')
 
@@ -8872,4 +8882,34 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		_ = pdwritecsv(df_lfc_all, fname_lfc_all, self.root_lfc, verbose=verbose)
 
 		return df_lfc, df_lfc_all
+
+
+
+	def filter_non_coding(self, lfc_cut:float=1.0, fdr_cut:float=0.05,
+					   force: bool = False,  verbose: bool = False) -> tuple[pd.DataFrame, str]:
+
+		fname = self.fname_nc%(self.disease)
+		filename = osjoin(self.root_nc, fname)
+
+		if exists(filename) and not force:
+			dflfc_noncod = pdreadcsv(fname, self.root_nc, verbose=verbose)
+		else:
+			dflfc_noncod = self.dflfc_ori[ self.dflfc_ori.biotype.isin(nc_biotype_list)].copy()
+			dflfc_noncod = dflfc_noncod.sort_values(["biotype", "symbol"])
+			dflfc_noncod.reset_index(drop=True, inplace=True)
+
+		_ = pdwritecsv(dflfc_noncod, fname, self.root_nc, verbose=verbose)
+
+		if lfc_cut is None or fdr_cut is None:
+			df2 = dflfc_noncod
+		else:
+			df2 = dflfc_noncod[ (dflfc_noncod.lfc.abs() >= lfc_cut) & (dflfc_noncod.fdr < fdr_cut) ]
+		
+		uniq_biotypes = np.unique(df2.biotype)
+		msg = f"len noncoding: {len(df2)}/{len(self.dflfc_ori)}, unique biotypes: {uniq_biotypes}"
+		if verbose: print(msg)
+
+		return df2, msg
+
+
 
