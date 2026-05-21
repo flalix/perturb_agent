@@ -51,7 +51,8 @@ print("ROOT_DATA:", ROOT_DATA)
 if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
-from libs.MTD_lib import MTD
+from libs.enricher_lib import enricheR
+# from libs.MTD_lib import MTD
 from libs.tcga_gdc_lib import GDC
 # from libs.dashcyto_lib import DASH_CYTO
 # from libs.calc_degs_lib import CALC_DEGS
@@ -476,7 +477,7 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:flo
 
     cfg = Config(root0=ctx.root0, root_disease=root_disease, disease=disease, case_list=ctx.case_list)
 
-    mtd = MTD(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
+    mtd = enricheR(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
             root0=ctx.root0, root0_data=ctx.root0_data,
             case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
             has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
@@ -528,6 +529,20 @@ def group_biotypes(dflfc: pd.DataFrame) -> pd.DataFrame:
 
     return df_grouped
     
+def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
+
+    _, _, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
+
+    df2 = dflfc[dflfc.biotype.isin(mtd.biotype_annot)]
+    df2 = df2.sort_values('fdr', ascending=True)
+    
+    degs_to_reactome = df2.symbol.to_list()[:mtd.MAX_GENES_ENRICHR_SAFE]
+
+    mtd.calc_EA_dataset_symbol(list(degs_to_reactome), calc_many_sig=False, default=False, force=force, verbose=verbose)
+    return mtd.df_enr0
+
+
+
 
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
@@ -665,6 +680,14 @@ if st.session_state.loaded:
             psi_id, verbose=False
         )
 
+        method = "deseq2"
+        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
+
+        icase=0
+        case = ctx.case_list[icase]
+
+        ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
+        
     # --------------------------------------------------
     # SESSION STATE (RIGHT HERE ✅)
     # --------------------------------------------------
@@ -911,15 +934,7 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes, tab_nonc = st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding"])
-
-        method = "deseq2"
-        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
-
-        icase=0
-        case = ctx.case_list[icase]
-
-        ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
+        tab_degs, tab_echo, tab_biotypes, tab_nonc, tab_enrich = st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Enrichment Analysis"])
 
         if dflfc.empty:
             st.write("No differentially expressed genes found.")
@@ -991,6 +1006,24 @@ if st.session_state.loaded:
                 cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 grid_key = f"non-coding_{psi_id}_lfc_{lfc_cutoff_nc}_fdr_{fdr_cutoff_nc}"
                 show_df(dfnc[cols], height=None, key=grid_key)
+
+
+            with tab_enrich:
+
+                fdr_ptw_cutoff = st.slider(
+                    "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05, key="fdr_ptw_cutoff"
+                )
+
+                min_genes = st.slider(
+                    "Minimum number of genes", min_value=1, max_value=20, value=3, key="min_genes"
+                )
+
+                df_enr0 = calc_enrichment_analysis(verbose=False, force=False)
+                df_enr = df_enr0[ (df_enr0.fdr < fdr_ptw_cutoff) & (df_enr0.num_of_genes >= min_genes) ]
+
+                grid_key = f"EA_{psi_id}_fdr_{fdr_ptw_cutoff}_min_genes_{min_genes}"
+                show_df(df_enr, height=None, key=grid_key)
+
 
     # -------------------------------------------------------------------------
     # TAB 5 - DOWNLOADS

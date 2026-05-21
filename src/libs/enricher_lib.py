@@ -85,6 +85,14 @@ class enricheR(MTD):
 		self.n_degs_in_pathways_bca, self.n_degs_not_in_pathways_bca = 0, 0
 		self.n_degs, self.n_degs_bca = 0, 0
 
+
+		self.MAX_GENES_ENRICHR_SAFE = 2000
+
+		self.biotype_annot = ['protein_coding','IG_C_gene', 'IG_D_gene', 'IG_J_gene',
+			'IG_V_gene', 'TR_C_gene', 'TR_D_gene', 'TR_J_gene', 'TR_V_gene',
+			'lncRNA', 'miRNA', 'misc_RNA', 'rRNA', 'tRNA', 'scaRNA', 'snRNA', 'snoRNA',]
+
+
 	def set_df_enr_ipath(self, ipath: int) -> Tuple[str, List]:
 		try:
 			pathway = self.df_enr.iloc[ipath].pathway
