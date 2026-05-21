@@ -1344,9 +1344,11 @@ class GDC(object):
 
         dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
         dff_normal.reset_index(drop=True, inplace=True)
+        self.dff_normal = dff_normal
 
         dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
         dff_tumor.reset_index(drop=True, inplace=True)
+        self.dff_tumor = dff_tumor
 
         if verbose:
             print(
@@ -1503,6 +1505,10 @@ class GDC(object):
 
             i += 1
             # print(i, end=' ')
+            if "gene_id" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_id": "geneid"})
+            if "gene_type" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
             dfa = dfa.rename(columns={"counts": f"normal_{i}"})
@@ -1530,6 +1536,10 @@ class GDC(object):
 
             i += 1
             # print(i, end=' ')
+            if "gene_id" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_id": "geneid"})
+            if "gene_type" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
             dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
@@ -3657,8 +3667,14 @@ class GDC(object):
         # 1. Filter for Tissue
         # df_meta_prep is df_meta filtered by gtex_id
         # 'Colon_Transverse' --> 'Colon - Transverse'
-        term = " - ".join(self.gtex_id.split('_')[:2])
-        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)]
+
+        if self.gtex_id == 'Adrenal_Gland' or self.gtex_id == 'Whole_Blood':
+            term = self.gtex_id.replace('_', ' ')
+        else:
+            term = " - ".join(self.gtex_id.split('_')[:2])
+        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)].copy()
+        df_meta_prep.reset_index(drop=True, inplace=True)
+
         self.df_meta_prep = df_meta_prep
 
         if df_meta_prep.empty:

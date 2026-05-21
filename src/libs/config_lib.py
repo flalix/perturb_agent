@@ -21,8 +21,7 @@ class Config(object):
 		self.root0 = root0
 		self.root_disease = root_disease
 		self.root_colab = create_dir(root0, 'colab')
-
-		self.root_config = create_dir(self.root_disease, 'config')
+		self.root_config = create_dir(root_disease, 'config')
 
 		self.case_list = case_list
 
@@ -34,7 +33,7 @@ class Config(object):
 		self.dfbest_cutoffs = pd.DataFrame()
 
 		self.LFC_cut = 1
-		self.LFC_FDR_cut = 0.05
+		self.lfc_FDR_cut = 0.05
 
 		self.n_degs = -1
 		self.n_degs_up = -1
@@ -54,11 +53,11 @@ class Config(object):
 		self.toi1 = -1
 		self.toi2 = -1
 
-		# row.LFC_cut, row.LFC_FDR_cut, row.n_degs,  row.n_degs_up,  row.n_degs_dw
+		# row.LFC_cut, row.lfc_FDR_cut, row.n_degs,  row.n_degs_up,  row.n_degs_dw
 		self.param_lfc_defaults = (1, 0.05, -1, -1, -1)
 
 		'''
-		return row.LFC_cut, row.LFC_FDR_cut, row.ptw_FDR_cut,  \
+		return row.LFC_cut, row.lfc_FDR_cut, row.ptw_FDR_cut,  \
 			   row.n_genes_annot_ptw, row.n_degs, row.n_degs_in_ptw, row.n_degs_not_in_ptw, row.degs_in_all_ratio, row.toi1, row.toi2
 		'''
 		self.param_ptw_defaults = (0.5, 0.9, 1, 0.05, 0.05, 0.05, 3, -1, -1, -1, -1, -1, -1, -1, -1)
@@ -69,14 +68,14 @@ class Config(object):
 		fname_ptw_cutoff = f'best_ptw_cutoffs_{self.disease}.tsv'
 		self.fname_ptw_cutoff = title_replace(fname_ptw_cutoff)
 
-	def set_default_best_lfc_cutoff(self, normalization:str, LFC_cut:float=1, LFC_FDR_cut:float=.05):
+	def set_default_best_lfc_cutoff(self, normalization:str, LFC_cut:float=1, lfc_FDR_cut:float=.05):
 
 		self.quantile = -1
 		self.normalization = normalization
 
 		self.LFC_cut = LFC_cut
-		self.LFC_FDR_cut = LFC_FDR_cut
-		self.cutoff = f"{LFC_cut:.3f} - {LFC_FDR_cut:.3f}"
+		self.lfc_FDR_cut = lfc_FDR_cut
+		self.cutoff = f"{LFC_cut:.3f} - {lfc_FDR_cut:.3f}"
 
 		self.n_degs = -1
 		self.n_degs_up = -1
@@ -84,8 +83,8 @@ class Config(object):
 
 
 	def open_all_lfc_cutoff(self, verbose=True) -> pd.DataFrame:
-		filename = os.path.join(self.root_config, self.fname_lfc_cutoff)
-		if not os.path.exists(filename):
+		filename = self.root_config / self.fname_lfc_cutoff
+		if not filename.exists():
 			if verbose: print(f"Best parameter file for LFC does not exist {filename}")
 			self.dfbest_lfc_cutoff = pd.DataFrame()
 			return pd.DataFrame()
@@ -96,12 +95,12 @@ class Config(object):
 		# fix - columns rename - remove in the future
 		if 'abs_lfc_cutoff' in cols:
 			cols = ['case', 'normalization', 'cutoff', 'LFC_cut',
-					'LFC_FDR_cut', 'degs', 'n_degs', 'degs_ensembl',
+					'lfc_FDR_cut', 'degs', 'n_degs', 'degs_ensembl',
 					'n_degs_ensembl', 'degs_up', 'n_degs_up', 'degs_up_ensembl',
 					'n_degs_up_ensembl', 'degs_dw', 'n_degs_dw', 'degs_dw_ensembl',
 					'n_degs_dw_ensembl']
 			dfbest_lfc_cutoff.columns = cols
-			pdwritecsv(dfbest_lfc_cutoff, self.fname_lfc_cutoff, self.root_config)
+			_ = pdwritecsv(dfbest_lfc_cutoff, self.fname_lfc_cutoff, self.root_config)
 
 		self.dfbest_lfc_cutoff = dfbest_lfc_cutoff
 
@@ -122,7 +121,7 @@ class Config(object):
 
 		dfbest_lfc_cutoff.reset_index(inplace=True, drop=True)
 
-		ret = pdwritecsv(dfbest_lfc_cutoff, self.fname_lfc_cutoff, self.root_config, verbose=verbose)
+		_ = pdwritecsv(dfbest_lfc_cutoff, self.fname_lfc_cutoff, self.root_config, verbose=verbose)
 		return ret
 
 	def get_best_lfc_cutoff(self, case:str, normalization:str, verbose:bool=False) -> Tuple[float, float, int, int, int]:
@@ -140,20 +139,20 @@ class Config(object):
 
 		row = dfa.iloc[0]
 
-		return row.LFC_cut, row.LFC_FDR_cut, row.n_degs,  row.n_degs_up,  row.n_degs_dw
+		return row.LFC_cut, row.lfc_FDR_cut, row.n_degs,  row.n_degs_up,  row.n_degs_dw
 
 
 	def set_default_best_ptw_cutoff(self, normalization:str, geneset_num:int=0, quantile:float=0.5,
-									LFC_cut:float=1, LFC_FDR_cut:float=.05, ptw_FDR_cut:float=0.05,
+									LFC_cut:float=1, lfc_FDR_cut:float=.05, ptw_FDR_cut:float=0.05,
 									n_genes_annot_ptw:int=0, n_degs:int=0, n_degs_in_ptw:int=0,  n_degs_not_in_ptw:int=0, degs_in_all_ratio:int=0):
 
 		self.normalization = normalization
 		self.geneset_num = geneset_num
 		self.quantile = quantile
 
-		self.cutoff = f"{LFC_cut:.3f} - {LFC_FDR_cut:.3f}"
+		self.cutoff = f"{LFC_cut:.3f} - {lfc_FDR_cut:.3f}"
 		self.LFC_cut = LFC_cut
-		self.LFC_FDR_cut = LFC_FDR_cut
+		self.lfc_FDR_cut = lfc_FDR_cut
 		self.ptw_FDR_cut = ptw_FDR_cut
 
 		self.n_genes_annot_ptw = n_genes_annot_ptw
@@ -234,7 +233,7 @@ class Config(object):
 		 return values:
 
 		 ['case', 'geneset_num', 'normalization', 'parameter', 'quantile',
-		  'quantile_val', 'LFC_cut', 'LFC_FDR_cut',
+		  'quantile_val', 'LFC_cut', 'lfc_FDR_cut',
 		 'ptw_pval_cut', 'ptw_FDR_cut', 'ptw_min_num_of_degs_cut',
 		 'n_pathways', 'n_degs_in_pathways', 'n_degs_in_pathways_mean', 'n_degs_in_pathways_median',
 		 'n_degs_in_pathways_std', 'toi1_median', 'toi2_median', 'toi3_median', 'toi4_median'],
@@ -242,19 +241,19 @@ class Config(object):
 		row = dfa.iloc[0]
 
 		if verbose:
-			print( 'quantile, LFC_cut, LFC_FDR_cut, ' +
+			print( 'quantile, LFC_cut, lfc_FDR_cut, ' +
 				   'ptw_pval_cut, ptw_FDR_cut, ptw_min_num_of_degs_cut,  ' +
 				   'n_pathways, n_degs_in_pathways, ' +
 				   'n_degs_in_pathways_mean, n_degs_in_pathways_median, n_degs_in_pathways_std, ' +
 				   'toi1_median, toi2_median, toi3_median, toi4_median')
 
-			print( row['quantile'], row.LFC_cut, row.LFC_FDR_cut, \
+			print( row['quantile'], row.LFC_cut, row.lfc_FDR_cut, \
 				   row.ptw_pval_cut, row.ptw_FDR_cut, row.ptw_min_num_of_degs_cut, \
 				   row.n_pathways, row.n_degs_in_pathways, \
 				   row.n_degs_in_pathways_mean, row.n_degs_in_pathways_median, row.n_degs_in_pathways_std, \
 				   row.toi1_median, row.toi2_median, row.toi3_median, row.toi4_median)
 
-		return row['quantile'], row.LFC_cut, row.LFC_FDR_cut, \
+		return row['quantile'], row.LFC_cut, row.lfc_FDR_cut, \
 			   row.ptw_pval_cut, row.ptw_FDR_cut, row.ptw_min_num_of_degs_cut, \
 			   row.n_pathways, row.n_degs_in_pathways, \
 			   row.n_degs_in_pathways_mean, row.n_degs_in_pathways_median, row.n_degs_in_pathways_std, \
@@ -280,7 +279,7 @@ class Config(object):
 
 		row = dfa.iloc[0]
 
-		return row['quantile'], row.LFC_cut, row.LFC_FDR_cut, \
+		return row['quantile'], row.LFC_cut, row.lfc_FDR_cut, \
 			   row.ptw_pval_cut, row.ptw_FDR_cut, row.ptw_min_num_of_degs_cut, \
 			   row.n_pathways, row.n_genes_in_pahtways, \
 			   row.n_degs_in_pathways_mean, row.n_degs_in_pathways_median, row.n_degs_in_pathways_std, \

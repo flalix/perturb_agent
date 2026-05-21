@@ -16,6 +16,7 @@ dependencies = [
     "tqdm>=4.66",
     "python-dotenv>=1.0",
     "fastcluster",
+    "kaleido", 
 
     # Clustering / VCF
     "umap-learn>=0.5,<0.6",

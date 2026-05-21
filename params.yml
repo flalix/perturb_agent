@@ -28,10 +28,10 @@ pval_pathway_cutoff: 0.05
 fdr_pathway_cutoff: .05
 num_of_genes_cutoff: 3
 
-case_list: ['Tumor', 'Control']
-s_len_case: 7
-case_sel_list: ['Tumor', 'Control']
-dic_case_list: {'Tumor': 'Tumor', 'Control': 'Control'}
+case_list: ['Tumor']
+s_len_case: 5
+case_sel_list: ['Tumor']
+dic_case_list: {'Tumor': 'Tumor'}
 
 std_filename: True
 std_filename_list: [ [] ]

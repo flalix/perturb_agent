@@ -34,7 +34,7 @@ from markdown_pdf import Section
 from markdown_pdf import MarkdownPdf
 
 
-from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt
+from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt, dumpdic, loaddic
 from libs.gene_lib import *
 from libs.config_lib import *
 from libs.stat_lib import *
