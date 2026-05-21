@@ -2,26 +2,20 @@
 #!python
 # -*- coding: utf-8 -*-
 
-import json, requests
-import io, time # sys, os
+import json
+import requests
+import io
+import time
+from pathlib import Path
 from os.path import join as osjoin
 from os.path import exists as exists
 import pandas as pd
-# import enforce
 import numpy as np
-# from numpy import pi, sin, cos
 from typing import Tuple, List # Optional, Iterable, Set, Any
 
-# import Bio.KEGG as kegg
 from Bio.KEGG import REST
-# from Bio.KEGG.REST import *
 from Bio.KEGG.KGML import KGML_parser
 
-# import plotly.graph_objects as go
-# import networkx as nx
-
-# import matplotlib as mpl
-# import matplotlib.colors as mpl_colors
 import matplotlib.pyplot as plt
 from matplotlib_venn import venn2
 
@@ -32,37 +26,35 @@ from multiprocessing import Pool, freeze_support
 
 from IPython.display import HTML
 
-from Basic import *
-from venn_lib import *
-from MTD_lib import *
-from stat_lib import *
-import gene_lib
+from libs.Basic import pdwritecsv, pdreadcsv, write_txt, read_txt, title_replace # create_dir
+from libs.venn_lib import get_venn_sections, defineClass
+from libs.MTD_lib import MTD
+from libs.stat_lib import chi2_or_fisher_exact_test
+from libs.gene_lib import Gene
 
 
 class enricheR(MTD):
-	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, root0:str,
-				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=None, 
-				 std_filename:str='', std_filename_list:List=[],
+	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, 
+			     root0:Path, root0_data:Path,
+				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=False, 
+				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
 				 tolerance_pPMI:float=.15, s_pathw_enrichm_method:str='enricher',
-				 root_colab:str='../../colaboracoes/', root_chibe:str="../../chibe/",
 				 LFC_cut_inf:float=0.40, fdr_ptw_cutoff_list:List=[],
-				 num_of_genes_list:List=[3], lfc_list:List=[], fdr_list:List=[],
-				 min_lfc_modulation:float=0.20, type_sat_ptw_index:str='linear_sat', 
-				 saturation_lfc_param:float=5, enr_db_list:List=[], pPMI_normalized:bool=False):
-
-
-		super().__init__(disease=disease, gene_protein=gene_protein, s_omics=s_omics, project=project, s_project=s_project, root0=root0,
-						 case_list=case_list, dic_case_list=dic_case_list, has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
-						 std_filename=std_filename, std_filename_list=std_filename_list,
-						 geneset_num=geneset_num, ptw_min_num_of_degs_cut=ptw_min_num_of_degs_cut,
-						 tolerance_pPMI=tolerance_pPMI, s_pathw_enrichm_method=s_pathw_enrichm_method,
-						 root_colab=root_colab, root_chibe=root_chibe, 
-						 LFC_cut_inf=LFC_cut_inf, fdr_ptw_cutoff_list=fdr_ptw_cutoff_list,
-						 num_of_genes_list=num_of_genes_list, lfc_list=lfc_list, fdr_list=fdr_list, 
-						 min_lfc_modulation=min_lfc_modulation, type_sat_ptw_index=type_sat_ptw_index, 
-						 saturation_lfc_param=saturation_lfc_param, enr_db_list=enr_db_list, pPMI_normalized=pPMI_normalized)
-		
+				 num_of_genes_list:List=[3], lfc_list = [], fdr_list = [],
+				 min_lfc_modulation:float=0.40, type_sat_ptw_index:str='linear_sat', 
+				 saturation_lfc_param:float=5., enr_db_list:List=[], pPMI_normalized:bool=False):
+			
+		super().__init__(disease=disease, gene_protein=gene_protein, s_omics=s_omics, project=project, s_project=s_project, root0=root0, root0_data=root0_data,
+				case_list=case_list, dic_case_list=dic_case_list, has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
+				std_filename=std_filename, std_filename_list=std_filename_list,
+				geneset_num=geneset_num, ptw_min_num_of_degs_cut=ptw_min_num_of_degs_cut,
+				tolerance_pPMI=tolerance_pPMI, s_pathw_enrichm_method=s_pathw_enrichm_method,
+				LFC_cut_inf=LFC_cut_inf, fdr_ptw_cutoff_list=fdr_ptw_cutoff_list,
+				num_of_genes_list=num_of_genes_list, lfc_list=lfc_list, fdr_list=fdr_list, 
+				min_lfc_modulation=min_lfc_modulation, type_sat_ptw_index=type_sat_ptw_index,
+				saturation_lfc_param=saturation_lfc_param, enr_db_list=enr_db_list, pPMI_normalized=pPMI_normalized)
+				
 
 		self.fname_new_proteomics = 'new_taubate_LFC_%s_x_%s_%s.tsv'
 
@@ -84,9 +76,8 @@ class enricheR(MTD):
 
 		self.dfkegg =  pd.DataFrame()
 
-		self.gene = gene_lib.Gene(root0, s_project, root_colab)
+		self.gene = Gene(root0=root0)
 		self.df_uniprot = pd.DataFrame()
-
 
 		self.degs_in_pathways_random, self.degs_not_in_pathways_random = [], []
 		self.n_degs_in_pathways_random, self.n_degs_not_in_pathways_random = 0, 0
@@ -252,23 +243,23 @@ class enricheR(MTD):
 		fname = 'taubate_%s_reactome_enrichment_results.csv'%(case)
 		fname_sig = fname.replace('.csv', '') + '_sig.tsv'
 
-		filefull = osjoin(self.root_enrichment, fname_sig)
+		filefull = osjoin(self.root_enrich, fname_sig)
 		if exists(filefull) and not force:
-			df_enr = pdreadcsv(fname_sig, self.root_enrichment, verbose=verbose)
+			df_enr = pdreadcsv(fname_sig, self.root_enrich, verbose=verbose)
 			self.df_enr = df_enr
 
 			dicgenes = {df_enr.iloc[i].pathway_id: df_enr.iloc[i].submitted_entities_found.split(';') for i in range(len(df_enr)) }
 			self.dicgenes = dicgenes
 			return df_enr
 
-		filefull = osjoin(self.root_enrichment, fname)
+		filefull = osjoin(self.root_enrich, fname)
 		if not exists(filefull):
 			print("Could not find: %s"%(filefull))
 			self.df_enr = pd.DataFrame()
 			self.dicgenes = {}
 			return pd.DataFrame()
 
-		df_enr = pdreadcsv(fname, self.root_enrichment, sep=',')
+		df_enr = pdreadcsv(fname, self.root_enrich, sep=',')
 
 		cols = ['pathway_id', 'pathway', 'found_entities', 'total_entities', 'interactors_found', 'interactors_total',
 			   'entities_ratio', 'ptw_pval_cut', 'ptw_FDR_cut', 'reactions_found', 'ractions_total', 'reactions_ratio', 'species_identifier',
@@ -278,7 +269,7 @@ class enricheR(MTD):
 		df_enr.columns = cols
 
 		df_enr = df_enr[df_enr.species_name == species]
-		df_enr = df_enr[ (df_enr.ptw_FDR_cut < self.ptw_FDR_cut) & (df_enr.num_of_genes >= self.num_of_genes_cutoff)]
+		df_enr = df_enr[ (df_enr.ptw_FDR_cut < self.ptw_FDR_cut) & (df_enr.num_of_genes >= self.ptw_min_num_of_degs_cut)]
 		df_enr = df_enr.sort_values('ptw_FDR_cut', ascending=True)
 		df_enr.reset_index(inplace=True, drop=True)
 
@@ -286,7 +277,7 @@ class enricheR(MTD):
 		cols.remove("species_name")
 		df_enr = df_enr[cols]
 
-		ret = pdwritecsv(df_enr, fname_sig, self.root_enrichment)
+		ret = pdwritecsv(df_enr, fname_sig, self.root_enrich)
 		self.df_enr = df_enr
 
 		dicgenes = {df_enr.iloc[i].pathway_id: df_enr.iloc[i].submitted_entities_found.split(';') for i in range(len(df_enr)) }
@@ -374,7 +365,7 @@ class enricheR(MTD):
 									  (df_fdr.method == method) ]
 
 					if df_fdr2.empty:
-						print(f"Could not find df_fdr for {case} fdr {fdr:.2f} and method={method}")
+						print(f"Could not find df_fdr for {case} lfc_FDR_cut {lfc_FDR_cut:.2f} and method={method}")
 						continue
 
 					if pd.isnull(df_fdr2.iloc[0]['corr']):
@@ -438,9 +429,9 @@ class enricheR(MTD):
 
 		df_enr = self.df_enr0[(self.df_enr0.fdr  < self.ptw_FDR_cut) &
 							  (self.df_enr0.pval < self.ptw_pval_cut) &
-							  (self.df_enr0.num_of_genes >= self.num_of_genes_cutoff)].copy()
+							  (self.df_enr0.num_of_genes >= self.ptw_min_num_of_degs_cut)].copy()
 
-		if verbose: print("<<<", self.ptw_FDR_cut, self.ptw_pval_cut, self.num_of_genes_cutoff, len(df_enr))
+		if verbose: print("<<<", self.ptw_FDR_cut, self.ptw_pval_cut, self.ptw_min_num_of_degs_cut, len(df_enr))
 
 		if df_enr.empty:
 			return
@@ -466,6 +457,7 @@ class enricheR(MTD):
 			print(f"Warning in calc_EA_dataset_symbol(): for {self.case} - LFC_cut={self.LFC_cut:.2f} and lfc_FDR_cut=={self.lfc_FDR_cut:.2f}, please send a deg_list with >= {self.ptw_min_num_of_degs_cut} {self.s_deg_dap}s")
 			return
 
+		deg_list = list(deg_list)
 		self.deg_list = deg_list
 		df_enr0 = self.calc_get_enriched_pathway(deg_list, return_value=True, force=force, verbose=verbose)
 		self.df_enr0 = df_enr0
@@ -493,19 +485,19 @@ class enricheR(MTD):
 		fname, _ = self.set_enrichment_name()  # fname_cutoff
 
 		if i_sim == -1:
-			root_enrichment = self.root_enrichment
-			filefull = osjoin(root_enrichment, fname)
+			root_enrich = self.root_enrich
+			filefull = osjoin(root_enrich, fname)
 
 			if exists(filefull) and not force:  #  and not calc_many_sig
 				if not return_value:
 					return pd.DataFrame()
 
-				return pdreadcsv(fname, self.root_enrichment)
+				return pdreadcsv(fname, self.root_enrich)
 		else:
 			#---------- is a simulation ------------------------
-			root_enrichment = self.root_enrich_random
+			root_enrich = self.root_enrich_random
 			fname = fname.replace(".tsv", f"_random_{i_sim}.tsv")
-			filefull = osjoin(root_enrichment, fname)
+			filefull = osjoin(root_enrich, fname)
 
 		shortId, userListId = self.open_session_upload_symbols(deg_list)
 
@@ -603,7 +595,7 @@ class enricheR(MTD):
 
 		df_enr = df_enr.sort_values(['fdr', 'num_of_genes'], ascending=[True, False])
 		df_enr.reset_index(inplace=True, drop=True)
-		_ = pdwritecsv(df_enr, fname, root_enrichment, verbose=verbose)
+		_ = pdwritecsv(df_enr, fname, self.root_enrich, verbose=verbose)
 
 		return df_enr
 
@@ -625,29 +617,29 @@ class enricheR(MTD):
 			self.num_of_genes_list = [3]
 
 		for ptw_FDR_cut in fdr_ptw_cutoff_list:
-			for num_of_genes_cutoff in self.num_of_genes_list:
+			for ptw_min_num_of_degs_cut in self.num_of_genes_list:
 
 				''' to get the correct fname_cutoff '''
-				self.set_pathway_cutoff_params(ptw_FDR_cut, ptw_pval_cut, num_of_genes_cutoff)
+				self.set_pathway_cutoff_params(ptw_FDR_cut, ptw_pval_cut, ptw_min_num_of_degs_cut)
 
 				_, fname_cutoff = self.set_enrichment_name() # fname
-				filefull = osjoin(self.root_enrichment, fname_cutoff)
+				filefull = osjoin(self.root_enrich, fname_cutoff)
 
 				if exists(filefull) and not force:
 					continue
 
 				df_enr = self.df_enr0[(self.df_enr0.fdr < ptw_FDR_cut) &
 									  (self.df_enr0.pval < ptw_pval_cut) &
-									  (self.df_enr0.num_of_genes >= num_of_genes_cutoff)].copy()
+									  (self.df_enr0.num_of_genes >= ptw_min_num_of_degs_cut)].copy()
 
 
 				if df_enr.empty:
 					if verbose: 
-						print("<<< Empty:", fname_cutoff, ptw_FDR_cut, ptw_pval_cut, num_of_genes_cutoff, len(df_enr))
+						print("<<< Empty:", fname_cutoff, ptw_FDR_cut, ptw_pval_cut, ptw_min_num_of_degs_cut, len(df_enr))
 					continue
 
 				df_enr.reset_index(inplace=True, drop=True)
-				_ = pdwritecsv(df_enr, fname_cutoff, self.root_enrichment, verbose=verbose)
+				_ = pdwritecsv(df_enr, fname_cutoff, self.root_enrich, verbose=verbose)
 
 
 	''' old: set_enriched_pathway_line '''
@@ -820,10 +812,10 @@ class enricheR(MTD):
 			return False
 
 		fname	 = "kgml_%s.xml"%(title_replace(self.pathway))
-		filefull  = osjoin(self.root_enrichment, fname)
+		filefull  = osjoin(self.root_enrich, fname)
 
 		if exists(filefull) and not force:
-			kgml = read_txt(fname, self.root_enrichment, verbose=verbose)
+			kgml = read_txt(fname, self.root_enrich, verbose=verbose)
 			kgml = "\n".join(kgml)
 
 			self.kgml = kgml
@@ -841,7 +833,7 @@ class enricheR(MTD):
 			ret = False
 
 
-		ret = write_txt(self.kgml, fname, self.root_enrichment, verbose=True)
+		ret = write_txt(self.kgml, fname, self.root_enrich, verbose=True)
 
 		return ret
 
@@ -1415,12 +1407,12 @@ class enricheR(MTD):
 
 		fig = plt.figure(figsize=(14,10))
 
-		v2 = venn2([set1, set2], set_labels = None, alpha=0.3)
+		v2 = venn2( (set1, set2), set_labels = None, alpha=0.3)
 
 		for i in range(len(mat)):
 			# v2.get_patch_by_id(index[i]).set_color(i)
 			v2.get_patch_by_id(index[i]).set_edgecolor('none')
-			v2.get_label_by_id(index[i]).set_text('%s\n%d'%( defineClass(index[i], names), vals[i]))
+			v2.get_label_by_id(index[i]).set_text('%s\n%d'%( defineClass(index[i], names), vals[i])) ### error???
 
 			label = v2.get_label_by_id(index[i])
 			label.set_fontsize(18)

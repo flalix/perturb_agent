@@ -485,7 +485,7 @@ class GDC(object):
 
             # tissue-specific subtype
             df["subtype_tissue"] = df.apply(
-                lambda r: self.map_tissue_subtype(r["subtype_global"], r["psi_id"]), axis=1
+                lambda r: self.map_tissue_subtype(r["subtype_global"]), axis=1
             )
 
             # consistency check
@@ -2790,7 +2790,8 @@ class GDC(object):
     def cluster_analysis(
         self,
         cluster_type: str,
-        primary_site: str,
+        psi_id: str,
+        sample_type_term: str,
         k: int = 5,
         Kmin: int = 2,
         Kmax: int = 10,
@@ -2809,9 +2810,10 @@ class GDC(object):
         pd.DataFrame,
         pd.DataFrame,
     ]:
+        
 
         dfw, dfh, dfstat, dfpiv, df_all_mut = self.entropy_analysis_for_primary_site(
-            cluster_type, primary_site, Kmin, Kmax, min_barcodes, min_genes, verbose
+            cluster_type, psi_id, sample_type_term, Kmin, Kmax, min_barcodes, min_genes, verbose
         )
 
         dfempty = pd.DataFrame()
@@ -3112,7 +3114,7 @@ class GDC(object):
         if filename.exists():
             df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
         else:
-            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id}")
+            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id_list[0]} to {sample_id_list[-1]}")
             df_vcf = pd.DataFrame()
 
         self.df_vcf = df_vcf
@@ -3335,24 +3337,6 @@ class GDC(object):
         _ = write_txt(msg, fname_sample_txt, self.root_lfc)
 
         return df_degs, df_lfc, degs_txt, msg
-
-
-    def get_df_lfc(self, verbose: bool = False) -> pd.DataFrame:
-
-
-        disease = self.psi_id
-
-        mtd = MTD(disease=disease, gene_protein=gene_protein, s_omics=s_omics, project=project, s_project=s_project, root0=root0, root0_data=root0_data,
-                case_list=case_list, dic_case_list=dic_case_list, has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
-                std_filename=std_filename, std_filename_list=std_filename_list,
-                geneset_num=0, ptw_min_num_of_degs_cut=ptw_min_num_of_degs_cut,
-                tolerance_pPMI=tolerance_pPMI, s_pathw_enrichm_method=s_pathw_enrichm_method,
-                LFC_cut_inf=LFC_cut_inf, fdr_ptw_cutoff_list=fdr_ptw_cutoff_list,
-                num_of_genes_list=num_of_genes_list, lfc_list=lfc_list, fdr_list=fdr_list, 
-                min_lfc_modulation=min_lfc_modulation, type_sat_ptw_index=type_sat_ptw_index,
-                saturation_lfc_param=saturation_lfc_param, enr_db_list=enr_db_list, pPMI_normalized=pPMI_normalized)
-
-        return df_lfc
 
 
     def read_GTEx_to_TCGA_table(self, verbose: bool = False) -> pd.DataFrame:
@@ -3581,7 +3565,7 @@ class GDC(object):
         if self.df_meta.empty:
             _ = self.read_GTEx_metadata(verbose=verbose)
 
-        return df_gtex_counts
+        return self.df_gtex_counts
 
     def read_GTEx_pheno(self, verbose: bool = False):
         # load phenotype

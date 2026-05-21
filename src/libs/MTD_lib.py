@@ -289,6 +289,8 @@ class MTD(object):
 		self.root_kegg		= create_dir(self.root_colab, 'kegg')
 		self.root_refseq	= create_dir(self.root_colab, 'refseq')
 		self.root_hgnc		= create_dir(self.root_colab, 'hgnc')
+		self.root_owl      = create_dir(self.root_colab, 'owl')
+		self.root_reactome = create_dir(self.root_colab, 'reactome')
 
 		''' ---- Affymetrix ---'''
 		self.fname_affy = 'Human_Agilent_WholeGenome_4x44k_v2_MSigDB_v71.tsv'
@@ -302,9 +304,6 @@ class MTD(object):
 		self.kegg_fname	= 'kegg_pathways.tsv'
 		self.fname_kegg_pathways  = 'kegg_pathways.tsv'
 		self.fname_kegg_gene_comp = 'kegg_gene_compound.tsv'
-
-		self.root_owl= create_dir(self.root0_data, 'owl')
-		self.root_reactome = create_dir(self.root0_data, 'reactome')
 
 		self.pathway_id, self.pathway = 'DUMMY', 'DUMMY'
 
@@ -1527,6 +1526,8 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		self.split_case(case)
 		
 		if prompt_verbose: print(">>> case", case)
+		#--- get the cutoff params and more: 
+		#---       self.LFC_cut, self.lfc_FDR_cut, self.ptw_pval_cut, self.ptw_FDR_cut, self.ptw_min_num_of_degs_cut
 		self.get_best_ptw_cutoff()
 
 		ret_lfc = self.open_dflfc_ori(verbose=verbose)
