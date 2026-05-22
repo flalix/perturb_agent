@@ -1044,6 +1044,9 @@ class DASH_CYTO(object):
                                     autoungrabify=False,
                                     autounselectify=False,
                                     stylesheet=make_stylesheet(initial_font_size),
+                                    zoom=1.0,
+                                    minZoom=0.2,
+                                    maxZoom=3.0,
                                     style={
                                         "width": "100%",
                                         "height": "80vh",
@@ -1068,6 +1071,7 @@ class DASH_CYTO(object):
                                 html.Div(id="node-info", className="node-info-box"),
 
                                 dcc.Store(id="cyto-font-size-store", data=initial_font_size),
+                                dcc.Store(id="cyto-zoom-store", data=1.0),
 
                                 html.Div(
                                     [
@@ -1131,6 +1135,43 @@ class DASH_CYTO(object):
                                         "alignItems": "center",
                                         "justifyContent": "flex-start",
                                         "gap": "0px",
+                                        "marginTop": "10px",
+                                        "marginBottom": "12px",
+                                        "padding": "8px",
+                                        "border": "1px solid #ddd",
+                                        "borderRadius": "10px",
+                                        "backgroundColor": "#fafafa",
+                                    },
+                                ),
+
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Zoom",
+                                            style={
+                                                "fontWeight": "600",
+                                                "fontSize": "13px",
+                                                "marginRight": "8px",
+                                                "whiteSpace": "nowrap",
+                                            },
+                                        ),
+
+                                        dcc.Slider(
+                                            id="cyto-zoom-slider",
+                                            min=0.2,
+                                            max=3.0,
+                                            step=0.1,
+                                            value=1.0,
+                                            marks={
+                                                0.5: "0.5x",
+                                                1.0: "1x",
+                                                2.0: "2x",
+                                                3.0: "3x",
+                                            },
+                                            tooltip={"placement": "bottom", "always_visible": False},
+                                        ),
+                                    ],
+                                    style={
                                         "marginTop": "10px",
                                         "marginBottom": "12px",
                                         "padding": "8px",
@@ -1271,12 +1312,31 @@ class DASH_CYTO(object):
 
             self.save_cyto_settings(font_size)
 
-            # print(">>> refresh graph font_size", font_size)
-
             return make_stylesheet(font_size), f"{font_size}px"
 
+       
+        @app.callback(
+            Output("cyto-zoom-store", "data"),
+            Input("cyto-zoom-slider", "value"),
+        )
+        def update_graph_zoom1(zoom_value):
+            if zoom_value is None:
+                zoom_value = 1.0
+
+            return float(zoom_value)
+
+        @app.callback(
+            Output("reactome-network", "zoom"),
+            Input("cyto-zoom-store", "data"),
+        )
+        def update_graph_zoom2(zoom_value):
+            if zoom_value is None:
+                zoom_value = 1.0
+
+            return float(zoom_value)
+
         return app
-        
+    
 
     def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
 
