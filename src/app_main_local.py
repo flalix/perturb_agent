@@ -52,14 +52,13 @@ if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
 from libs.enricher_lib import enricheR
-# from libs.MTD_lib import MTD
 from libs.tcga_gdc_lib import GDC
-# from libs.dashcyto_lib import DASH_CYTO
-# from libs.calc_degs_lib import CALC_DEGS
 from libs.config_lib import Config
+from libs.dashcyto_lib import DASH_CYTO
 
 from project_context_MTD import load_project_context
 
+dcy = DASH_CYTO(ROOT0=ROOT0)
 
 try:
     with open('params.yml', 'r') as file:
@@ -687,7 +686,7 @@ if st.session_state.loaded:
         case = ctx.case_list[icase]
 
         ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
-        
+
     # --------------------------------------------------
     # SESSION STATE (RIGHT HERE ✅)
     # --------------------------------------------------
@@ -955,8 +954,6 @@ if st.session_state.loaded:
 
                 degs, _, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
 
-                # ret_enr = mtd.open_enrichment_analysis(force=force, save_EP_xls=False, verbose=verbose)
-
                 cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 dflfc = dflfc[cols]
 
@@ -1021,8 +1018,29 @@ if st.session_state.loaded:
                 df_enr0 = calc_enrichment_analysis(verbose=False, force=False)
                 df_enr = df_enr0[ (df_enr0.fdr < fdr_ptw_cutoff) & (df_enr0.num_of_genes >= min_genes) ]
 
+                cols_pathways = ["pathway",  "pathway_id", "pval", "fdr", "odds_ratio", "combined_score", "genes", "num_of_genes"]
+
                 grid_key = f"EA_{psi_id}_fdr_{fdr_ptw_cutoff}_min_genes_{min_genes}"
-                show_df(df_enr, height=None, key=grid_key)
+                selected_pathway_row = show_df(df_enr, height=None, key=grid_key, selectable=True,)
+
+                if selected_pathway_row is not None:
+                    pathway_id = selected_pathway_row["pathway_id"]
+                    pathway = selected_pathway_row["pathway"]
+
+                    st.session_state["selected_pathway_id"] = pathway_id
+                    st.session_state["selected_pathway"] = pathway
+
+                    rdf = dcy.read_owl(pathway_id, pathway, verbose=True)
+                    if rdf is None:
+                        fname_owl = f"{pathway_id}_level3.owl"
+                        filename = dcy.root_owl / fname_owl
+                        st.error(f"Failed to load OWL file {filename}")
+                    else:
+                        height = "95%"
+                        width = "100%"
+                        marginTop="20px"
+
+                        dcy.run_app(height=height, width=width, marginTop=marginTop)
 
 
     # -------------------------------------------------------------------------

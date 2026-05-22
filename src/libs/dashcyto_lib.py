@@ -36,9 +36,10 @@ class DASH_CYTO(object):
         self.ROOT0 = ROOT0
 
         self.root_src = create_dir(ROOT0, "src")
+        self.root_colab= create_dir(ROOT0, "colab")
         self.root_styles = create_dir(self.root_src, "styles")
-        self.root_owl = create_dir(ROOT0, "data/owl")
-        self.root_ncbi = create_dir(ROOT0, "data/ncbi")
+        self.root_owl = create_dir(self.root_colab, "owl")
+        self.root_ncbi = create_dir(self.root_colab, "ncbi")
 
         self.fname_pos = "positions_%s.json"
 
@@ -80,36 +81,50 @@ class DASH_CYTO(object):
         self.load_gene_annotation_table()
         self.load_gene_alias_table()
 
+    def reset_graph(self):
+        self.G = nx.DiGraph()
+        self.saved_positions = {}
+        self.layout_changed = False
 
-    def read_owl(self, pathway_id: str, pathway: str) -> Graph:
+    def read_owl(self, pathway_id: str, pathway: str, verbose: bool = False) -> bool:
+                            
+        self.reset_graph()
+
+        self.rdf = Graph()
         self.pathway_id = pathway_id
         self.pathway = pathway
 
         fname_owl = f"{pathway_id}_level3.owl"
         filename = self.root_owl / fname_owl
 
-        rdf = Graph()
+        if not filename.exists():
+            return False
+
+        if verbose:
+            print(f"Reading OWL file {filename} - pathway: '{pathway}'")
+
         try:
-            rdf.parse(filename, format="xml")
+            self.rdf.parse(filename, format="xml")
         except Exception as e:
             print(f"Error parsing OWL file: {e}")
 
-        self.rdf = rdf
+        if verbose:
+            print(f"Processing {len(list(self.rdf.subjects()))} RDF triples")
 
         for cls in self.classes:
-            for node in rdf.subjects(RDF.type, cls):
+            for node in self.rdf.subjects(RDF.type, cls):
                 node_id = self.short(node)
                 self.G.add_node(node_id, label=self.get_name(node), biopax_type=self.short(cls))
 
         for rel in self.relations:
-            for s, o in rdf.subject_objects(rel):
+            for s, o in self.rdf.subject_objects(rel):
                 s_id = self.short(s)
                 o_id = self.short(o)
 
                 if s_id in self.G.nodes and o_id in self.G.nodes:
                     self.G.add_edge(s_id, o_id, interaction=self.short(rel))
 
-        return rdf
+        return True
 
     def short(self, x) -> str:
         return str(x).split("#")[-1].split("/")[-1]
@@ -213,8 +228,10 @@ class DASH_CYTO(object):
     def save_positions_if_changed(self, elements) -> bool:
 
         new_pos = self.extract_positions(elements)
+            
+        print(f"save_positions_if_changed() -> {self.positions_changed(new_pos)} {self.layout_changed}")
 
-        if not self.positions_changed(new_pos):
+        if not self.positions_changed(new_pos) and not self.layout_changed:
             return False  # no change
 
         fname = self.fname_pos % (self.pathway_id)
@@ -225,6 +242,7 @@ class DASH_CYTO(object):
                 json.dump(new_pos, f, indent=2)
 
             self.saved_positions = new_pos  # update global here
+            self.layout_changed = False
         except Exception as e:
             print(f"Error: saving Graph positions: {e}")
             return False
@@ -233,7 +251,7 @@ class DASH_CYTO(object):
     
     #============ Hugo, Ensbembl, UNIPROT gene table ===========
 
-    def load_gene_annotation_table(self) -> pd.DataFrame:
+    def load_gene_annotation_table(self, verbose: bool = False) -> pd.DataFrame:
         """
         Load HGNC/HUGO + RefSeq + UniProt annotation table.
 
@@ -246,7 +264,7 @@ class DASH_CYTO(object):
         if not filename.exists():
             raise FileNotFoundError(f"Could not find gene annotation file: {filename}")
 
-        df = pdreadcsv(self.fname_hugo, self.root_ncbi)
+        df = pdreadcsv(self.fname_hugo, self.root_ncbi, verbose=verbose)
 
         required_cols = [
             "ensembl_id",
@@ -278,7 +296,8 @@ class DASH_CYTO(object):
         )
 
         self.gene_annot_df = df
-        print(">>> df hugo", df.columns)
+        if verbose:
+            print(">>> df hugo", df.columns)
 
         # Fast dictionaries
         self.gene_annot_by_ensembl = (
@@ -296,10 +315,11 @@ class DASH_CYTO(object):
             .to_dict(orient="index")
         )
 
-        print(f"Loaded gene annotation table: {filename}")
-        print(f"Rows: {len(df):,}")
-        print(f"Symbols: {len(self.gene_annot_by_symbol):,}")
-        print(f"Ensembl IDs: {len(self.gene_annot_by_ensembl):,}")
+        if verbose:
+            print(f"Loaded gene annotation table: {filename}")
+            print(f"Rows: {len(df):,}")
+            print(f"Symbols: {len(self.gene_annot_by_symbol):,}")
+            print(f"Ensembl IDs: {len(self.gene_annot_by_ensembl):,}")
 
         return df
 
@@ -434,7 +454,7 @@ class DASH_CYTO(object):
 
     def none_one_multiple_alias(self, info_data: dict):
 
-        print(">>> info_data", info_data)
+        # print(">>> info_data", info_data)
 
         if info_data.get("symbol", "NA") == "NA":
             return None
@@ -442,7 +462,7 @@ class DASH_CYTO(object):
         matches = info_data.get("matches", [])
         n_matches = info_data.get("n_matches", 0)
 
-        print(">>> n_matches", n_matches)
+        # print(">>> n_matches", n_matches)
 
         if n_matches > 1:
             alias_note = html.Div(
@@ -854,6 +874,76 @@ class DASH_CYTO(object):
             ]
         )
 
+    def make_stylesheet(font_size=10):
+        edge_font_size = max(font_size - 3, 6)
+
+        return [
+            {
+                "selector": "node",
+                "style": {
+                    "label": "data(label)",
+                    "font-size": f"{font_size}px",
+                    "text-valign": "center",
+                    "text-halign": "center",
+                    "background-color": "#8ecae6",
+                    "width": 30,
+                    "height": 30,
+                },
+            },
+            {
+                "selector": "node:selected",
+                "style": {
+                    "border-width": 4,
+                    "border-color": "black",
+                    "background-color": "#ffcc00",
+                },
+            },
+            {
+                "selector": "edge",
+                "style": {
+                    "curve-style": "bezier",
+                    "target-arrow-shape": "triangle",
+                    "label": "data(interaction)",
+                    "font-size": f"{edge_font_size}px",
+                },
+            },
+            {
+                "selector": '[biopax_type = "BiochemicalReaction"]',
+                "style": {
+                    "background-color": "#f94144",
+                    "shape": "hexagon",
+                },
+            },
+            {
+                "selector": '[biopax_type = "Protein"]',
+                "style": {
+                    "background-color": "#8ecae6",
+                    "shape": "ellipse",
+                },
+            },
+            {
+                "selector": '[biopax_type = "Complex"]',
+                "style": {
+                    "background-color": "#ffb703",
+                    "shape": "round-rectangle",
+                },
+            },
+            {
+                "selector": '[biopax_type = "SmallMolecule"]',
+                "style": {
+                    "background-color": "#90be6d",
+                    "shape": "diamond",
+                },
+            },
+            {
+                "selector": '[biopax_type = "Pathway"]',
+                "style": {
+                    "background-color": "#cdb4db",
+                    "shape": "rectangle",
+                },
+            },
+        ]
+
     def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px"):
 
         self.G = self.G.subgraph([n for n in self.G.nodes() if self.G.degree(n) > 0]).copy()
@@ -877,6 +967,9 @@ class DASH_CYTO(object):
         show_selected_nodes      -> updates selected-output
         """
 
+        base_font_size = 10
+
+
         app.layout = html.Div(
             [
                 html.H2(
@@ -891,156 +984,127 @@ class DASH_CYTO(object):
 
                 html.Div(
                     [
-                        html.Div(
-                            [
-                                dcc.Dropdown(
-                                    id="layout-dropdown",
-                                    options=[
-                                        {"label": "COSE force-directed", "value": "cose"},
-                                        {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
-                                        {"label": "Circle", "value": "circle"},
-                                        {"label": "Grid", "value": "grid"},
-                                        {"label": "Preset", "value": "preset"},
-                                    ],
-                                    value="preset",
-                                    clearable=False,
-                                    style={
-                                        "width": "350px",
-                                        "marginBottom": "10px",
-                                    },
-                                ),
-
-                                cyto.Cytoscape(
-                                    id="reactome-network",
-                                    elements=elements,
-                                    layout={"name": "preset"},
-                                    boxSelectionEnabled=True,
-                                    autoungrabify=False,
-                                    autounselectify=False,
-                                    style={
-                                        "width": "100%",
-                                        "height": "80vh",   # important
-                                        "backgroundColor": "#fff9c4",
-                                        "marginTop": marginTop,
-                                        "border": "1px solid #ddd",
-                                        "borderRadius": "12px",
-                                    },
-                                    stylesheet=[
-                                        {
-                                            "selector": "node",
-                                            "style": {
-                                                "label": "data(label)",
-                                                "font-size": "10px",
-                                                "background-color": "#8ecae6",
-                                                "width": 30,
-                                                "height": 30,
-                                            },
-                                        },
-                                        {
-                                            "selector": "node:selected",
-                                            "style": {
-                                                "border-width": 4,
-                                                "border-color": "black",
-                                                "background-color": "#ffcc00",
-                                            },
-                                        },
-                                        {
-                                            "selector": "edge",
-                                            "style": {
-                                                "curve-style": "bezier",
-                                                "target-arrow-shape": "triangle",
-                                                "label": "data(interaction)",
-                                                "font-size": "7px",
-                                            },
-                                        },
-                                        {
-                                            "selector": '[biopax_type = "BiochemicalReaction"]',
-                                            "style": {
-                                                "background-color": "#f94144",
-                                                "shape": "hexagon",
-                                            },
-                                        },
-                                        {
-                                            "selector": '[biopax_type = "Protein"]',
-                                            "style": {
-                                                "background-color": "#8ecae6",
-                                                "shape": "ellipse",
-                                            },
-                                        },
-                                        {
-                                            "selector": '[biopax_type = "Complex"]',
-                                            "style": {
-                                                "background-color": "#ffb703",
-                                                "shape": "round-rectangle",
-                                            },
-                                        },
-                                        {
-                                            "selector": '[biopax_type = "SmallMolecule"]',
-                                            "style": {
-                                                "background-color": "#90be6d",
-                                                "shape": "diamond",
-                                            },
-                                        },
-                                        {
-                                            "selector": '[biopax_type = "Pathway"]',
-                                            "style": {
-                                                "background-color": "#cdb4db",
-                                                "shape": "rectangle",
-                                            },
-                                        },
-                                    ],
-                                ),
+                        dcc.Dropdown(
+                            id="layout-dropdown",
+                            options=[
+                                {"label": "COSE force-directed", "value": "cose"},
+                                {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
+                                {"label": "Circle", "value": "circle"},
+                                {"label": "Grid", "value": "grid"},
+                                {"label": "Preset", "value": "preset"},
                             ],
+                            value="preset",
+                            clearable=False,
                             style={
-                                "flex": "1 1 auto",
-                                "minWidth": "0",
+                                "width": "350px",
+                                "marginBottom": "10px",
                             },
                         ),
 
-                        html.Div(
-                            [
-                                html.H4("Node information", className="node-panel-title"),
-
-                                html.Div(id="node-info", className="node-info-box"),
-
-                                html.Button(
-                                    "⭐ Mark as root",
-                                    id="mark-root-button",
-                                    n_clicks=0,
-                                    className="cyto-button cyto-button-root",
-                                ),
-
-                                html.Button(
-                                    "🏁 Mark as terminal",
-                                    id="mark-terminal-button",
-                                    n_clicks=0,
-                                    className="cyto-button cyto-button-terminal",
-                                ),
-
-                                html.Button(
-                                    "🕸️ Expand neighbors",
-                                    id="expand-neighbors-button",
-                                    n_clicks=0,
-                                    className="cyto-button cyto-button-expand",
-                                ),
-
-                                html.Button(
-                                    "🔄 Reset graph",
-                                    id="reset-graph-button",
-                                    n_clicks=0,
-                                    className="cyto-button cyto-button-reset",
-                                ),
-                                                                
-                            ],
-                            className="node-sidebar",
+                        cyto.Cytoscape(
+                            id="reactome-network",
+                            elements=elements,
+                            layout={"name": "preset"},
+                            boxSelectionEnabled=True,
+                            autoungrabify=False,
+                            autounselectify=False,
+                            style={
+                                "width": "100%",
+                                "height": "80vh",   # important
+                                "backgroundColor": "#fff9c4",
+                                "marginTop": marginTop,
+                                "border": "1px solid #ddd",
+                                "borderRadius": "12px",
+                            },
+                            stylesheet=make_stylesheet(base_font_size),
                         ),
                     ],
                     style={
-                        "width": "100%",
-                        "display": "flex",
-                        "gap": "12px",
-                        "alignItems": "flex-start",
+                        "flex": "1 1 auto",
+                        "minWidth": "0",
                     },
+                ),
+
+                html.Div(
+                    [
+                        html.H4("Node information", className="node-panel-title"),
+
+                        html.Div(id="node-info", className="node-info-box"),
+
+                        dcc.Store(id="cyto-font-size-store", data=base_font_size),
+
+                        html.Div(
+                            [
+                                html.Span(
+                                    "Font size",
+                                    style={
+                                        "fontWeight": "600",
+                                        "fontSize": "13px",
+                                        "marginRight": "8px",
+                                        "whiteSpace": "nowrap",
+                                    },
+                                ),
+
+                                html.Div(
+                                    [
+                                        html.Button(
+                                            "A−",
+                                            id="decrease-font-btn",
+                                            n_clicks=0,
+                                            title="Decrease font size",
+                                            className="cyto-font-button",
+                                            style={
+                                                "borderTopRightRadius": "0px",
+                                                "borderBottomRightRadius": "0px",
+                                                "borderRight": "0px",
+                                            },
+                                        ),
+                                        html.Button(
+                                            "A+",
+                                            id="increase-font-btn",
+                                            n_clicks=0,
+                                            title="Increase font size",
+                                            className="cyto-font-button",
+                                            style={
+                                                "borderTopLeftRadius": "0px",
+                                                "borderBottomLeftRadius": "0px",
+                                            },
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "flexDirection": "row",
+                                        "alignItems": "center",
+                                    },
+                                ),
+
+                                html.Span(
+                                    id="font-size-label",
+                                    children=f"{base_font_size}px",
+                                    style={
+                                        "fontSize": "12px",
+                                        "color": "#555",
+                                        "marginLeft": "8px",
+                                        "minWidth": "36px",
+                                    },
+                                ),
+                            ],
+                            style={
+                                "display": "flex",
+                                "flexDirection": "row",
+                                "alignItems": "center",
+                                "justifyContent": "flex-start",
+                                "gap": "0px",
+                                "marginTop": "10px",
+                                "marginBottom": "12px",
+                                "padding": "8px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "10px",
+                                "backgroundColor": "#fafafa",
+                            },
+                        ),
+
+                    ]
                 ),
 
                 dcc.Store(id="selected-node-store"),
@@ -1115,6 +1179,45 @@ class DASH_CYTO(object):
 
 
         @app.callback(
+            Output("cyto-font-size-store", "data"),
+            Input("increase-font-btn", "n_clicks"),
+            Input("decrease-font-btn", "n_clicks"),
+            State("cyto-font-size-store", "data"),
+            prevent_initial_call=True,
+        )
+        def update_font_size(n_inc, n_dec, current_size):
+            from dash import ctx
+
+            if current_size is None:
+                current_size = base_font_size
+
+            button_id = ctx.triggered_id
+
+            if button_id == "increase-font-btn":
+                current_size += 1
+
+            elif button_id == "decrease-font-btn":
+                current_size -= 1
+
+            current_size = max(6, min(current_size, 30))
+
+            return current_size
+
+        @app.callback(
+            Output("cytoscape", "stylesheet"),
+            Output("font-size-label", "children"),
+            Input("cyto-font-size-store", "data"),
+        )
+        def update_cytoscape_stylesheet(font_size):
+            if font_size is None:
+                font_size = base_font_size
+
+            return make_stylesheet(font_size), f"Font size: {font_size}px"
+
+        return app
+        
+
+        @app.callback(
             Output("reactome-network", "elements"),
             Output("expanded-nodes-store", "data"),
             Input("expand-neighbors-button", "n_clicks"),
@@ -1161,6 +1264,8 @@ class DASH_CYTO(object):
             Input("layout-dropdown", "value"),
         )
         def update_layout(layout_name):
+
+            self.layout_changed = True
 
             if layout_name == "cose":
                 return {
@@ -1306,3 +1411,29 @@ class DASH_CYTO(object):
 
         return df_alias
 
+
+        '''
+
+
+            html.Button(
+                "⭐ Mark as root",
+                id="mark-root-button",
+                n_clicks=0,
+                className="cyto-button cyto-button-root",
+            ),
+
+            html.Button(
+                "🏁 Mark as terminal",
+                id="mark-terminal-button",
+                n_clicks=0,
+                className="cyto-button cyto-button-terminal",
+            ),
+
+            html.Button(
+                "🕸️ Expand neighbors",
+                id="expand-neighbors-button",
+                n_clicks=0,
+                className="cyto-button cyto-button-expand",
+            ),
+
+        '''
