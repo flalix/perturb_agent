@@ -29,11 +29,12 @@ from libs.Basic import create_dir, pdreadcsv
 
 
 class DASH_CYTO(object):
-    def __init__(self, ROOT0: Path):
+    def __init__(self, ROOT0: Path, dflfc_ori: pd.DataFrame):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
 
         self.ROOT0 = ROOT0
+        self.dflfc_ori = dflfc_ori
 
         self.root_src = create_dir(ROOT0, "src")
         self.root_colab= create_dir(ROOT0, "colab")
@@ -156,8 +157,66 @@ class DASH_CYTO(object):
 
         return dic_posi
 
+
+    def build_lfc_lookup(self) -> dict:
+        if self.dflfc_ori is None or self.dflfc_ori.empty:
+            return {}
+
+        df = self.dflfc_ori.copy()
+
+        df["symbol"] = df["symbol"].astype(str).str.upper()
+        df["lfc"] = pd.to_numeric(df["lfc"], errors="coerce")
+        df["fdr"] = pd.to_numeric(df["fdr"], errors="coerce")
+
+        # If duplicated symbols, keep strongest absolute LFC
+        df = (
+            df.sort_values("abs_lfc", ascending=False)
+            .drop_duplicates("symbol")
+        )
+
+        return {
+            row["symbol"]: {
+                "lfc": float(row["lfc"]),
+                "fdr": float(row["fdr"]) if pd.notna(row["fdr"]) else None,
+                "abs_lfc": float(row["abs_lfc"]),
+            }
+            for _, row in df.iterrows()
+        }
+
+
+    def get_lfc_bin(self, log2FC: float | None) -> str:
+        if log2FC is None:
+            return "none"
+
+        try:
+            log2FC = float(log2FC)
+        except Exception:
+            return "none"
+
+        if log2FC >= 3:
+            return "up_3"
+        elif log2FC >= 2:
+            return "up_2"
+        elif log2FC >= 1:
+            return "up_1"
+        elif log2FC >= 0.4:
+            return "+weak"
+        elif log2FC <= -3:
+            return "down_3"
+        elif log2FC <= -2:
+            return "down_2"
+        elif log2FC <= -1:
+            return "down_1"
+        elif log2FC <= -0.4:
+            return "-weak"
+
+        return "~zero"
+        
+
     def nx_to_cytoscape_elements(self, saved_positions=None) -> list:
         elements = []
+
+        self.dic_lfc_lookup = self.build_lfc_lookup()
 
         if saved_positions is None:
             saved_positions = self.load_positions(self.pathway_id)
@@ -173,13 +232,33 @@ class DASH_CYTO(object):
         """
 
         for node_id, data in self.G.nodes(data=True):
+
+            label = data.get("label", node_id)
+            symbol = str(label).upper()
+
+            dic_symbol = self.dic_lfc_lookup.get(symbol)
+
+            if symbol == 'CCNB2':
+                print(f"Found CCNB2: {dic_symbol}")
+
+            if dic_symbol is not None:
+                log2FC = dic_symbol["lfc"]
+                fdr = dic_symbol["fdr"]
+            else:
+                log2FC = None
+                fdr = None
+
+
             elem = {
                 "data": {
                     "id": node_id,
                     "label": data.get("label", node_id),
                     "biopax_type": data.get("biopax_type", "Unknown"),
-                    "log2FC": data.get("log2FC", None),
-                    "FDR": data.get("FDR", None),
+                    "log2FC": log2FC,
+                    "FDR": fdr,
+                    "abs_log2FC": abs(log2FC) if log2FC is not None else None,
+                    "lfc_bin": self.get_lfc_bin(log2FC),
+                    "is_deg_gene": log2FC is not None,                    
                 }
             }
 
@@ -782,7 +861,7 @@ class DASH_CYTO(object):
 
         lfc = first_available(
             "log2FoldChange",
-            "log2fc",
+            "log2FC",
             "LFC",
             "lfc",
         )
@@ -947,6 +1026,79 @@ class DASH_CYTO(object):
                         "height": 30,
                     },
                 },
+
+                {
+                    "selector": '[lfc_bin = "up_1"]',
+                    "style": {
+                        "background-color": "#fcae91",
+                        "border-color": "#cb181d",
+                        "border-width": 2,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "up_2"]',
+                    "style": {
+                        "background-color": "#fb6a4a",
+                        "border-color": "#a50f15",
+                        "border-width": 3,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "up_3"]',
+                    "style": {
+                        "background-color": "#cb181d",
+                        "border-color": "#67000d",
+                        "border-width": 4,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "down_1"]',
+                    "style": {
+                        "background-color": "#bdd7e7",
+                        "border-color": "#2171b5",
+                        "border-width": 2,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "down_2"]',
+                    "style": {
+                        "background-color": "#6baed6",
+                        "border-color": "#08519c",
+                        "border-width": 3,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "down_3"]',
+                    "style": {
+                        "background-color": "#2171b5",
+                        "border-color": "#08306b",
+                        "border-width": 4,
+                        "shape": "ellipse",
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "weak"]',
+                    "style": {
+                        "background-color": "#eeeeee",
+                        "border-color": "#999999",
+                        "border-width": 1,
+                    },
+                },
+                {
+                    "selector": '[lfc_bin = "none"]',
+                    "style": {
+                        "background-color": "#dddddd",
+                        "border-color": "#aaaaaa",
+                        "border-width": 1,
+                    },
+                },
+
+
                 {
                     "selector": "node:selected",
                     "style": {

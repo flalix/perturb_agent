@@ -58,7 +58,6 @@ from libs.dashcyto_lib import DASH_CYTO
 
 from project_context_MTD import load_project_context
 
-dcy = DASH_CYTO(ROOT0=ROOT0)
 
 try:
     with open('params.yml', 'r') as file:
@@ -686,6 +685,13 @@ if st.session_state.loaded:
         case = ctx.case_list[icase]
 
         ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
+
+        if ret:
+            dcy = DASH_CYTO(ROOT0=ROOT0, dflfc_ori=mtd.dflfc_ori)
+        else:
+            st.write("No differentially expressed genes found.")
+            dcy = DASH_CYTO(ROOT0=ROOT0, dflfc_ori=pd.DataFrame())
+
 
     # --------------------------------------------------
     # SESSION STATE (RIGHT HERE ✅)
