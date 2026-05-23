@@ -16,10 +16,10 @@ from typing import List, Tuple #  Optional, Iterable, Set, Any
 from libs.Basic import create_dir, pdwritecsv, pdreadcsv, to_roman_numeral
 
 class Gene(object):
-	def __init__(self, root0:Path):
+	def __init__(self, root0_data:Path):
 
-		self.root0 = root0
-		self.root_colab = create_dir(root0, 'colab')
+		self.root0_data = root0_data
+		self.root_colab = create_dir(root0_data, 'colab')
 		self.root_refseq = create_dir(self.root_colab, 'refseq')
 
 		files = os.listdir(self.root_refseq)

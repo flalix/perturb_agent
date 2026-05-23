@@ -78,7 +78,7 @@ def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int
     
     root0 = Path(dic_yml["root0"])
     root0_data = Path(dic_yml["root0_data"])
-    root_colab = root0 / "colab"
+    root_colab = root0_data / "colab"
 
     email = os.getenv("email")
 

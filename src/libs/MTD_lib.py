@@ -65,7 +65,7 @@ nc_biotype_list = ctx.nc_biotype_list
 
 class MTD(object):
 	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, 
-			     root0:Path, root0_data:Path,
+			     root0:Path, root0_data:Path, prog_id:str, psi_id:str,
 				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=False, 
 				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
@@ -76,16 +76,19 @@ class MTD(object):
 				 saturation_lfc_param:float=5., enr_db_list:List=[], pPMI_normalized:bool=False):
 
 		self.root0 = Path(root0)
-		self.root_colab = create_dir(root0, 'colab')
 		self.root_src   = create_dir(root0, 'src')
 
 		self.project = project
 		self.s_project = s_project		
+		self.disease      = title_replace(disease)
+
+		self.prog_id = prog_id
+		self.psi_id = psi_id
 
 		self.root0_data = Path(root0_data)
-		self.root_project = create_dir(root0_data, s_project)
-		self.disease = title_replace(disease)
-		self.root_disease = create_dir(self.root_project, self.disease)
+		self.root_colab   = create_dir(root0_data, 'colab')
+		self.root_project = create_dir(root0_data, prog_id)
+		self.root_disease = create_dir(self.root_project, psi_id)
 
 		self.root_result   = create_dir(self.root_disease, 'results')
 		self.root_lfc      = create_dir(self.root_disease, 'lfc')
@@ -103,9 +106,8 @@ class MTD(object):
 		self.root_ptw_modulation = create_dir(self.root_disease, 'pathway_modulation')
 		
 		self.cfg  = Config(root0=root0, root_disease=self.root_disease, disease=self.disease, case_list=case_list)
-
-
-		self.gene = Gene(root0=root0)
+		self.gene = Gene(root0_data=root0_data)
+		
 		self.med_max_ptw = 'median'
 
 		self.s_pathw_enrichm_method = s_pathw_enrichm_method
@@ -286,16 +288,16 @@ class MTD(object):
 
 		'''----- self.root_colab = where data is -------'''
 		self.root_bioplanet = create_dir(self.root_colab, 'bioplanet')
-		self.root_kegg		= create_dir(self.root_colab, 'kegg')
-		self.root_refseq	= create_dir(self.root_colab, 'refseq')
-		self.root_hgnc		= create_dir(self.root_colab, 'hgnc')
-		self.root_owl      = create_dir(self.root_colab, 'owl')
-		self.root_reactome = create_dir(self.root_colab, 'reactome')
+		self.root_kegg      = create_dir(self.root_colab, 'kegg')
+		self.root_refseq    = create_dir(self.root_colab, 'refseq')
+		self.root_hgnc      = create_dir(self.root_colab, 'hgnc')
+		self.root_owl       = create_dir(self.root_colab, 'owl')
+		self.root_reactome  = create_dir(self.root_colab, 'reactome')
 
 		''' ---- Affymetrix ---'''
 		self.fname_affy = 'Human_Agilent_WholeGenome_4x44k_v2_MSigDB_v71.tsv'
 		self.root_affymetrix = create_dir(self.root_colab, 'affymetrix')
-		self.root_affy	   = create_dir(self.root_disease, 'affy')
+		self.root_affy	     = create_dir(self.root_disease, 'affy')
 
 		''' affymetrix experiment table - probe x symbols '''
 		self.df_gpl = pd.DataFrame()
@@ -8841,27 +8843,24 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			df_lfc_all = pdreadcsv(fname_lfc_all, self.root_lfc, verbose=verbose)
 			return df_lfc, df_lfc_all
 
-		gdc = GDC(ROOT0=self.root0, ROOT_DATA0=self.root0_data)
+		gdc = GDC(root0=self.root0, root0_data=self.root0_data)
 		self.gdc = gdc
 
 		_ = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
 
 		print(">>> psi_id or disease:", self.disease)
-		psi_id = self.disease
-		self.psi_id = psi_id
 
-		gdc.set_primary_site(psi_id=psi_id, verbose=False)
+		gdc.set_primary_site(psi_id=self.psi_id, verbose=False)
 
 		df_lfc_all, msg = gdc.calc_lfc_table(
-			psi_id=psi_id,
-			root_src=self.root_src,
+			psi_id=self.psi_id,
 			run_conda=True,
 			method="deseq2",
 			verbose=verbose,
 		)
 
 		if df_lfc_all is None or df_lfc_all.empty:
-			print(f"Error: No data available for the specified {psi_id}.")
+			print(f"Error: No data available for the specified {self.psi_id}.")
 			return pd.DataFrame(), pd.DataFrame()
 
 		df_lfc_all["abs_lfc"] = np.abs(df_lfc_all.lfc)

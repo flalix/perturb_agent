@@ -38,7 +38,7 @@ from project_context_GDC import load_project_context
 
 
 class GDC(object):
-    def __init__(self, ROOT0: Path, ROOT_DATA0: Path):
+    def __init__(self, root0: Path, root0_data: Path):
 
         self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
         self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
@@ -49,11 +49,12 @@ class GDC(object):
 
         self.prog_id, self.psi_id = "", ""
 
-        self.ROOT0 = Path(ROOT0)
-        self.ROOT_DATA0 = Path(ROOT_DATA0)
-        self.root_src   =  create_dir(self.ROOT0, 'src')
-        self.ROOT_COLAB = create_dir(self.ROOT0, 'colab')
-        self.root_gtex  = create_dir(self.ROOT_COLAB, "GTEx")
+        self.root0 = Path(root0)
+        self.root_src   =  create_dir(self.root0, 'src')
+
+        self.root0_data = Path(root0_data)
+        self.root_colab = create_dir(self.root0_data, 'colab')
+        self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
         self.fname_gtex = "tcga_primary_site_to_gtex_ids.tsv"
         self.df_gtex_to_tcga = pd.DataFrame()
@@ -131,7 +132,7 @@ class GDC(object):
 
         self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
 
-        self.fname_fileid = "%s_%s_for_%s_case_%s_file_%s.%s"
+        self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
         self.fname_mut_anal0 = "mutations_anal_for_study_%s.tsv"
         self.fname_mut_summ0 = "mutations_summ_for_study_%s.tsv"
 
@@ -218,7 +219,7 @@ class GDC(object):
     def set_program(self, prog_id: str):
         self.prog_id = prog_id
 
-        self.root_project = create_dir(self.ROOT_DATA0, prog_id)
+        self.root_project = create_dir(self.root0_data, prog_id)
         self.root_summary = create_dir(self.root_project, "summary")
 
         self.clean_gdc_files()
@@ -324,15 +325,13 @@ class GDC(object):
         row = dfa.iloc[0]
 
         self.psi_id = row.psi_id
-        self.disease = row.psi_id
-
         self.primary_site = row.primary_site
         self.disease_type = row.disease_type
         self.disease_name = row.name
 
-        self.root_disease   = create_dir(self.root_project, self.disease)
-        self.root_samples   = create_dir(self.root_disease, 'samples')
-        self.root_lfc       = create_dir(self.root_disease, 'lfc')
+        self.root_disease = create_dir(self.root_project, self.psi_id)
+        self.root_samples = create_dir(self.root_disease, 'samples')
+        self.root_lfc = create_dir(self.root_disease, 'lfc')
         self.root_mutations = create_dir(self.root_disease, 'mutations')
 
         if verbose:
@@ -349,7 +348,7 @@ class GDC(object):
 
     def get_gdc_progams(self, force: bool = False, verbose: bool = False) -> List:
 
-        filename = os.path.join(self.ROOT_DATA0, self.fname_programs)
+        filename = os.path.join(self.root0_data, self.fname_programs)
 
         if os.path.exists(filename) and not force:
             txt = read_txt(filename, verbose=verbose)
@@ -468,17 +467,19 @@ class GDC(object):
             df["diagnosis_norm"] = df["primary_diagnosis"].apply(self.text_normalization)
 
             df["tumor_class"] = df["diagnosis_norm"].apply(self.map_tumor_class)
-            df["subtype_global"] = df["diagnosis_norm"].apply(self.map_global_subtype)
-
+            
             """
 			for psi_id=='TCGA-ACC' if subtype_global = other --> change to adrenal_cortical_carcinoma
 			"""
-            df["subtype_global"] = [
-                df.iloc[i]["tumor_class"]
-                if (df.iloc[i]["psi_id"] == "TCGA-ACC" and df.iloc[i]["subtype_global"] == "other")
-                else df.iloc[i]["subtype_global"]
-                for i in range(len(df))
-            ]
+            if self.psi_id=='TCGA-ACC':
+                df["subtype_global"] = [
+                    df.iloc[i]["tumor_class"]
+                    if (df.iloc[i]["psi_id"] == "TCGA-ACC" and df.iloc[i]["subtype_global"] == "other")
+                    else df.iloc[i]["subtype_global"]
+                    for i in range(len(df))
+                ]
+            else:
+                df["subtype_global"] = df["diagnosis_norm"].apply(self.map_global_subtype)
 
             # histology
             df["histology"] = df["subtype_global"].apply(self.map_histology)
@@ -936,9 +937,9 @@ class GDC(object):
 		"""
 
         df_cases = df_cases[
-            (df_cases.subtype_global == subtype_global)
-            & (df_cases.tumor_class == tumor_class)
-            & (df_cases.subtype_tissue == subtype_tissue)
+            (df_cases.subtype_global == subtype_global) & 
+            (df_cases.tumor_class == tumor_class) & 
+            (df_cases.subtype_tissue == subtype_tissue)
         ]
 
         df_cases = df_cases.copy().reset_index(drop=True)
@@ -1150,7 +1151,8 @@ class GDC(object):
             print(f"Develope the method for this file type {file_type}")
             raise Exception("\n------------ stop ---------------\n")
 
-        fname = self.fname_fileid % (
+        # self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
+        fname = self.fname_case_file % (
             file_type,
             sample_type,
             self.psi_id,
@@ -1235,7 +1237,7 @@ class GDC(object):
         return df
 
     def get_table_searching_for_fileID(
-        self, psi_id: str, data_type: str, sample_type: str, file_id: str, verbose: bool = False
+        self, data_type: str, sample_type: str, file_id: str, verbose: bool = False
     ) -> pd.DataFrame:
 
         data_type2 = title_replace(data_type)
@@ -1987,7 +1989,7 @@ class GDC(object):
                 if df_samples.empty:
                     if verbose:
                         print(
-                            f"No samples found for PSI_ID: {self.psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}"
+                            f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}"
                         )
                     continue
 
@@ -2005,7 +2007,7 @@ class GDC(object):
 
                 print("Getting mutations", end=" ")
                 dff, _ = self.get_df_mut_transform_mutation_table(
-                    study_id=self.psi_id,
+                    study_id=psi_id,
                     barcode_sample_list=barcode_sample_list,
                     force=force,
                     verbose=verbose,
@@ -2613,7 +2615,6 @@ class GDC(object):
     def entropy_analysis_for_primary_site(
         self,
         cluster_type: str,
-        psi_id: str,
         sample_type_term: str = "Primary Tumor",
         Kmin: int = 2,
         Kmax: int = 10,
@@ -2790,7 +2791,6 @@ class GDC(object):
     def cluster_analysis(
         self,
         cluster_type: str,
-        psi_id: str,
         sample_type_term: str,
         k: int = 5,
         Kmin: int = 2,
@@ -2813,7 +2813,7 @@ class GDC(object):
         
 
         dfw, dfh, dfstat, dfpiv, df_all_mut = self.entropy_analysis_for_primary_site(
-            cluster_type, psi_id, sample_type_term, Kmin, Kmax, min_barcodes, min_genes, verbose
+            cluster_type, sample_type_term, Kmin, Kmax, min_barcodes, min_genes, verbose
         )
 
         dfempty = pd.DataFrame()
@@ -3142,7 +3142,6 @@ class GDC(object):
     def calc_lfc_table(
         self,
         psi_id: str,
-        root_src: Path = Path('.'),
         run_conda: bool = False,
         method: str = "edger",
         verbose: bool = False,
@@ -3167,7 +3166,7 @@ class GDC(object):
                 print(msg)
             return pd.DataFrame(), msg
 
-        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
+        cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
 
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
@@ -3355,7 +3354,7 @@ class GDC(object):
 
         return self.df_gtex_to_tcga
 
-    def find_GTEx_to_TCGA_row(self, psi_id: str, verbose: bool = False) -> Tuple[str, str]:
+    def find_GTEx_to_TCGA_row(self, verbose: bool = False) -> Tuple[str, str]:
 
         self.gtex_id = ""
         self.gtex_tissue_ids = ""
@@ -3367,7 +3366,7 @@ class GDC(object):
                     print("GTEx to TCGA table is empty.")
                     return "", ""
 
-        dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == psi_id]
+        dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == self.psi_id]
 
         if len(dfa) == 1:
             row = dfa.iloc[0]
@@ -3586,7 +3585,7 @@ class GDC(object):
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
 
-        gtex_id, _ = self.find_GTEx_to_TCGA_row(psi_id=self.psi_id, verbose=verbose)
+        gtex_id, _ = self.find_GTEx_to_TCGA_row(verbose=verbose)
         self.gtex_id = gtex_id
 
         if gtex_id == "":

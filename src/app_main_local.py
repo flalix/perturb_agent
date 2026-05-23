@@ -69,8 +69,8 @@ except:
 
 from project_context_MTD import load_project_context
 
-PSI_ID = "TCGA-BRCA"
-disease = PSI_ID
+PROG_ID = 'TCGA'
+PSI_ID = 'TCGA-BRCA'
 
 ctx = load_project_context(
     dic_yml=dic_yml,
@@ -80,7 +80,7 @@ ctx = load_project_context(
 
 colors = ctx.colors
 
-gdc = GDC(ROOT0=ROOT0, ROOT_DATA0=ROOT_DATA)
+gdc = GDC(root0=ROOT0, root0_data=ROOT_DATA)
 
 verbose = False
 
@@ -473,10 +473,10 @@ def plot_hdbscan(
 
 def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:float=0.05, verbose:bool=False):
 
-    cfg = Config(root0=ctx.root0, root_disease=root_disease, disease=disease, case_list=ctx.case_list)
+    cfg = Config(root0=ctx.root0, root_disease=root_disease, disease=ctx.disease, case_list=ctx.case_list)
 
     mtd = enricheR(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
-            root0=ctx.root0, root0_data=ctx.root0_data,
+            root0=ctx.root0, root0_data=ctx.root0_data, prog_id=PROG_ID, psi_id=PSI_ID,
             case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
             has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
             std_filename=ctx.std_filename, std_filename_list=ctx.std_filename_list,
@@ -687,7 +687,7 @@ if st.session_state.loaded:
         ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
 
         if ret:
-            dcy = DASH_CYTO(ROOT0=ROOT0, dflfc_ori=mtd.dflfc_ori)
+            dcy = DASH_CYTO(ROOT0=ROOT0, ROOT0_DATA=ROOT0_DATA, dflfc_ori=mtd.dflfc_ori)
         else:
             st.write("No differentially expressed genes found.")
             dcy = DASH_CYTO(ROOT0=ROOT0, dflfc_ori=pd.DataFrame())

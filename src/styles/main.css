@@ -153,3 +153,23 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
 .ag-theme-streamlit {
     margin-bottom: 40px !important;
 }
+
+.cyto-font-button {
+    height: 30px;
+    min-width: 42px;
+    padding: 4px 10px;
+    border: 1px solid #aaa;
+    background-color: white;
+    color: #333;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.cyto-font-button:hover {
+    background-color: #f0f0f0;
+}
+
+.cyto-font-button:active {
+    background-color: #e0e0e0;
+}

@@ -30,12 +30,11 @@ from libs.Basic import pdwritecsv, pdreadcsv, write_txt, read_txt, title_replace
 from libs.venn_lib import get_venn_sections, defineClass
 from libs.MTD_lib import MTD
 from libs.stat_lib import chi2_or_fisher_exact_test
-from libs.gene_lib import Gene
 
 
 class enricheR(MTD):
 	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, 
-			     root0:Path, root0_data:Path,
+			     root0:Path, root0_data:Path,  prog_id:str, psi_id:str,
 				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=False, 
 				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
@@ -45,8 +44,10 @@ class enricheR(MTD):
 				 min_lfc_modulation:float=0.40, type_sat_ptw_index:str='linear_sat', 
 				 saturation_lfc_param:float=5., enr_db_list:List=[], pPMI_normalized:bool=False):
 			
-		super().__init__(disease=disease, gene_protein=gene_protein, s_omics=s_omics, project=project, s_project=s_project, root0=root0, root0_data=root0_data,
-				case_list=case_list, dic_case_list=dic_case_list, has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
+		super().__init__(disease=disease, gene_protein=gene_protein, s_omics=s_omics, 
+				project=project, s_project=s_project, root0=root0, root0_data=root0_data,
+				prog_id=prog_id, psi_id=psi_id, case_list=case_list, dic_case_list=dic_case_list, 
+				has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
 				std_filename=std_filename, std_filename_list=std_filename_list,
 				geneset_num=geneset_num, ptw_min_num_of_degs_cut=ptw_min_num_of_degs_cut,
 				tolerance_pPMI=tolerance_pPMI, s_pathw_enrichm_method=s_pathw_enrichm_method,
@@ -75,8 +76,6 @@ class enricheR(MTD):
 								'ELEMENT', 'DISEASE', 'POSITION', 'MOTIF', 'STRUCTURE', 'AASEQ', 'NTSEQ']
 
 		self.dfkegg =  pd.DataFrame()
-
-		self.gene = Gene(root0=root0)
 		self.df_uniprot = pd.DataFrame()
 
 		self.degs_in_pathways_random, self.degs_not_in_pathways_random = [], []
