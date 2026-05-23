@@ -2335,18 +2335,20 @@ class GDC(object):
 
         min_cluster_size = min(min_cluster_size, n_samples)
 
-        print(">>> calc_HDBSCAN MIN_CLUSTER_SIZE", min_cluster_size)
+        # print(">>> calc_HDBSCAN MIN_CLUSTER_SIZE", min_cluster_size)
 
-        D = pairwise_distances(X, metric="jaccard")
+        # where distance_matrix is already your precomputed Jaccard dissimilarity matrix.
+        dist_matrix = pairwise_distances(X, metric="jaccard")
 
+        # metric is not exactly the same concept as dissimilarity="precomputed" in older versions.
+        # In current MDS, the distance matrix behavior is usually controlled by normalized_stress/input handling 
+        # and the API changes around dissimilarity can be confusing.
         embedding = MDS(
             n_components=2,
-            # dissimilarity="precomputed",
             metric='precomputed',
-            n_init=8,
-            init="classical_mds",
+            n_init=1,
             random_state=42,
-        ).fit_transform(D)
+        ).fit_transform(dist_matrix)
 
         if isinstance(embedding, tuple):
             print("embedding return as a tuple")
@@ -2365,7 +2367,7 @@ class GDC(object):
         )
         labels = clusterer.fit_predict(embedding)
 
-        return embedding.tolist(), labels.tolist(), D
+        return embedding.tolist(), labels.tolist(), dist_matrix
 
     def calc_UMAP(self, dfpiv: pd.DataFrame, k: int = 8) -> tuple[List, List]:
         # Binary mutation matrix for Jaccard

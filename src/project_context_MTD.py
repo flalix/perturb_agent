@@ -13,9 +13,7 @@ import numpy as np
 
 @dataclass
 class ProjectContext:
-    root0: Path
-    root0_data: Path
-    root_colab: Path
+    ROOT0_DATA: Path
     email: str | None
 
     i_project: int
@@ -76,10 +74,7 @@ class ProjectContext:
 
 def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int = 0) -> ProjectContext:
     
-    root0 = Path(dic_yml["root0"])
-    root0_data = Path(dic_yml["root0_data"])
-    root_colab = root0_data / "colab"
-
+    ROOT0_DATA = Path(dic_yml["ROOT0_DATA"])
     email = os.getenv("email")
 
     project_list = dic_yml["project_list"]
@@ -145,9 +140,7 @@ def load_project_context(dic_yml: dict, PSI_ID:str = "TCGA-BRCA", i_project: int
               "magenta", "yellow", "gray", "brown", "olive", "navy", "teal", "maroon", "silver",]
     
     return ProjectContext(
-        root0=root0,
-        root0_data=root0_data,
-        root_colab=root_colab,
+        ROOT0_DATA=ROOT0_DATA,
         email=email,
 
         i_project=i_project,

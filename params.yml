@@ -1,5 +1,4 @@
-root0: '/home/flavio/uv/perturb_agent'
-root0_data: '/home/flavio/uv/perturb_agent/data'
+ROOT0_DATA: '/home/flavio/uv/perturb_agent/data'
 
 project_list: ['TCGA',]
 s_project_list: ['TCGA', ]

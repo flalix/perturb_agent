@@ -29,17 +29,17 @@ from libs.Basic import create_dir, pdreadcsv
 
 
 class DASH_CYTO(object):
-    def __init__(self, ROOT0: Path, ROOT0_DATA: Path, dflfc_ori: pd.DataFrame):
+    def __init__(self, root0: Path, root0_data: Path, dflfc_ori: pd.DataFrame):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
 
-        self.ROOT0 = ROOT0
-        self.ROOT0_DATA = ROOT0_DATA
+        self.root0 = root0
+        self.root0_data = root0_data
 
-        self.root_src = create_dir(ROOT0, "src")
+        self.root_src = create_dir(root0, "src")
         self.root_styles = create_dir(self.root_src, "styles")
 
-        self.root_colab= create_dir(ROOT0_DATA, "colab")
+        self.root_colab= create_dir(root0_data, "colab")
         self.root_owl = create_dir(self.root_colab, "owl")
         self.root_ncbi = create_dir(self.root_colab, "ncbi")
 
