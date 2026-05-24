@@ -1198,231 +1198,230 @@ class DASH_CYTO(object):
                     },
                 ),
 
-                # Main horizontal layout: graph left, sidebar right
+                # Main horizontal layout: dropdown / show/hide button
                 html.Div(
                     [
-                        # Left panel: dropdown + Cytoscape
-                        html.Div(
-                            [
-                                dcc.Dropdown(
-                                    id="layout-dropdown",
-                                    options=[
-                                        {"label": "COSE force-directed", "value": "cose"},
-                                        {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
-                                        {"label": "Circle", "value": "circle"},
-                                        {"label": "Grid", "value": "grid"},
-                                        {"label": "Preset", "value": "preset"},
-                                    ],
-                                    value="preset",
-                                    clearable=False,
-                                    style={
-                                        "width": "350px",
-                                        "marginBottom": "10px",
-                                    },
-                                ),
-
-                                cyto.Cytoscape(
-                                    id="reactome-network",
-                                    elements=elements,
-                                    layout={"name": "preset"},
-                                    boxSelectionEnabled=True,
-                                    autoungrabify=False,
-                                    autounselectify=False,
-                                    stylesheet=make_stylesheet(initial_font_size),
-                                    zoom=1.0,
-                                    minZoom=0.2,
-                                    maxZoom=3.0,
-                                    style={
-                                        "width": "100%",
-                                        "height": "80vh",
-                                        "backgroundColor": "#fff9c4",
-                                        "marginTop": marginTop,
-                                        "border": "1px solid #ddd",
-                                        "borderRadius": "12px",
-                                    },
-                                ),
+                        dcc.Dropdown(
+                            id="layout-dropdown",
+                            options=[
+                                {"label": "COSE force-directed", "value": "cose"},
+                                {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
+                                {"label": "Circle", "value": "circle"},
+                                {"label": "Grid", "value": "grid"},
+                                {"label": "Preset", "value": "preset"},
                             ],
+                            value="preset",
+                            clearable=False,
                             style={
-                                "flex": "1 1 auto",
-                                "minWidth": "0",
-                            },                            
+                                "width": "350px",
+                            },
                         ),
 
-                        # Right panel: node info + font controls
+                        html.Button(
+                            "Hide node info",
+                            id="toggle-node-panel-button",
+                            n_clicks=0,
+                            className="cyto-button",
+                            style={
+                                "fontSize": "12px",
+                                "padding": "6px 12px",
+                            },
+                        ),
+                    ],
+                    style={
+                        "display": "flex",
+                        "alignItems": "center",
+                        "justifyContent": "space-between",
+                        "width": "100%",
+                        "marginBottom": "10px",
+                    },
+                ),
+                
+                # Graph + Sidebar
+                html.Div(
+                    [
                         html.Div(
                             [
-                                # Sidebar header
-                                html.Div(
-                                    [                                
-                                        html.H4(
-                                            "Node information",
-                                            className="node-panel-title",
-                                            style={"margin": "0"},
-                                        ),
-
-                                        html.Button(
-                                            "Hide",
-                                            id="toggle-node-panel-button",
-                                            n_clicks=0,
-                                            className="cyto-button",
+                                cyto.Cytoscape(
+                                            id="reactome-network",
+                                            elements=elements,
+                                            layout={"name": "preset"},
+                                            boxSelectionEnabled=True,
+                                            autoungrabify=False,
+                                            autounselectify=False,
+                                            stylesheet=make_stylesheet(initial_font_size),
+                                            zoom=1.0,
+                                            minZoom=0.2,
+                                            maxZoom=3.0,
                                             style={
-                                                "fontSize": "12px",
-                                                "padding": "4px 10px",
-                                                "marginLeft": "8px",
+                                                "width": "100%",
+                                                "height": "80vh",
+                                                "backgroundColor": "#fff9c4",
+                                                "marginTop": marginTop,
+                                                "border": "1px solid #ddd",
+                                                "borderRadius": "12px",
                                             },
                                         ),
-                                ],
-                                style={
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                    "justifyContent": "space-between",
-                                    "marginBottom": "8px",
-                                },
-                            ),
+                            ],
+                            id="graph-panel",
+                            style={"minWidth": "0"},
+                        ),
+   
 
-                            # Collapsible content
-                            html.Div(
-                                id="node-panel-content",
-                                children=[
-                                    html.Div(id="node-info", className="node-info-box"),
+                        # Sidebar
+                        html.Div(
+                            [
+                                html.H4(
+                                    "Node information",
+                                    className="node-panel-title",
+                                    style={"margin": "0"},
+                                ),
 
-                                    dcc.Store(id="cyto-font-size-store", data=initial_font_size),
-                                    dcc.Store(id="cyto-zoom-store", data=1.0),
+                                html.Div(id="node-info", className="node-info-box"),
+                                dcc.Store(id="cyto-font-size-store", data=initial_font_size),
+                                dcc.Store(id="cyto-zoom-store", data=1.0),
 
-                                    html.Div(
-                                        [
-                                            html.Span(
-                                                "Font size",
-                                                style={
-                                                    "fontWeight": "600",
-                                                    "fontSize": "13px",
-                                                    "marginRight": "8px",
-                                                    "whiteSpace": "nowrap",
-                                                },
-                                            ),
+                                # font controls
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Font size",
+                                            style={
+                                                "fontWeight": "600",
+                                                "fontSize": "13px",
+                                                "marginRight": "8px",
+                                                "whiteSpace": "nowrap",
+                                            },
+                                        ),
 
-                                            html.Div(
-                                                [
-                                                    html.Button(
-                                                        "A−",
-                                                        id="decrease-font-btn",
-                                                        n_clicks=0,
-                                                        title="Decrease font size",
-                                                        className="cyto-font-button",
-                                                        style={
-                                                            "borderTopRightRadius": "0px",
-                                                            "borderBottomRightRadius": "0px",
-                                                            "borderRight": "0px",
-                                                        },
-                                                    ),
-                                                    html.Button(
-                                                        "A+",
-                                                        id="increase-font-btn",
-                                                        n_clicks=0,
-                                                        title="Increase font size",
-                                                        className="cyto-font-button",
-                                                        style={
-                                                            "borderTopLeftRadius": "0px",
-                                                            "borderBottomLeftRadius": "0px",
-                                                        },
-                                                    ),
-                                                ],
-                                                style={
-                                                    "display": "flex",
-                                                    "flexDirection": "row",
-                                                    "alignItems": "center",
-                                                },
-                                            ),
+                                        html.Div(
+                                            [
+                                                html.Button(
+                                                    "A−",
+                                                    id="decrease-font-btn",
+                                                    n_clicks=0,
+                                                    title="Decrease font size",
+                                                    className="cyto-font-button",
+                                                    style={
+                                                        "borderTopRightRadius": "0px",
+                                                        "borderBottomRightRadius": "0px",
+                                                        "borderRight": "0px",
+                                                    },
+                                                ),
+                                                html.Button(
+                                                    "A+",
+                                                    id="increase-font-btn",
+                                                    n_clicks=0,
+                                                    title="Increase font size",
+                                                    className="cyto-font-button",
+                                                    style={
+                                                        "borderTopLeftRadius": "0px",
+                                                        "borderBottomLeftRadius": "0px",
+                                                    },
+                                                ),
+                                            ],
+                                            style={
+                                                "display": "flex",
+                                                "flexDirection": "row",
+                                                "alignItems": "center",
+                                            },
+                                        ),
 
-                                            html.Span(
-                                                id="font-size-label",
-                                                children=f"{initial_font_size}px",
-                                                style={
-                                                    "fontSize": "12px",
-                                                    "color": "#555",
-                                                    "marginLeft": "8px",
-                                                    "minWidth": "36px",
-                                                },
-                                            ),
-                                        ],
-                                        style={
-                                            "display": "flex",
-                                            "flexDirection": "row",
-                                            "alignItems": "center",
-                                            "justifyContent": "flex-start",
-                                            "gap": "0px",
-                                            "marginTop": "10px",
-                                            "marginBottom": "12px",
-                                            "padding": "8px",
-                                            "border": "1px solid #ddd",
-                                            "borderRadius": "10px",
-                                            "backgroundColor": "#fafafa",
-                                        },
-                                    ),
+                                        html.Span(
+                                            id="font-size-label",
+                                            children=f"{initial_font_size}px",
+                                            style={
+                                                "fontSize": "12px",
+                                                "color": "#555",
+                                                "marginLeft": "8px",
+                                                "minWidth": "36px",
+                                            },
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "flexDirection": "row",
+                                        "alignItems": "center",
+                                        "justifyContent": "flex-start",
+                                        "gap": "0px",
+                                        "marginTop": "10px",
+                                        "marginBottom": "12px",
+                                        "padding": "8px",
+                                        "border": "1px solid #ddd",
+                                        "borderRadius": "10px",
+                                        "backgroundColor": "#fafafa",
+                                    },
+                                ),
 
-                                    html.Div(
-                                        [
-                                            html.Span(
-                                                "Zoom",
-                                                style={
-                                                    "fontWeight": "600",
-                                                    "fontSize": "13px",
-                                                    "marginRight": "8px",
-                                                    "whiteSpace": "nowrap",
-                                                },
-                                            ),
+                                # zoom controls
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Zoom",
+                                            style={
+                                                "fontWeight": "600",
+                                                "fontSize": "13px",
+                                                "marginRight": "8px",
+                                                "whiteSpace": "nowrap",
+                                            },
+                                        ),
 
-                                            dcc.Slider(
-                                                id="cyto-zoom-slider",
-                                                min=0.2,
-                                                max=3.0,
-                                                step=0.1,
-                                                value=1.0,
-                                                marks={
-                                                    0.5: "0.5x",
-                                                    1.0: "1x",
-                                                    2.0: "2x",
-                                                    3.0: "3x",
-                                                },
-                                                tooltip={"placement": "bottom", "always_visible": False},
-                                            ),
-                                        ],
-                                        style={
-                                            "marginTop": "10px",
-                                            "marginBottom": "12px",
-                                            "padding": "8px",
-                                            "border": "1px solid #ddd",
-                                            "borderRadius": "10px",
-                                            "backgroundColor": "#fafafa",
-                                        },
-                                    ),
+                                        dcc.Slider(
+                                            id="cyto-zoom-slider",
+                                            min=0.2,
+                                            max=3.0,
+                                            step=0.1,
+                                            value=1.0,
+                                            marks={
+                                                0.5: "0.5x",
+                                                1.0: "1x",
+                                                2.0: "2x",
+                                                3.0: "3x",
+                                            },
+                                            tooltip={
+                                                "placement": "bottom",
+                                                "always_visible": False,
+                                            },
+                                        ),
+                                    ],
+                                    style={
+                                        "marginTop": "10px",
+                                        "marginBottom": "12px",
+                                        "padding": "8px",
+                                        "border": "1px solid #ddd",
+                                        "borderRadius": "10px",
+                                        "backgroundColor": "#fafafa",
+                                    },
+                                ),
 
-                                    html.Button(
-                                        "🔄 Reset graph",
-                                        id="reset-graph-button",
-                                        n_clicks=0,
-                                        className="cyto-button cyto-button-reset",
-                                    ),
-                                    html.Button(
-                                        "💾 Save node positions",
-                                        id="save-button", 
-                                        n_clicks=0,
-                                        className="cyto-button cyto-button-reset",
-                                    ),
-                                ],
-                            ),
-                        ],
-                        id="node-sidebar",
-                        className="node-sidebar",
-                    ),
-                ],
-                style={
-                    "width": "100%",
-                    "display": "flex",
-                    "gap": "12px",
-                    "alignItems": "flex-start",
-                },
-            ),
+                                # reset/save buttons
+                                html.Button(
+                                    "🔄 Reset graph",
+                                    id="reset-graph-button",
+                                    n_clicks=0,
+                                    className="cyto-button cyto-button-reset",
+                                ),
+
+                                html.Button(
+                                    "💾 Save node positions",
+                                    id="save-graph-button",
+                                    n_clicks=0,
+                                    className="cyto-button cyto-button-save",
+                                ),
+                            ],
+                            id="node-sidebar",
+                            className="node-sidebar",
+                        ),
+                    ],
+                    id="main-cyto-layout",
+                    style={
+                        "width": "100%",
+                        "display": "grid",
+                        "gridTemplateColumns": "5fr 1fr",
+                        "gap": "12px",
+                        "alignItems": "start",
+                    },
+                ),
 
                 dcc.Store(id="selected-node-store"),
                 dcc.Store(id="expanded-nodes-store", data=[]),
@@ -1450,20 +1449,41 @@ class DASH_CYTO(object):
         )
 
         @app.callback(
-            Output("node-panel-content", "style"),
+            Output("main-cyto-layout", "style"),
+            Output("node-sidebar", "style"),
             Output("toggle-node-panel-button", "children"),
             Input("toggle-node-panel-button", "n_clicks"),
         )
-        def toggle_node_panel(n_clicks):
+        def toggle_node_sidebar(n_clicks):
             if n_clicks is None:
                 n_clicks = 0
 
             hidden = n_clicks % 2 == 1
 
             if hidden:
-                return {"display": "none"}, "Show"
+                return (
+                    {
+                        "width": "100%",
+                        "display": "grid",
+                        "gridTemplateColumns": "1fr",
+                        "gap": "0px",
+                        "alignItems": "start",
+                    },
+                    {"display": "none"},
+                    "Show node info",
+                )
 
-            return {"display": "block"}, "Hide"
+            return (
+                {
+                    "width": "100%",
+                    "display": "grid",
+                    "gridTemplateColumns": "5fr 1fr",
+                    "gap": "12px",
+                    "alignItems": "start",
+                },
+                {},
+                "Hide node info",
+            )
 
 
         @app.callback(
@@ -1541,7 +1561,7 @@ class DASH_CYTO(object):
             Output("save-toast", "is_open"),
             Output("save-toast", "children"),
             Output("saved-output", "children"),
-            Input("save-button", "n_clicks"),
+            Input("save-graph-button", "n_clicks"),
             State("reactome-network", "elements"),
             prevent_initial_call=True,
         )

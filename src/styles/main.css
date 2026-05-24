@@ -48,9 +48,7 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
 .node-sidebar {
     position: sticky;
     top: 10px;
-    width: 360px;
-    min-width: 320px;
-    max-width: 420px;
+    min-width: 260px;
     max-height: 95vh;
     overflow-y: auto;
     padding: 12px;
@@ -82,29 +80,54 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
 }
 /* ===== Dash Cytoscape buttons ===== */
 
+.cyto-button-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
 .cyto-button {
     width: 100%;
-    padding: 14px 18px;
-    margin-bottom: 12px;
-    font-size: 17px;
-    font-weight: 700;
-    border-radius: 14px;
+    padding: 8px 12px;
     border: none;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
-    color: white;
     transition: all 0.15s ease-in-out;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .cyto-button:hover {
     transform: translateY(-1px);
-    filter: brightness(1.05);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
 }
 
 .cyto-button:active {
-    transform: translateY(0);
-    filter: brightness(0.95);
+    transform: translateY(0px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
+.cyto-button-reset {
+    background-color: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.cyto-button-reset:hover {
+    background-color: #e5e7eb;
+}
+
+.cyto-button-save {
+    background-color: #2563eb;
+    color: white;
+    border: 1px solid #1d4ed8;
+}
+
+.cyto-button-save:hover {
+    background-color: #1d4ed8;
+}
 .cyto-button-root {
     background-color: #2563eb;
     box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
