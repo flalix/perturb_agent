@@ -485,7 +485,7 @@ class GDC(object):
 
             # tissue-specific subtype
             df["subtype_tissue"] = df.apply(
-                lambda r: self.map_tissue_subtype(r["subtype_global"]), axis=1
+                lambda r: self.map_tissue_subtype(r["subtype_global"], r["psi_id"]), axis=1
             )
 
             # consistency check
@@ -1344,11 +1344,9 @@ class GDC(object):
 
         dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
         dff_normal.reset_index(drop=True, inplace=True)
-        self.dff_normal = dff_normal
 
         dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
         dff_tumor.reset_index(drop=True, inplace=True)
-        self.dff_tumor = dff_tumor
 
         if verbose:
             print(
@@ -1505,10 +1503,6 @@ class GDC(object):
 
             i += 1
             # print(i, end=' ')
-            if "gene_id" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_id": "geneid"})
-            if "gene_type" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
             dfa = dfa.rename(columns={"counts": f"normal_{i}"})
@@ -1536,10 +1530,6 @@ class GDC(object):
 
             i += 1
             # print(i, end=' ')
-            if "gene_id" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_id": "geneid"})
-            if "gene_type" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
             dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
@@ -2340,7 +2330,7 @@ class GDC(object):
         embedding = MDS(
             n_components=2,
             # dissimilarity="precomputed",
-            metric='precomputed',
+            metric_mds=True,
             n_init=8,
             init="classical_mds",
             random_state=42,
@@ -2470,6 +2460,7 @@ class GDC(object):
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
 
+        if fig: plt.show()
         return fig, embedding, labels
 
     def plot_HDBSCAN(
@@ -2517,6 +2508,7 @@ class GDC(object):
             legend_handles.append(patch)
 
         ax.legend(handles=legend_handles, title="Groups", loc="best")
+        if fig: plt.show()
 
         return fig, embedding, labels, d
 
@@ -2790,8 +2782,7 @@ class GDC(object):
     def cluster_analysis(
         self,
         cluster_type: str,
-        psi_id: str,
-        sample_type_term: str,
+        primary_site: str,
         k: int = 5,
         Kmin: int = 2,
         Kmax: int = 10,
@@ -2810,10 +2801,9 @@ class GDC(object):
         pd.DataFrame,
         pd.DataFrame,
     ]:
-        
 
         dfw, dfh, dfstat, dfpiv, df_all_mut = self.entropy_analysis_for_primary_site(
-            cluster_type, psi_id, sample_type_term, Kmin, Kmax, min_barcodes, min_genes, verbose
+            cluster_type, primary_site, Kmin, Kmax, min_barcodes, min_genes, verbose
         )
 
         dfempty = pd.DataFrame()
@@ -3114,7 +3104,7 @@ class GDC(object):
         if filename.exists():
             df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
         else:
-            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id_list[0]} to {sample_id_list[-1]}")
+            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id}")
             df_vcf = pd.DataFrame()
 
         self.df_vcf = df_vcf
@@ -3337,6 +3327,24 @@ class GDC(object):
         _ = write_txt(msg, fname_sample_txt, self.root_lfc)
 
         return df_degs, df_lfc, degs_txt, msg
+
+
+    def get_df_lfc(self, verbose: bool = False) -> pd.DataFrame:
+
+
+        disease = self.psi_id
+
+        mtd = MTD(disease=disease, gene_protein=gene_protein, s_omics=s_omics, project=project, s_project=s_project, root0=root0, root0_data=root0_data,
+                case_list=case_list, dic_case_list=dic_case_list, has_age=has_age, has_gender=has_gender, exp_normalization=exp_normalization,
+                std_filename=std_filename, std_filename_list=std_filename_list,
+                geneset_num=0, ptw_min_num_of_degs_cut=ptw_min_num_of_degs_cut,
+                tolerance_pPMI=tolerance_pPMI, s_pathw_enrichm_method=s_pathw_enrichm_method,
+                LFC_cut_inf=LFC_cut_inf, fdr_ptw_cutoff_list=fdr_ptw_cutoff_list,
+                num_of_genes_list=num_of_genes_list, lfc_list=lfc_list, fdr_list=fdr_list, 
+                min_lfc_modulation=min_lfc_modulation, type_sat_ptw_index=type_sat_ptw_index,
+                saturation_lfc_param=saturation_lfc_param, enr_db_list=enr_db_list, pPMI_normalized=pPMI_normalized)
+
+        return df_lfc
 
 
     def read_GTEx_to_TCGA_table(self, verbose: bool = False) -> pd.DataFrame:
@@ -3565,7 +3573,7 @@ class GDC(object):
         if self.df_meta.empty:
             _ = self.read_GTEx_metadata(verbose=verbose)
 
-        return self.df_gtex_counts
+        return df_gtex_counts
 
     def read_GTEx_pheno(self, verbose: bool = False):
         # load phenotype
@@ -3649,14 +3657,8 @@ class GDC(object):
         # 1. Filter for Tissue
         # df_meta_prep is df_meta filtered by gtex_id
         # 'Colon_Transverse' --> 'Colon - Transverse'
-
-        if self.gtex_id == 'Adrenal_Gland' or self.gtex_id == 'Whole_Blood':
-            term = self.gtex_id.replace('_', ' ')
-        else:
-            term = " - ".join(self.gtex_id.split('_')[:2])
-        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)].copy()
-        df_meta_prep.reset_index(drop=True, inplace=True)
-
+        term = " - ".join(self.gtex_id.split('_')[:2])
+        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)]
         self.df_meta_prep = df_meta_prep
 
         if df_meta_prep.empty:
