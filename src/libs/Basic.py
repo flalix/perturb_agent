@@ -19,6 +19,9 @@ from collections import OrderedDict
 from os.path import exists as exists
 from os.path import join as osjoin
 from pathlib import Path
+from urllib.parse import urlparse
+import requests
+
 from typing import Any, List  # Optional, Iterable, Set, Tuple, ,
 
 import numpy as np
@@ -108,6 +111,38 @@ def simple_replace(stri):
 
     return stri.replace("  ", " ")
 
+
+def download_url_file(url: str, fname:str, root_file: Path, 
+                      timeout: int = 90, force: bool = False, verbose: bool = False) -> bool:
+    root_file.mkdir(parents=True, exist_ok=True)
+
+    filename = root_file / fname
+
+    if filename.exists() and not force:
+        if verbose:
+            print(f"File already exists: {filename}")
+        return True
+
+    try:
+        r = requests.get(url, stream=True, timeout=timeout)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error downloading image from {url}: {e}")
+        return False
+
+    try:
+        with open(filename, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+    except Exception as e:
+        print(f"Error saving image to {filename}: {e}")
+        return False
+    
+    if verbose:
+        print(f"Image downloaded successfully at {filename}.")
+
+    return True
 
 def prepare_id(_id):
     return _id.split("=")[0].strip().replace("/", "-").replace(" ", "_")

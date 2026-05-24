@@ -1024,29 +1024,33 @@ if st.session_state.loaded:
                 df_enr0 = calc_enrichment_analysis(verbose=False, force=False)
                 df_enr = df_enr0[ (df_enr0.fdr < fdr_ptw_cutoff) & (df_enr0.num_of_genes >= min_genes) ]
 
-                cols_pathways = ["pathway",  "pathway_id", "pval", "fdr", "odds_ratio", "combined_score", "genes", "num_of_genes"]
+                if df_enr.empty:
+                    st.write("No enriched pathways found.")
+                else:
+                    cols_pathways = ["pathway",  "pathway_id", "pval", "fdr", "odds_ratio", "combined_score", "genes", "num_of_genes"]
 
-                grid_key = f"EA_{psi_id}_fdr_{fdr_ptw_cutoff}_min_genes_{min_genes}"
-                selected_pathway_row = show_df(df_enr, height=None, key=grid_key, selectable=True,)
+                    grid_key = f"EA_{psi_id}_fdr_{fdr_ptw_cutoff}_min_genes_{min_genes}"
+                    selected_pathway_row = show_df(df_enr, height=None, key=grid_key, selectable=True,)
 
-                if selected_pathway_row is not None:
-                    pathway_id = selected_pathway_row["pathway_id"]
-                    pathway = selected_pathway_row["pathway"]
+                    if selected_pathway_row is not None:
+                        pathway_id = selected_pathway_row["pathway_id"]
+                        pathway = selected_pathway_row["pathway"]
+                        print(">>> Selected pathway:", pathway_id, pathway, "...\n", selected_pathway_row)
 
-                    st.session_state["selected_pathway_id"] = pathway_id
-                    st.session_state["selected_pathway"] = pathway
+                        st.session_state["selected_pathway_id"] = pathway_id
+                        st.session_state["selected_pathway"] = pathway
 
-                    rdf = dcy.read_owl(pathway_id, pathway, verbose=True)
-                    if rdf is None:
-                        fname_owl = f"{pathway_id}_level3.owl"
-                        filename = dcy.root_owl / fname_owl
-                        st.error(f"Failed to load OWL file {filename}")
-                    else:
-                        height = "95%"
-                        width = "100%"
-                        marginTop="20px"
+                        ret = dcy.read_owl(pathway_id, pathway, verbose=True)
+                        if not ret:
+                            fname_owl = f"{pathway_id}_level3.owl"
+                            filename = dcy.root_owl / fname_owl
+                            st.error(f"Failed to load OWL file {filename}")
+                        else:
+                            height = "95%"
+                            width = "100%"
+                            marginTop="20px"
 
-                        dcy.run_app(height=height, width=width, marginTop=marginTop)
+                            dcy.run_app(height=height, width=width, marginTop=marginTop)
 
 
     # -------------------------------------------------------------------------

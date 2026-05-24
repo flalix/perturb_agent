@@ -11,21 +11,23 @@ import json
 import math
 import os
 import re
+import subprocess
 from os import path
 import pandas as pd
 import threading
 import webbrowser
+import socket
 from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output, State, ctx
+from dash import html, dcc, Input, Output, State, ctx, no_update
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import networkx as nx
 from rdflib import RDF, Graph, Namespace
 
 # import py4cytoscape as p4c
-from libs.Basic import create_dir, pdreadcsv
+from libs.Basic import create_dir, pdreadcsv, download_url_file
 
 
 class DASH_CYTO(object):
@@ -47,6 +49,9 @@ class DASH_CYTO(object):
         self.settings_file = self.root_owl /'graph_settings.json'
 
         self.fname_pos = "positions_%s.json"
+
+        self.url_reactome_image = "https://reactome.org/ContentService/exporter/diagram/%s.png?quality=7"
+        self.url_reactome_owl   = "https://reactome.org/ReactomeRESTfulAPI/RESTfulWS/biopaxExporter/Level3/%s"        
 
         # has columns: ['ensembl_id', 'symbol', 'name', 'uniprot_id', 'ncbi_gene_id', 'synonyms', 'refseq_summary']
         self.fname_hugo       = "hugo_gene_table_refseq_uniprot.tsv"
@@ -86,6 +91,10 @@ class DASH_CYTO(object):
         self.load_gene_annotation_table()
         self.load_gene_alias_table()
 
+        self.START_PORT = 8051
+        self.END_PORT = 8070
+        self.kill_dash_ports()
+
     def reset_graph(self):
         self.G = nx.DiGraph()
         self.saved_positions = {}
@@ -99,22 +108,40 @@ class DASH_CYTO(object):
         self.pathway_id = pathway_id
         self.pathway = pathway
 
+        #------------ first image ------------------------
+        fname_png = f"{pathway_id}.png"
+        filename = self.root_owl / fname_png
+
+        if not filename.exists():
+            url = self.url_reactome_image%(pathway_id)
+            ret = download_url_file(url, fname=fname_png, root_file=self.root_owl, verbose=True)
+
+        #------------ next, level3.owl ------------------
         fname_owl = f"{pathway_id}_level3.owl"
         filename = self.root_owl / fname_owl
 
         if not filename.exists():
+            ID = pathway_id.replace("R-HSA-", "")
+            url = self.url_reactome_owl%(ID)
+            ret = download_url_file(url, fname=fname_owl, root_file=self.root_owl, verbose=True)
+            if not ret: 
+                return False
+
+        if not filename.exists():
+            print(f"File not found: {filename}")
             return False
 
         if verbose:
             print(f"Reading OWL file {filename} - pathway: '{pathway}'")
 
+        #---------- read owl ------------------------
         try:
             self.rdf.parse(filename, format="xml")
         except Exception as e:
             print(f"Error parsing OWL file: {e}")
 
-        if verbose:
-            print(f"Processing {len(list(self.rdf.subjects()))} RDF triples")
+        #if verbose:
+        #    print(f"Processing {len(list(self.rdf.subjects()))} RDF triples")
 
         for cls in self.classes:
             for node in self.rdf.subjects(RDF.type, cls):
@@ -240,8 +267,8 @@ class DASH_CYTO(object):
 
             dic_symbol = self.dic_lfc_lookup.get(symbol)
 
-            if symbol == 'CCNB2':
-                print(f"Found CCNB2: {dic_symbol}")
+            #if symbol == 'CCNB2':
+            #    print(f"Found CCNB2: {dic_symbol}")
 
             if dic_symbol is not None:
                 log2FC = dic_symbol["lfc"]
@@ -986,7 +1013,9 @@ class DASH_CYTO(object):
         with open(self.settings_file, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)    
 
-    def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px"):
+
+            
+    def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
 
         self.G = self.G.subgraph([n for n in self.G.nodes() if self.G.degree(n) > 0]).copy()
 
@@ -1000,6 +1029,8 @@ class DASH_CYTO(object):
                         )
 
         title = f"{self.pathway} - {self.pathway_id}"
+
+        print(">>> create_cytoscape_app() ", title)
 
         """
         save_and_notify          -> updates toast + saved-output
@@ -1220,8 +1251,34 @@ class DASH_CYTO(object):
                         # Right panel: node info + font controls
                         html.Div(
                             [
-                                html.H4("Node information", className="node-panel-title"),
+                                html.H4(
+                                    "Node information",
+                                    className="node-panel-title",
+                                    style={"margin": "0"},
+                                ),
 
+                                html.Button(
+                                    "Hide",
+                                    id="toggle-node-panel-button",
+                                    n_clicks=0,
+                                    className="cyto-button",
+                                    style={
+                                        "fontSize": "12px",
+                                        "padding": "4px 10px",
+                                        "marginLeft": "8px",
+                                    },
+                                ),
+                            ],
+                            style={
+                                "display": "flex",
+                                "alignItems": "center",
+                                "justifyContent": "space-between",
+                                "marginBottom": "8px",
+                            },
+                        ),
+                        html.Div(
+                            id="node-panel-content",
+                            children=[
                                 html.Div(id="node-info", className="node-info-box"),
 
                                 dcc.Store(id="cyto-font-size-store", data=initial_font_size),
@@ -1380,6 +1437,93 @@ class DASH_CYTO(object):
             ]
         )
 
+        @app.callback(
+            Output("node-panel-content", "style"),
+            Output("toggle-node-panel-button", "children"),
+            Input("toggle-node-panel-button", "n_clicks"),
+        )
+        def toggle_node_panel(n_clicks):
+            if n_clicks is None:
+                n_clicks = 0
+
+            hidden = n_clicks % 2 == 1
+
+            if hidden:
+                return {"display": "none"}, "Show"
+
+            return {"display": "block"}, "Hide"
+
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("reactome-network", "layout", allow_duplicate=True),
+            Output("reactome-network", "zoom", allow_duplicate=True),
+            Output("expanded-nodes-store", "data", allow_duplicate=True),
+            Output("selected-node-store", "data", allow_duplicate=True),
+            Output("layout-dropdown", "value", allow_duplicate=True),
+            Input("reset-graph-button", "n_clicks"),
+            State("all-elements-store", "data"),
+            prevent_initial_call=True,
+        )
+        def reset_graph(n_clicks, all_elements):
+            if not n_clicks:
+                return no_update, no_update, no_update, no_update, no_update, no_update
+
+            return (
+                all_elements,          # restore original graph
+                {"name": "preset"},    # restore saved positions
+                1.0,                   # reset zoom
+                [],                    # no expanded nodes
+                None,                  # no selected node
+                "preset",              # reset dropdown
+            )
+
+        @app.callback(
+            Output("reactome-network", "layout"),
+            Input("layout-dropdown", "value"),
+        )
+        def update_layout(layout_name):
+            if layout_name is None:
+                layout_name = "preset"
+
+            if layout_name == "preset":
+                return {"name": "preset"}
+
+            if layout_name == "cose":
+                return {
+                    "name": "cose",
+                    "animate": True,
+                    "fit": True,
+                    "padding": 30,
+                    "nodeRepulsion": 8000,
+                    "idealEdgeLength": 80,
+                }
+
+            if layout_name == "breadthfirst":
+                return {
+                    "name": "breadthfirst",
+                    "directed": True,
+                    "fit": True,
+                    "padding": 30,
+                    "spacingFactor": 1.2,
+                }
+
+            if layout_name == "circle":
+                return {
+                    "name": "circle",
+                    "fit": True,
+                    "padding": 30,
+                }
+
+            if layout_name == "grid":
+                return {
+                    "name": "grid",
+                    "fit": True,
+                    "padding": 30,
+                }
+
+            return {"name": "preset"}
+
 
         @app.callback(
             Output("save-toast", "is_open"),
@@ -1433,7 +1577,6 @@ class DASH_CYTO(object):
             prevent_initial_call=True,
         )
         def update_font_size(n_inc, n_dec, current_size):
-            from dash import ctx
 
             if current_size is None:
                 current_size = base_font_size
@@ -1492,9 +1635,78 @@ class DASH_CYTO(object):
         return app
     
 
-    def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
+    def kill_dash_ports(self, dry_run: bool = False):
+        """
+        Kill processes occupying Dash ports, but never kill Streamlit.
+        Intended for local development.
+        """
 
-        app = self.create_cytoscape_app(height=height, width=width, marginTop=marginTop)
+        for port in range(self.START_PORT, self.END_PORT + 1):
+            result = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}"],
+                capture_output=True,
+                text=True,
+            )
+
+            pids = result.stdout.strip().splitlines()
+
+            if not pids:
+                continue
+
+            for pid in pids:
+                info = subprocess.run(
+                    ["ps", "-p", pid, "-o", "args="],
+                    capture_output=True,
+                    text=True,
+                )
+
+                cmdline = info.stdout.strip()
+                cmdline_lower = cmdline.lower()
+
+                print(f">>> PID {pid} on port {port}: {cmdline}")
+
+                if "streamlit" in cmdline_lower:
+                    print(f"Skipping PID {pid}: looks like Streamlit")
+                    continue
+
+                looks_like_dash = (
+                    "dash" in cmdline_lower
+                    or "flask" in cmdline_lower
+                    or "werkzeug" in cmdline_lower
+                    or "dashcyto_lib" in cmdline_lower
+                    or "libs.dashcyto_lib" in cmdline_lower
+                )
+
+                if looks_like_dash:
+                    if dry_run:
+                        print(f"Would kill Dash PID {pid} on port {port}")
+                    else:
+                        print(f"Killing Dash PID {pid} on port {port}")
+                        subprocess.run(["kill", "-9", pid])
+                else:
+                    print(f"Skipping PID {pid}: not clearly Dash")
+                    
+    def is_port_free(self, port: int, host: str = "127.0.0.1") -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex((host, port)) != 0
+
+
+    def find_free_dash_port(self) -> int:
+
+        for port in range(self.START_PORT, self.END_PORT + 1):
+            if self.is_port_free(port):
+                return port
+
+        raise RuntimeError(
+            f"No free Dash port found between {self.START_PORT} and {self.END_PORT}"
+        )
+
+    def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int | None = None,):
+
+        if port is None:
+            port = self.find_free_dash_port()
+            
+        app = self.create_cytoscape_app(height=height, width=width, marginTop=marginTop, port=port)
         url = f"http://localhost:{port}"
 
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
