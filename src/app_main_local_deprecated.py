@@ -145,82 +145,40 @@ def show_profile_box():
     )
 
 
-def make_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
+def make_df_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
 
-    out = df.copy()
+    df_safe = df.copy()
 
     # Make labels plain Python strings
-    out.index = out.index.map(str)
-    out.columns = [str(c) for c in out.columns]
+    df_safe.index = df_safe.index.map(str)
+    df_safe.columns = [str(c) for c in df_safe.columns]
 
     # Flatten MultiIndex columns if present
-    if isinstance(out.columns, pd.MultiIndex):
-        out.columns = [" | ".join(map(str, col)).strip() for col in out.columns.to_flat_index()]
+    if isinstance(df_safe.columns, pd.MultiIndex):
+        df_safe.columns = [" | ".join(map(str, col)).strip() for col in df_safe.columns.to_flat_index()]
 
     # Convert every column to a Streamlit-safe pandas dtype
-    for col in out.columns:
-        s = out[col]
+    for col in df_safe.columns:
+        s = df_safe[col]
 
         # nullable / pyarrow / string extension -> Python objects
         try:
             if pd.api.types.is_string_dtype(s.dtype):
-                out[col] = s.astype("object")
+                df_safe[col] = s.astype("object")
             elif str(s.dtype).lower().find("pyarrow") >= 0:
-                out[col] = s.astype("object")
+                df_safe[col] = s.astype("object")
             else:
-                out[col] = s
+                df_safe[col] = s
         except Exception:
-            out[col] = s.astype("object")
+            df_safe[col] = s.astype("object")
 
         # Replace pandas NA/NaT with None so Arrow does not try fancy typing
-        out[col] = out[col].where(pd.notna(out[col]), None)
+        df_safe[col] = df_safe[col].where(pd.notna(df_safe[col]), None)
 
-    return out
+    return df_safe
 
-
-def make_aggrid_safe(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # Flatten columns
-    if isinstance(out.columns, pd.MultiIndex):
-        out.columns = [" | ".join(map(str, c)).strip() for c in out.columns.to_flat_index()]
-    else:
-        out.columns = [str(c) for c in out.columns]
-
-    # String index
-    out.index = [str(i) for i in out.index]
-
-    # Remove duplicated column names
-    if pd.Index(out.columns).duplicated().any():
-        seen = {}
-        new_cols = []
-        for c in out.columns:
-            if c in seen:
-                seen[c] += 1
-                new_cols.append(f"{c}_{seen[c]}")
-            else:
-                seen[c] = 0
-                new_cols.append(c)
-        out.columns = new_cols
-
-    # Force plain Python scalar values only
-    for col in out.columns:
-        out[col] = out[col].map(
-            lambda x: (
-                None
-                if pd.isna(x)
-                else str(x)
-                if isinstance(x, (list, dict, set, tuple, np.ndarray))
-                else x
-            )
-        )
-
-    return out
 
 
 def show_df( df, height: int | None = None, page_size: int = 25, key: str = "grid", selectable: bool = False):
@@ -233,7 +191,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         st.info("Empty dataframe")
         return
 
-    df = make_aggrid_safe(df)
+    df = make_df_streamlit_safe(df)
 
     for col in df.columns:
         converted = pd.to_numeric(df[col], errors="coerce")
@@ -540,8 +498,6 @@ def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
     return mtd.df_enr0
 
 
-
-
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
 # -----------------------------------------------------------------------------
@@ -560,9 +516,9 @@ def load_primary_site_data(
     )
 
     return (
-        make_streamlit_safe(df_cases),
-        make_streamlit_safe(df_all_samples),
-        make_streamlit_safe(df_all_mut),
+        make_df_streamlit_safe(df_cases),
+        make_df_streamlit_safe(df_all_samples),
+        make_df_streamlit_safe(df_all_mut),
         barcode_list,
     )
 
@@ -579,7 +535,7 @@ def st_build_pivot_table(
         return pd.DataFrame()
 
     dfpiv = gdc.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
-    dfpiv = make_streamlit_safe(dfpiv)
+    dfpiv = make_df_streamlit_safe(dfpiv)
 
     return dfpiv.sort_index(axis=0).sort_index(axis=1)
 
@@ -600,7 +556,7 @@ def summarize_mutations(df_all_mut: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-    df = make_streamlit_safe(df)
+    df = make_df_streamlit_safe(df)
     return df
 
 
@@ -646,7 +602,7 @@ with st.sidebar:
 if st.session_state.loaded:
     gdc.set_program(prog_id)
     df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
-    df_psi = make_streamlit_safe(df_psi)
+    df_psi = make_df_streamlit_safe(df_psi)
 
     # ---------- primary sites ----------------------------
     primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]

@@ -49,9 +49,10 @@ import seaborn as sns
 
 """
 
-ROOT0 = Path(os.environ.get("ROOT0", "."))
-ROOT_DATA = Path(os.environ.get("ROOT_DATA", "data"))
+ROOT0 = Path(os.environ.get("ROOT0", "/home/flavio/uv/perturb_agent"))
+ROOT_DATA = Path(os.environ.get("ROOT_DATA", "/home/flavio/uv/perturb_agent/data"))
 ROOT_SRC = ROOT0 / "src"
+ROOT_COLAB = ROOT_DATA / "colab"
 ROOT_CSS = ROOT_SRC / "styles"
 
 if str(ROOT_SRC) not in sys.path:
@@ -60,6 +61,7 @@ if str(ROOT_SRC) not in sys.path:
 print("ROOT0:", ROOT0)
 print("ROOT_SRC:", ROOT_SRC)
 print("ROOT_DATA:", ROOT_DATA)
+print("ROOT_COLAB:", ROOT_COLAB)
 
 if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
@@ -78,8 +80,6 @@ except:
     print("Error loading params.yml")
     print(">>>", os.listdir("../"))
     raise Exception("\n------------ stop --------------\n")
-
-from project_context_MTD import load_project_context
 
 PROG_ID = 'TCGA'
 PSI_ID = 'TCGA-BRCA'
@@ -157,7 +157,7 @@ def show_profile_box():
     )
 
 
-def make_df_safe(df: pd.DataFrame) -> pd.DataFrame:
+def make_df_streamlit_safe(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
 
@@ -165,12 +165,11 @@ def make_df_safe(df: pd.DataFrame) -> pd.DataFrame:
 
     # Make labels plain Python strings
     df_safe.index = df_safe.index.map(str)
+    df_safe.columns = [str(c) for c in df_safe.columns]
 
     # Flatten MultiIndex columns if present
     if isinstance(df_safe.columns, pd.MultiIndex):
         df_safe.columns = [" | ".join(map(str, col)).strip() for col in df_safe.columns.to_flat_index()]
-    else:
-        df_safe.columns = [str(c) for c in df_safe.columns]
 
     # Convert every column to a Streamlit-safe pandas dtype
     for col in df_safe.columns:
@@ -202,7 +201,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         st.info("Empty dataframe")
         return
 
-    df = make_df_safe(df)
+    df = make_df_streamlit_safe(df)
 
     for col in df.columns:
         converted = pd.to_numeric(df[col], errors="coerce")
@@ -324,7 +323,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
 
     return response
 
-def show_selectable_df(df, height=None, key=None):
+def show_selectable_df(df, height: float | None = None, key=None):
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_selection(selection_mode="single", use_checkbox=True)
     # gb.configure_grid_options(domLayout="normal")
@@ -343,7 +342,6 @@ def show_selectable_df(df, height=None, key=None):
         return selected[0]
 
     return None
-
 
 def show_df_html(df, height: int = 600):
     if df is None or df.empty:
@@ -425,9 +423,7 @@ def plot_umap(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
         plt.close(fig)
 
 
-def plot_hdbscan(
-    dfpiv: pd.DataFrame, min_cluster_size: int = 10, min_samples: int = 3, figsize: tuple = (14, 10)
-):
+def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size: int = 10, min_samples: int = 3, figsize: tuple = (14, 10)):
 
     fig, embedding, labels, d = gdc.plot_HDBSCAN(
         dfpiv=dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples, figsize=figsize
@@ -438,6 +434,7 @@ def plot_hdbscan(
         plt.close(fig)
 
     return fig, embedding, labels
+
 
 
 def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:float=0.05, verbose:bool=False):
@@ -509,8 +506,6 @@ def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
     return mtd.df_enr0
 
 
-
-
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
 # -----------------------------------------------------------------------------
@@ -529,9 +524,9 @@ def load_primary_site_data(
     )
 
     return (
-        make_df_safe(df_cases),
-        make_df_safe(df_all_samples),
-        make_df_safe(df_all_mut),
+        make_df_streamlit_safe(df_cases),
+        make_df_streamlit_safe(df_all_samples),
+        make_df_streamlit_safe(df_all_mut),
         barcode_list,
     )
 
@@ -548,7 +543,7 @@ def st_build_pivot_table(
         return pd.DataFrame()
 
     dfpiv = gdc.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
-    dfpiv = make_df_safe(dfpiv)
+    dfpiv = make_df_streamlit_safe(dfpiv)
 
     return dfpiv.sort_index(axis=0).sort_index(axis=1)
 
@@ -569,7 +564,7 @@ def summarize_mutations(df_all_mut: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-    df = make_df_safe(df)
+    df = make_df_streamlit_safe(df)
     return df
 
 
@@ -603,6 +598,7 @@ with st.sidebar:
     st.text(f"ROOT0 {ROOT0}")
     st.text(f"ROOT_DATA {ROOT_DATA}")
     st.text(f"ROOT_SRC {ROOT_SRC}")
+    st.text(f"ROOT_COLAB {ROOT_COLAB}")
     st.text(f"ROOT_CSS {ROOT_CSS}")
 
     if load_clicked:
@@ -615,7 +611,7 @@ with st.sidebar:
 if st.session_state.loaded:
     gdc.set_program(prog_id)
     df_psi = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
-    df_psi = make_df_safe(df_psi)
+    df_psi = make_df_streamlit_safe(df_psi)
 
     # ---------- primary sites ----------------------------
     primary_sites = [row.psi_id + " - " + row.primary_site for i, row in df_psi.iterrows()]
@@ -643,9 +639,10 @@ if st.session_state.loaded:
     psi_id = str(selected_primary_site).split(" - ")[0]
     gdc.set_primary_site(psi_id=psi_id)
     with st.spinner("Loading primary site data..."):
-        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(
-            psi_id, verbose=False
-        )
+        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
+
+        cases_ids = np.unique(df_all_samples.case_id)
+        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)]
 
         method = "deseq2"
         mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
@@ -719,16 +716,13 @@ if st.session_state.loaded:
         tab_head_cluster,
         tab_head_diff_exp,
         tab_donwload,
-    ) = st.tabs(
-        ["Cases", "Tumor Samples", "Mutations", "Clusterization", "Diff.Expression", "Downloads"]
-    )
+    ) = st.tabs( ["Cases", "Tumor Samples", "Mutations", "Clusterization", "Diff.Expression", "Downloads"] )
 
     # -------------------------------------------------------------------------
     # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
     with tab_cases:
         st.info(f"Selected case_id: {current_case_id()}")
-
 
         cols = ["case_id", "disease_type", "diagnoses", "subtype_global", "subtype_tissue", 
                 "primary_diagnosis", "tumor_grade", "tumor_stage", "stage", "tumor_class", "histology",]
@@ -1004,12 +998,13 @@ if st.session_state.loaded:
                     if selected_pathway_row is not None:
                         pathway_id = selected_pathway_row["pathway_id"]
                         pathway = selected_pathway_row["pathway"]
+                        print(">>> Selected pathway:", pathway_id, pathway, "...\n", selected_pathway_row)
 
                         st.session_state["selected_pathway_id"] = pathway_id
                         st.session_state["selected_pathway"] = pathway
 
-                        rdf = dcy.read_owl(pathway_id, pathway, verbose=True)
-                        if rdf is None:
+                        ret = dcy.read_owl(pathway_id, pathway, verbose=True)
+                        if not ret:
                             fname_owl = f"{pathway_id}_level3.owl"
                             filename = dcy.root_owl / fname_owl
                             st.error(f"Failed to load OWL file {filename}")

@@ -21,7 +21,7 @@ import socket
 from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output, State, ctx, no_update, callback_context
+from dash import html, dcc, Input, Output, State, ctx, no_update
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
@@ -62,6 +62,7 @@ class DASH_CYTO(object):
         self.pathway_id = ""
         self.pathway = ""
         self.rdf = Graph()
+        self.MAX_LEN_LABEL = 25
 
         BP = Namespace("http://www.biopax.org/release/biopax-level3.owl#")
         self.BP = BP
@@ -160,7 +161,7 @@ class DASH_CYTO(object):
         for cls in self.classes:
             for node in self.rdf.subjects(RDF.type, cls):
                 node_id = self.short(node)
-                self.G.add_node(node_id, label=self.get_name(node), biopax_type=self.short(cls))
+                self.G.add_node(node_id, label=self.get_name(node, self.MAX_LEN_LABEL), biopax_type=self.short(cls))
 
         for rel in self.relations:
             for s, o in self.rdf.subject_objects(rel):
@@ -175,12 +176,13 @@ class DASH_CYTO(object):
     def short(self, x) -> str:
         return str(x).split("#")[-1].split("/")[-1]
 
-    def get_name(self, x) -> str:
+    def get_name(self, x, max_len: int | None = None) -> str:
 
         for prop in [self.BP.displayName, self.BP.standardName, self.BP.name]:
             value = next(self.rdf.objects(x, prop), None)
             if value:
-                return str(value)
+                value = str(value)
+                return value if max_len is None else value[:max_len]
 
         return self.short(x)
 
@@ -837,6 +839,13 @@ class DASH_CYTO(object):
 
         return new_elements, sorted(expanded_nodes)
 
+    def find_rdf_obj_from_node_id(self, node_id):
+        for node in self.rdf.subjects():
+            if self.short(node) == node_id:
+                return node
+
+        return None
+
     def extract_node_info(self, node_data: dict, ndigits: int = 4) -> dict:
         """
         Extract standardized node information from Cytoscape node data
@@ -864,7 +873,8 @@ class DASH_CYTO(object):
         annot = self.get_gene_annotation_for_node(node_data)
 
         node_id = first_available("id")
-        label = first_available("label", default=node_id)
+        node = self.find_rdf_obj_from_node_id(node_id)
+        label = "??" if node is None else self.get_name(node)
 
         biopax_type = first_available(
             "biopax_type",
