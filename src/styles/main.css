@@ -196,3 +196,36 @@ div[data-testid="stRadio"] div[role="radiogroup"] {
 .cyto-font-button:active {
     background-color: #e0e0e0;
 }
+
+.popup-button {
+    width: 100%;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border: none;
+    border-radius: 8px;
+    background: #f6f8fa;
+    color: #24292f;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+}
+
+.popup-button:hover {
+    background: #e9f2ff;
+    color: #0969da;
+    transform: translateX(2px);
+}
+
+.popup-close {
+    margin-top: 8px;
+    background: #fff1f0;
+    color: #cf222e;
+}
+
+.popup-close:hover {
+    background: #ffebe9;
+    color: #a40e26;
+}
+

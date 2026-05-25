@@ -20,7 +20,8 @@ import socket
 from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output, State, ctx, no_update
+from dash import html, dcc, Input, Output, State, ctx, no_update, callback_context
+from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import networkx as nx
@@ -1262,12 +1263,38 @@ class DASH_CYTO(object):
                                                 "borderRadius": "12px",
                                             },
                                         ),
+
+                                html.Div(
+                                    id="cyto-popup-menu",
+                                    children=[
+                                        html.Button("1️⃣ Select 1st neighbors", id="btn-select-neighbors", className="popup-button"),
+                                        html.Button("⬆️ Select upstream", id="btn-select-upstream", className="popup-button"),
+                                        html.Button("⬇️ Select downstream", id="btn-select-downstream", className="popup-button"),
+                                        html.Button("⭐ Select main hubs", id="btn-select-hubs", className="popup-button"),
+                                        html.Button("🔼 Select most upstream nodes", id="btn-select-sources", className="popup-button"),
+                                        html.Button("🔽 Select most downstream nodes", id="btn-select-sinks", className="popup-button"),
+                                        html.Button("✖ Close", id="btn-close-popup", className="popup-button popup-close"),
+                                    ],
+                                    style={
+                                        "display": "none",
+                                        "position": "fixed",
+                                        "zIndex": 9999,
+                                        "backgroundColor": "white",
+                                        "border": "1px solid #ddd",
+                                        "borderRadius": "12px",
+                                        "boxShadow": "0 8px 24px rgba(0,0,0,0.18)",
+                                        "padding": "10px",
+                                        "width": "230px",
+                                    },
+                                ),
                             ],
                             id="graph-panel",
-                            style={"minWidth": "0"},
+                             style={
+                                "position": "relative",
+                                "minWidth": "0",
+                            },
                         ),
    
-
                         # Sidebar
                         html.Div(
                             [
@@ -1424,6 +1451,9 @@ class DASH_CYTO(object):
                 ),
 
                 dcc.Store(id="selected-node-store"),
+                dcc.Store(id="hover-node-store"),
+                dcc.Store(id="right-click-event-store"),
+                dcc.Store(id="right-click-node-store"),
                 dcc.Store(id="expanded-nodes-store", data=[]),
                 dcc.Store(id="all-elements-store", data=elements),
 
@@ -1445,8 +1475,88 @@ class DASH_CYTO(object):
                         "zIndex": 9999,
                     },
                 ),
-            ]
+
+            ],
         )
+
+
+        @app.callback(
+            Output("hover-node-store", "data"),
+            Input("reactome-network", "mouseoverNodeData"),
+            prevent_initial_call=True,
+        )
+        def store_hovered_node(node_data):
+            if node_data is None:
+                raise dash.exceptions.PreventUpdate
+
+            print(">>>> hover node:", node_data.get("id"))
+            return node_data
+
+        @app.callback(
+            Output("cyto-popup-menu", "style"),
+            Output("right-click-node-store", "data"),
+            Input("right-click-event-store", "data"),
+            Input("btn-close-popup", "n_clicks"),
+            State("hover-node-store", "data"),
+            State("cyto-popup-menu", "style"),
+            prevent_initial_call=True,
+        )
+        def show_or_hide_popup(right_click_event, close_clicks, hover_node_data, current_style):
+            ctx = dash.callback_context
+
+            if not ctx.triggered:
+                raise dash.exceptions.PreventUpdate
+
+            trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+
+            print(">>>> popup trigger:", trigger)
+            print(">>>> right_click_event:", right_click_event)
+            print(">>>> hover_node_data:", hover_node_data)
+
+            style = dict(current_style or {})
+
+            if trigger == "btn-close-popup":
+                style["display"] = "none"
+                return style, dash.no_update
+
+            if trigger == "right-click-event-store" and right_click_event and hover_node_data:
+                x = right_click_event.get("x", 20)
+                y = right_click_event.get("y", 70)
+
+                style.update(
+                    {
+                        "display": "block",
+                        "position": "fixed",
+                        "left": f"{x}px",
+                        "top": f"{y}px",
+                        "zIndex": 9999,
+                        "backgroundColor": "white",
+                        "border": "1px solid #ddd",
+                        "borderRadius": "12px",
+                        "boxShadow": "0 8px 24px rgba(0,0,0,0.18)",
+                        "padding": "10px",
+                        "width": "230px",
+                    }
+                )
+
+                return style, hover_node_data
+
+            raise dash.exceptions.PreventUpdate
+
+
+        @app.callback(
+            Output("node-info", "children"),
+            Output("selected-node-store", "data"),
+            Input("reactome-network", "tapNodeData"),
+        )
+        def show_node_info(node_data):
+            if node_data is None:
+                return "Click a node to see details.", None
+            
+            print(">>>> oi show_node_info")
+
+            return self.make_node_info_panel(node_data), node_data
+
 
         @app.callback(
             Output("main-cyto-layout", "style"),
@@ -1588,18 +1698,6 @@ class DASH_CYTO(object):
                 # new_elements = elements
 
             return True, message, message
-
-        @app.callback(
-            Output("node-info", "children"),
-            Output("selected-node-store", "data"),
-            Input("reactome-network", "tapNodeData"),
-        )
-        def show_node_info(node_data):
-            if node_data is None:
-                return "Click a node to see details.", None
-
-            return self.make_node_info_panel(node_data), node_data
-
 
         @app.callback(
             Output("cyto-font-size-store", "data"),
