@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 from os import path
+from collections import Counter
 import pandas as pd
 import threading
 import webbrowser
@@ -96,10 +97,22 @@ class DASH_CYTO(object):
         self.END_PORT = 8070
         self.kill_dash_ports()
 
+        self.hub_list = None
+        self.hub_top_n = None
+
+        self.source_node_list = None
+        self.sink_node_list = None
+
     def reset_graph(self):
         self.G = nx.DiGraph()
         self.saved_positions = {}
         self.layout_changed = False
+
+        self.hub_list = None
+        self.hub_top_n = None
+        
+        self.source_node_list = None
+        self.sink_node_list = None        
 
     def read_owl(self, pathway_id: str, pathway: str, verbose: bool = False) -> bool:
                             
@@ -1014,8 +1027,105 @@ class DASH_CYTO(object):
         with open(self.settings_file, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)    
 
+    def get_main_hub_node_ids_cached(self, all_elements, top_n=10):
+        """
+        Return cached main hubs if already calculated.
+        Main hubs = nodes with highest total degree.
+        """
 
-            
+        if self.hub_list is not None and self.hub_top_n == top_n:
+            return set(self.hub_list)
+
+        node_ids = set()
+        degree = Counter()
+
+        for elem in all_elements:
+            data = elem.get("data", {})
+
+            is_node = (
+                "id" in data
+                and "source" not in data
+                and "target" not in data
+            )
+
+            is_edge = (
+                "source" in data
+                and "target" in data
+            )
+
+            if is_node:
+                node_ids.add(data["id"])
+
+            elif is_edge:
+                src = data["source"]
+                tgt = data["target"]
+
+                degree[src] += 1
+                degree[tgt] += 1
+
+        hubs = [
+            node_id
+            for node_id, _ in degree.most_common(top_n)
+            if node_id in node_ids
+        ]
+
+        self.hub_list = hubs
+        self.hub_top_n = top_n
+
+        print(f">>>> calculated hubs once: {self.hub_list}")
+
+        return set(self.hub_list)
+
+
+    def get_source_sink_node_ids_cached(self, all_elements):
+        """
+        Source nodes = nodes with outgoing edges but no incoming edges.
+        Sink nodes   = nodes with incoming edges but no outgoing edges.
+        """
+
+        if self.source_node_list is not None and self.sink_node_list is not None:
+            return set(self.source_node_list), set(self.sink_node_list)
+
+        node_ids = set()
+        incoming = set()
+        outgoing = set()
+
+        for elem in all_elements:
+            data = elem.get("data", {})
+
+            is_node = (
+                "id" in data
+                and "source" not in data
+                and "target" not in data
+            )
+
+            is_edge = (
+                "source" in data
+                and "target" in data
+            )
+
+            if is_node:
+                node_ids.add(data["id"])
+
+            elif is_edge:
+                src = data["source"]
+                tgt = data["target"]
+
+                outgoing.add(src)
+                incoming.add(tgt)
+
+        source_nodes = sorted((node_ids & outgoing) - incoming)
+        sink_nodes = sorted((node_ids & incoming) - outgoing)
+
+        self.source_node_list = source_nodes
+        self.sink_node_list = sink_nodes
+
+        print(f">>>> calculated source nodes once: {len(source_nodes)}")
+        print(f">>>> calculated sink nodes once: {len(sink_nodes)}")
+
+        return set(source_nodes), set(sink_nodes)
+
+
     def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
 
         self.G = self.G.subgraph([n for n in self.G.nodes() if self.G.degree(n) > 0]).copy()
@@ -1202,37 +1312,50 @@ class DASH_CYTO(object):
                 # Main horizontal layout: dropdown / show/hide button
                 html.Div(
                     [
-                        dcc.Dropdown(
-                            id="layout-dropdown",
-                            options=[
-                                {"label": "COSE force-directed", "value": "cose"},
-                                {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
-                                {"label": "Circle", "value": "circle"},
-                                {"label": "Grid", "value": "grid"},
-                                {"label": "Preset", "value": "preset"},
-                            ],
-                            value="preset",
-                            clearable=False,
+                        html.Div(
+                            dcc.Dropdown(
+                                id="layout-dropdown",
+                                options=[
+                                    {"label": "COSE force-directed", "value": "cose"},
+                                    {"label": "Breadthfirst / hierarchical", "value": "breadthfirst"},
+                                    {"label": "Circle", "value": "circle"},
+                                    {"label": "Grid", "value": "grid"},
+                                    {"label": "Preset", "value": "preset"},
+                                ],
+                                value="preset",
+                                clearable=False,
+                                style={
+                                    "width": "350px",
+                                },
+                            ),
                             style={
-                                "width": "350px",
+                                "minWidth": "0",
                             },
                         ),
 
-                        html.Button(
-                            "Hide node info",
-                            id="toggle-node-panel-button",
-                            n_clicks=0,
-                            className="cyto-button",
+                        html.Div(
+                            html.Button(
+                                "Hide node info",
+                                id="toggle-node-panel-button",
+                                n_clicks=0,
+                                className="cyto-button cyto-button-hide",
+                                style={
+                                    "width": "100%",
+                                    "fontSize": "12px",
+                                    "padding": "8px 12px",
+                                },
+                            ),
                             style={
-                                "fontSize": "12px",
-                                "padding": "6px 12px",
+                                "width": "100%",
                             },
                         ),
                     ],
+                    id="top-cyto-controls",
                     style={
-                        "display": "flex",
+                        "display": "grid",
+                        "gridTemplateColumns": "5fr 1fr",
+                        "gap": "12px",
                         "alignItems": "center",
-                        "justifyContent": "space-between",
                         "width": "100%",
                         "marginBottom": "10px",
                     },
@@ -1480,6 +1603,230 @@ class DASH_CYTO(object):
         )
 
 
+        def select_nodes_in_elements(elements, selected_ids):
+            """
+            Deselect all elements, then select only nodes in selected_ids.
+            """
+            selected_ids = set(selected_ids or [])
+            new_elements = []
+
+            for elem in elements:
+                elem2 = dict(elem)
+                data = elem2.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                elem2["selected"] = False
+
+                if is_node and data.get("id") in selected_ids:
+                    elem2["selected"] = True
+
+                new_elements.append(elem2)
+
+            return new_elements
+
+
+        def force_select_single_node(elements, node_id):
+            """
+            Deselect all elements and select only node_id.
+            """
+            if not elements or not node_id:
+                return dash.no_update
+
+            new_elements = []
+
+            for elem in elements:
+                elem2 = dict(elem)
+                data = elem2.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                # remove old selection from everything
+                elem2["selected"] = False
+
+                # select only the right-clicked node
+                if is_node and data.get("id") == node_id:
+                    elem2["selected"] = True
+
+                new_elements.append(elem2)
+
+            return new_elements
+
+
+        def get_upstream_node_ids(node_id, all_elements):
+            """
+            Direct upstream = nodes with edges source -> node_id.
+            """
+            upstream = set()
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                if "source" not in data or "target" not in data:
+                    continue
+
+                if data["target"] == node_id:
+                    upstream.add(data["source"])
+
+            return upstream
+
+
+        def get_downstream_node_ids(node_id, all_elements):
+            """
+            Direct downstream = nodes with edges node_id -> target.
+            """
+            downstream = set()
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                if "source" not in data or "target" not in data:
+                    continue
+
+                if data["source"] == node_id:
+                    downstream.add(data["target"])
+
+            return downstream
+
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-upstream", "n_clicks"),
+
+            State("right-click-node-store", "data"),
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_upstream_and_close_popup(
+            n_clicks,
+            right_click_node,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks or not right_click_node:
+                raise dash.exceptions.PreventUpdate
+
+            node_id = right_click_node.get("id")
+
+            if not node_id:
+                raise dash.exceptions.PreventUpdate
+
+            upstream_ids = get_upstream_node_ids(
+                node_id=node_id,
+                all_elements=all_elements,
+            )
+
+            selected_ids = set(upstream_ids)
+            selected_ids.add(node_id)
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=selected_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
+
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-downstream", "n_clicks"),
+
+            State("right-click-node-store", "data"),
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_downstream_and_close_popup(
+            n_clicks,
+            right_click_node,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks or not right_click_node:
+                raise dash.exceptions.PreventUpdate
+
+            node_id = right_click_node.get("id")
+
+            if not node_id:
+                raise dash.exceptions.PreventUpdate
+
+            downstream_ids = get_downstream_node_ids(
+                node_id=node_id,
+                all_elements=all_elements,
+            )
+
+            selected_ids = set(downstream_ids)
+            selected_ids.add(node_id)
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=selected_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
+
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-hubs", "n_clicks"),
+
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_main_hubs_and_close_popup(
+            n_clicks,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            hub_ids = self.get_main_hub_node_ids_cached(
+                all_elements=all_elements,
+                top_n=10,
+            )
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=hub_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
+
         @app.callback(
             Output("hover-node-store", "data"),
             Input("reactome-network", "mouseoverNodeData"),
@@ -1489,37 +1836,141 @@ class DASH_CYTO(object):
             if node_data is None:
                 raise dash.exceptions.PreventUpdate
 
-            print(">>>> hover node:", node_data.get("id"))
             return node_data
+        
+        """
+            Right-click node A
+                ↓
+            All nodes deselected
+                ↓
+            Node A selected
+                ↓
+            Popup opens
+
+            Click “Select 1st neighbors”
+                ↓
+            Node A + first neighbors selected
+                ↓
+            Popup closes        
+        """
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-sources", "n_clicks"),
+
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_most_upstream_and_close_popup(
+            n_clicks,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            source_ids, _ = self.get_source_sink_node_ids_cached(
+                all_elements=all_elements,
+            )
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=source_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-sinks", "n_clicks"),
+
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_most_downstream_and_close_popup(
+            n_clicks,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            _, sink_ids = self.get_source_sink_node_ids_cached(
+                all_elements=all_elements,
+            )
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=sink_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
+
 
         @app.callback(
             Output("cyto-popup-menu", "style"),
             Output("right-click-node-store", "data"),
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("node-info", "children", allow_duplicate=True),
+            Output("selected-node-store", "data", allow_duplicate=True),
+
             Input("right-click-event-store", "data"),
             Input("btn-close-popup", "n_clicks"),
+
             State("hover-node-store", "data"),
             State("cyto-popup-menu", "style"),
+            State("reactome-network", "elements"),
+
             prevent_initial_call=True,
         )
-        def show_or_hide_popup(right_click_event, close_clicks, hover_node_data, current_style):
-            ctx = dash.callback_context
-
-            if not ctx.triggered:
-                raise dash.exceptions.PreventUpdate
-
-            trigger = ctx.triggered[0]["prop_id"].split(".")[0]
-
-            print(">>>> popup trigger:", trigger)
-            print(">>>> right_click_event:", right_click_event)
-            print(">>>> hover_node_data:", hover_node_data)
+        def show_or_hide_popup(
+            right_click_event,
+            close_clicks,
+            hover_node_data,
+            current_style,
+            current_elements,
+        ):
+            trigger = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
 
             style = dict(current_style or {})
 
             if trigger == "btn-close-popup":
                 style["display"] = "none"
-                return style, dash.no_update
+                return (
+                    style,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                )
 
-            if trigger == "right-click-event-store" and right_click_event and hover_node_data:
+            if trigger == "right-click-event-store":
+                if not right_click_event or not hover_node_data:
+                    raise dash.exceptions.PreventUpdate
+
+                node_id = hover_node_data.get("id")
+
+                if not node_id:
+                    raise dash.exceptions.PreventUpdate
+
                 x = right_click_event.get("x", 20)
                 y = right_click_event.get("y", 70)
 
@@ -1539,9 +1990,68 @@ class DASH_CYTO(object):
                     }
                 )
 
-                return style, hover_node_data
+                new_elements = force_select_single_node(
+                    current_elements,
+                    node_id=node_id,
+                )
+
+                node_info_panel = self.make_node_info_panel(hover_node_data)
+
+                return (
+                    style,
+                    hover_node_data,
+                    new_elements,
+                    node_info_panel,
+                    hover_node_data,
+                )
 
             raise dash.exceptions.PreventUpdate
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("btn-select-neighbors", "n_clicks"),
+
+            State("right-click-node-store", "data"),
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def select_first_neighbors_and_close_popup(
+            n_clicks,
+            right_click_node,
+            current_elements,
+            all_elements,
+            current_style,
+        ):
+            if not n_clicks or not right_click_node:
+                raise dash.exceptions.PreventUpdate
+
+            node_id = right_click_node.get("id")
+
+            if not node_id:
+                raise dash.exceptions.PreventUpdate
+
+            neighbors = self.get_neighbor_node_ids(
+                node_id=node_id,
+                all_elements=all_elements,
+            )
+
+            selected_ids = set(neighbors)
+            selected_ids.add(node_id)
+
+            new_elements = select_nodes_in_elements(
+                current_elements,
+                selected_ids=selected_ids,
+            )
+
+            style = dict(current_style or {})
+            style["display"] = "none"
+
+            return new_elements, style
 
 
         @app.callback(
