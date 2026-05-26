@@ -1353,6 +1353,8 @@ class DASH_CYTO(object):
                                     "width": "100%",
                                     "fontSize": "12px",
                                     "padding": "8px 12px",
+                                    "backgroundColor": "#ddc3a5",
+                                    "border": "1px solid #ddc3a5",
                                 },
                             ),
                             style={
@@ -1451,38 +1453,50 @@ class DASH_CYTO(object):
                                                     "fontWeight": "600",
                                                     "fontSize": "13px",
                                                     "marginRight": "8px",
+                                                    "display": "block",
                                                 },
                                             ),
 
-                                            dcc.Input(
-                                                id="gene-search-input",
-                                                type="text",
-                                                placeholder="e.g. TP, MAPK, CCN...",
-                                                debounce=True,
-                                                style={
-                                                    "width": "220px",
-                                                    "padding": "6px 8px",
-                                                    "border": "1px solid #d0d7de",
-                                                    "borderRadius": "8px",
-                                                    "fontSize": "13px",
-                                                },
-                                            ),
 
-                                            html.Button(
-                                                "🔎",
-                                                id="gene-search-button",
-                                                n_clicks=0,
-                                                title="Find genes starting with this text",
-                                                className="cyto-button",
+                                            html.Div(
+                                                [
+                                                    dcc.Input(
+                                                        id="gene-search-input",
+                                                        type="text",
+                                                        placeholder="e.g. TP, MAPK, CCN...",
+                                                        debounce=True,
+                                                        style={
+                                                            "width": "80px",
+                                                            "padding": "6px 8px",
+                                                            "border": "1px solid #d0d7de",
+                                                            "borderRadius": "8px",
+                                                            "fontSize": "13px",
+                                                        },
+                                                    ),
+
+                                                    html.Button(
+                                                        "🔎",
+                                                        id="gene-search-button",
+                                                        n_clicks=0,
+                                                        title="Find genes starting with this text",
+                                                        className="cyto-button",
+                                                        style={
+                                                            "marginLeft": "6px",
+                                                            "padding": "6px 10px",
+                                                        },
+                                                    ),
+                                                ],
                                                 style={
-                                                    "marginLeft": "6px",
-                                                    "padding": "6px 10px",
+                                                    "display": "flex",
+                                                    "alignItems": "center",
+                                                    "gap": "4px",
                                                 },
                                             ),
                                         ],
                                         style={
                                             "display": "flex",
-                                            "alignItems": "center",
+                                            "flexDirection": "column",
+                                            "alignItems": "flex-start",
                                             "gap": "4px",
                                         },
                                     ),
@@ -1490,77 +1504,97 @@ class DASH_CYTO(object):
 
                                 # Search for pathways between genes
                                 html.Div(
-                                    html.Div(
-                                        [
-                                            html.Span(
-                                                "Find all paths between:",
-                                                style={
-                                                    "fontWeight": "600",
-                                                    "fontSize": "13px",
-                                                    "marginRight": "8px",
-                                                },
-                                            ),
+                                    [
+                                        html.Span(
+                                            "Find all paths between:",
+                                            style={
+                                                "fontWeight": "600",
+                                                "fontSize": "13px",
+                                                "marginBottom": "6px",
+                                                "display": "block",
+                                            },
+                                        ),
 
-                                            dcc.Input(
-                                                id="path-source-input",
-                                                type="text",
-                                                placeholder="source gene",
-                                                debounce=True,
-                                                style={
-                                                    "width": "170px",
-                                                    "padding": "6px 8px",
-                                                    "border": "1px solid #d0d7de",
-                                                    "borderRadius": "8px",
-                                                    "fontSize": "13px",
-                                                },
-                                            ),
+                                        html.Div(
+                                            [
+                                                dcc.Input(
+                                                    id="path-source-input",
+                                                    type="text",
+                                                    placeholder="source gene",
+                                                    debounce=True,
+                                                    style={
+                                                        "width": "80px",
+                                                        "padding": "6px 8px",
+                                                        "border": "1px solid #d0d7de",
+                                                        "borderRadius": "8px",
+                                                        "fontSize": "13px",
+                                                    },
+                                                ),
 
-                                            html.Span("and", style={"fontSize": "13px"}),
+                                                html.Span(
+                                                    "and",
+                                                    style={
+                                                        "fontSize": "13px",
+                                                        "margin": "0 4px",
+                                                    },
+                                                ),
 
-                                            dcc.Input(
-                                                id="path-target-input",
-                                                type="text",
-                                                placeholder="target gene",
-                                                debounce=True,
-                                                style={
-                                                    "width": "170px",
-                                                    "padding": "6px 8px",
-                                                    "border": "1px solid #d0d7de",
-                                                    "borderRadius": "8px",
-                                                    "fontSize": "13px",
-                                                },
-                                            ),
+                                                dcc.Input(
+                                                    id="path-target-input",
+                                                    type="text",
+                                                    placeholder="target gene",
+                                                    debounce=True,
+                                                    style={
+                                                        "width": "80px",
+                                                        "padding": "6px 8px",
+                                                        "border": "1px solid #d0d7de",
+                                                        "borderRadius": "8px",
+                                                        "fontSize": "13px",
+                                                    },
+                                                ),
 
-                                            html.Button(
-                                                "🔎",
-                                                id="find-paths-button",
-                                                n_clicks=0,
-                                                title="Find paths between both genes",
-                                                className="cyto-button",
-                                                style={
-                                                    "marginLeft": "6px",
-                                                    "padding": "6px 10px",
-                                                },
-                                            ),
-                                        ],
-                                        style={
-                                            "display": "flex",
-                                            "alignItems": "center",
-                                            "gap": "6px",
-                                        },
-                                    ),
+                                                html.Button(
+                                                    "🔎",
+                                                    id="find-paths-button",
+                                                    n_clicks=0,
+                                                    title="Find paths between both genes",
+                                                    className="cyto-button",
+                                                    style={
+                                                        "marginLeft": "6px",
+                                                        "padding": "6px 10px",
+                                                    },
+                                                ),
+                                            ],
+                                            style={
+                                                "display": "flex",
+                                                "alignItems": "center",
+                                                "gap": "4px",
+                                            },
+                                        ),
+                                    ],
                                     style={
                                         "display": "flex",
-                                        "alignItems": "center",
-                                        "justifyContent": "space-between",
-                                        "gap": "12px",
-                                        "width": "100%",
-                                        "marginBottom": "10px",
-                                        "padding": "8px",
-                                        "border": "1px solid #e5e7eb",
-                                        "borderRadius": "12px",
-                                        "backgroundColor": "#fafafa",
+                                        "flexDirection": "column",
+                                        "alignItems": "flex-start",
+                                        "gap": "4px",
                                     },
+                                ),
+
+                                html.Div(
+                                    html.Button(
+                                        "🧬 Show DEGs",
+                                        id="show-degs-button",
+                                        n_clicks=0,
+                                        className="cyto-button",
+                                        style={
+                                            "width": "100%",
+                                            "marginTop": "8px",
+                                            "padding": "8px 12px",
+                                            "fontWeight": "700",
+                                            "backgroundColor": "#7bd398",
+                                            "border": "1px solid #7bd398",
+                                        },
+                                    ),
                                 ),
 
                                 # font controls
@@ -1716,6 +1750,20 @@ class DASH_CYTO(object):
                 html.Pre(id="saved-output"),
                 html.Pre(id="selected-output"),
 
+                dbc.Alert(
+                    id="path-alert",
+                    children="",
+                    color="warning",
+                    is_open=False,
+                    dismissable=True,
+                    style={
+                        "marginTop": "8px",
+                        "fontSize": "13px",
+                        "padding": "8px 10px",
+                        "borderRadius": "10px",
+                    },
+                ),
+
                 dbc.Toast(
                     id="save-toast",
                     header="Success",
@@ -1732,9 +1780,156 @@ class DASH_CYTO(object):
                     },
                 ),
 
+                dbc.Modal(
+                    [
+                        dbc.ModalHeader( dbc.ModalTitle("DEGs in Reactome graph") ),
+                        dbc.ModalBody( html.Div(id="deg-summary-window") ),
+
+                        dbc.ModalFooter(
+                            dbc.Button(
+                                "Close",
+                                id="close-deg-summary-button",
+                                className="ms-auto",
+                                n_clicks=0,
+                            )
+                        ),
+                    ],
+                    id="deg-summary-modal",
+                    is_open=False,
+                    size="xl",
+                    scrollable=True,
+                ),
+
             ],
         )
 
+        def classify_degs_in_graph(all_elements):
+            """
+            Classify DEGs as:
+            - found once in graph
+            - found more than once in graph
+            - not found in graph
+
+            Uses self.dflfc_ori symbols as DEG reference.
+            Uses Cytoscape node labels as graph symbols.
+            """
+
+            if self.dflfc_ori is None or self.dflfc_ori.empty:
+                return [], [], [], set()
+
+            # Reference DEG symbols from the DEG table
+            deg_symbols = (
+                self.dflfc_ori["symbol"]
+                .dropna()
+                .astype(str)
+            )
+
+            deg_symbols = sorted(set(s for s in deg_symbols if s and s != "NAN"))
+
+            # Count graph node labels
+            graph_symbol_counts = Counter()
+            deg_node_ids = set()
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                if not is_node:
+                    continue
+
+                node_id = data.get("id")
+                label = str(data.get("label", node_id)).strip().upper()
+
+                if not label:
+                    continue
+
+                graph_symbol_counts[label] += 1
+
+            found_once = []
+            found_multiple = []
+            not_found = []
+
+            for symbol in deg_symbols:
+                n = graph_symbol_counts.get(symbol, 0)
+
+                if n == 1:
+                    found_once.append(symbol)
+                elif n > 1:
+                    found_multiple.append(f"{symbol} ({n}x)")
+                else:
+                    not_found.append(symbol)
+
+            # Select all graph nodes whose labels are DEG symbols
+            deg_symbol_set = set(deg_symbols)
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                if not is_node:
+                    continue
+
+                node_id = data.get("id")
+                label = str(data.get("label", node_id)).strip().upper()
+
+                if label in deg_symbol_set:
+                    deg_node_ids.add(node_id)
+
+            return found_once, found_multiple, not_found, deg_node_ids
+
+
+        def make_deg_list_panel(title, items, color, background):
+            if not items:
+                children = html.Div(
+                    "None",
+                    style={
+                        "fontSize": "13px",
+                        "color": "#666",
+                        "fontStyle": "italic",
+                    },
+                )
+            else:
+                children = html.Div(
+                    ", ".join(items),
+                    style={
+                        "fontSize": "13px",
+                        "lineHeight": "1.6",
+                        "maxHeight": "220px",
+                        "overflowY": "auto",
+                        "whiteSpace": "normal",
+                    },
+                )
+
+            return html.Div(
+                [
+                    html.H5(
+                        f"{title} ({len(items)})",
+                        style={
+                            "color": color,
+                            "fontWeight": "800",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    children,
+                ],
+                style={
+                    "backgroundColor": background,
+                    "border": f"1px solid {color}",
+                    "borderRadius": "12px",
+                    "padding": "12px",
+                    "marginBottom": "12px",
+                },
+            )
 
         def select_nodes_in_elements(elements, selected_ids):
             """
@@ -1830,6 +2025,443 @@ class DASH_CYTO(object):
             return downstream
 
 
+        def normalize_gene_text(x):
+            if x is None:
+                return ""
+            return str(x).strip().upper()
+
+
+        def get_node_label_from_elements(node_id, elements):
+            for elem in elements:
+                data = elem.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                if is_node and data.get("id") == node_id:
+                    return data.get("label", node_id)
+
+            return node_id
+
+
+        def find_nodes_starting_with(prefix, all_elements):
+            """
+            Find nodes whose label or id starts with prefix.
+            """
+            prefix = normalize_gene_text(prefix)
+
+            if not prefix:
+                return set()
+
+            hits = set()
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                if not is_node:
+                    continue
+
+                node_id = str(data.get("id", ""))
+                label = str(data.get("label", ""))
+
+                if (
+                    normalize_gene_text(label).startswith(prefix)
+                    or normalize_gene_text(node_id).startswith(prefix)
+                ):
+                    hits.add(node_id)
+
+            return hits
+
+
+        def resolve_gene_query_to_node_ids(query, all_elements):
+            """
+            Resolve user text to matching node ids.
+            First tries exact label/id match.
+            Then tries startswith.
+            """
+            query_norm = normalize_gene_text(query)
+
+            if not query_norm:
+                return []
+
+            exact_hits = []
+            prefix_hits = []
+
+            for elem in all_elements:
+                data = elem.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                if not is_node:
+                    continue
+
+                node_id = str(data.get("id", ""))
+                label = str(data.get("label", ""))
+
+                node_id_norm = normalize_gene_text(node_id)
+                label_norm = normalize_gene_text(label)
+
+                if query_norm in {node_id_norm, label_norm}:
+                    exact_hits.append(node_id)
+
+                elif label_norm.startswith(query_norm) or node_id_norm.startswith(query_norm):
+                    prefix_hits.append(node_id)
+
+            if exact_hits:
+                return exact_hits
+
+            return prefix_hits
+
+
+        def select_nodes_and_edges_in_elements(elements: list, selected_node_ids: set=set(), selected_edge_pairs: set=set()) -> list:
+            """
+            Select nodes and optionally edges.
+            selected_edge_pairs should contain tuples: (source, target)
+            """
+            selected_node_ids = set(selected_node_ids)
+            selected_edge_pairs = set(selected_edge_pairs)
+
+            new_elements = []
+
+            for elem in elements:
+                elem2 = dict(elem)
+                data = elem2.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                is_edge = (
+                    "source" in data
+                    and "target" in data
+                )
+
+                elem2["selected"] = False
+
+                if is_node and data.get("id") in selected_node_ids:
+                    elem2["selected"] = True
+
+                elif is_edge:
+                    edge_pair = (data.get("source"), data.get("target"))
+
+                    if edge_pair in selected_edge_pairs:
+                        elem2["selected"] = True
+
+                new_elements.append(elem2)
+
+            return new_elements
+
+        def find_paths_between_gene_queries(
+            source_query,
+            target_query,
+            all_elements,
+            cutoff=8,
+            max_paths=100,
+        ):
+            source_nodes = resolve_gene_query_to_node_ids(source_query, all_elements)
+            target_nodes = resolve_gene_query_to_node_ids(target_query, all_elements)
+
+            if not source_nodes or not target_nodes:
+                return set(), set(), source_nodes, target_nodes, 0
+
+            selected_nodes = set()
+            selected_edges = set()
+            n_paths = 0
+
+            for source_id in source_nodes:
+                for target_id in target_nodes:
+                    if source_id not in self.G.nodes or target_id not in self.G.nodes:
+                        continue
+
+                    try:
+                        paths = nx.all_simple_paths(
+                            self.G,
+                            source=source_id,
+                            target=target_id,
+                            cutoff=cutoff,
+                        )
+
+                        for path in paths:
+                            n_paths += 1
+
+                            selected_nodes.update(path)
+
+                            for a, b in zip(path[:-1], path[1:]):
+                                selected_edges.add((a, b))
+
+                            if n_paths >= max_paths:
+                                return (
+                                    selected_nodes,
+                                    selected_edges,
+                                    source_nodes,
+                                    target_nodes,
+                                    n_paths,
+                                )
+
+                    except nx.NetworkXNoPath:
+                        continue
+
+                    except nx.NodeNotFound:
+                        continue
+
+            return selected_nodes, selected_edges, source_nodes, target_nodes, n_paths
+
+
+        def clean_and_select_elements(elements, selected_node_ids=None, selected_edge_pairs=None):
+            """
+            Remove all previous selection states, then select requested nodes/edges.
+            Keeps positions and other element fields.
+            """
+            selected_node_ids = set(selected_node_ids or [])
+            selected_edge_pairs = set(selected_edge_pairs or [])
+
+            new_elements = []
+
+            for elem in elements:
+                elem2 = dict(elem)
+                data = elem2.get("data", {})
+
+                is_node = (
+                    "id" in data
+                    and "source" not in data
+                    and "target" not in data
+                )
+
+                is_edge = (
+                    "source" in data
+                    and "target" in data
+                )
+
+                # very important: remove previous selection
+                elem2["selected"] = False
+
+                if is_node:
+                    if data.get("id") in selected_node_ids:
+                        elem2["selected"] = True
+
+                elif is_edge:
+                    pair = (data.get("source"), data.get("target"))
+                    if pair in selected_edge_pairs:
+                        elem2["selected"] = True
+
+                new_elements.append(elem2)
+
+            return new_elements
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("deg-summary-window", "children"),
+            Output("deg-summary-modal", "is_open"),
+
+            Input("show-degs-button", "n_clicks"),
+            Input("close-deg-summary-button", "n_clicks"),
+
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+            State("deg-summary-modal", "is_open"),
+
+            prevent_initial_call=True,
+        )
+        def show_degs_in_graph(
+            show_clicks,
+            close_clicks,
+            current_elements,
+            all_elements,
+            is_open,
+        ):
+            trigger = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+
+            if trigger == "close-deg-summary-button":
+                return dash.no_update, dash.no_update, False
+
+            if trigger != "show-degs-button" or not show_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            found_once, found_multiple, not_found, deg_node_ids = classify_degs_in_graph(
+                all_elements=all_elements,
+            )
+
+            new_elements = clean_and_select_elements(
+                elements=current_elements,
+                selected_node_ids=deg_node_ids,
+                selected_edge_pairs=[],
+            )
+
+            summary_children = html.Div(
+                [
+                    html.P(
+                        [
+                            html.B("DEG nodes selected in graph: "),
+                            str(len(deg_node_ids)),
+                        ],
+                        style={
+                            "fontSize": "14px",
+                            "marginBottom": "12px",
+                        },
+                    ),
+
+                    make_deg_list_panel(
+                        title="DEGs found once in graph",
+                        items=found_once,
+                        color="#166534",
+                        background="#dcfce7",
+                    ),
+
+                    make_deg_list_panel(
+                        title="DEGs found more than once in graph",
+                        items=found_multiple,
+                        color="#0f172a",
+                        background="#dbeafe",
+                    ),
+
+                    make_deg_list_panel(
+                        title="DEGs not found in graph",
+                        items=not_found,
+                        color="#b91c1c",
+                        background="#fee2e2",
+                    ),
+                ]
+            )
+
+            return new_elements, summary_children, True
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("selected-output", "children", allow_duplicate=True),
+
+            Input("gene-search-button", "n_clicks"),
+            State("gene-search-input", "value"),
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+
+            prevent_initial_call=True,
+        )
+        def search_gene_by_prefix(
+            n_clicks,
+            query,
+            current_elements,
+            all_elements,
+        ):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            selected_ids = find_nodes_starting_with(
+                prefix=query,
+                all_elements=all_elements,
+            )
+
+            new_elements = clean_and_select_elements(
+                elements=current_elements,
+                selected_node_ids=selected_ids,
+            )
+
+            msg = f"Found {len(selected_ids)} node(s) starting with: {query}"
+
+            return new_elements, msg
+
+        @app.callback(
+            Output("reactome-network", "elements", allow_duplicate=True),
+            Output("selected-output", "children", allow_duplicate=True),
+            Output("path-alert", "children"),
+            Output("path-alert", "is_open"),
+
+            Input("find-paths-button", "n_clicks"),
+
+            State("path-source-input", "value"),
+            State("path-target-input", "value"),
+            State("reactome-network", "elements"),
+            State("all-elements-store", "data"),
+
+            prevent_initial_call=True,
+        )
+        def find_paths_between_genes(
+            n_clicks,
+            source_query,
+            target_query,
+            current_elements,
+            all_elements,
+        ):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            if not source_query or not target_query:
+                return (
+                    dash.no_update,
+                    "Please provide both source and target genes.",
+                    "Please provide both source and target genes.",
+                    True,
+                )
+
+            selected_nodes, selected_edges, source_hits, target_hits, n_paths = (
+                find_paths_between_gene_queries(
+                    source_query=source_query,
+                    target_query=target_query,
+                    all_elements=all_elements,
+                    cutoff=8,
+                    max_paths=100,
+                )
+            )
+
+            # Case 1: source or target not found
+            if not source_hits or not target_hits:
+                msg = (
+                    f"Could not find source or target node. "
+                    f"Source hits: {len(source_hits)} | "
+                    f"Target hits: {len(target_hits)}"
+                )
+
+                new_elements = clean_and_select_elements(
+                    elements=current_elements,
+                    selected_node_ids=[],
+                    selected_edge_pairs=[],
+                )
+
+                return new_elements, msg, msg, True            
+
+            # Case 2: nodes exist, but no path was found
+            if n_paths == 0:
+                msg = f"There is no pathway between {source_query} and {target_query}."
+
+                new_elements = clean_and_select_elements(
+                    elements=current_elements,
+                    selected_node_ids=[],
+                    selected_edge_pairs=[],
+                )
+
+                return new_elements, msg, msg, True
+    
+            # Case 3: paths found
+            new_elements = clean_and_select_elements(
+                elements=current_elements,
+                selected_node_ids=selected_nodes,
+                selected_edge_pairs=selected_edges,
+            )
+
+            msg = (
+                f"Source hits: {len(source_hits)} | "
+                f"Target hits: {len(target_hits)} | "
+                f"Paths found: {n_paths} | "
+                f"Selected nodes: {len(selected_nodes)} | "
+                f"Selected edges: {len(selected_edges)}"
+            )
+
+            return new_elements, msg, "", False
+
         @app.callback(
             Output("reactome-network", "elements", allow_duplicate=True),
             Output("cyto-popup-menu", "style", allow_duplicate=True),
@@ -1866,9 +2498,9 @@ class DASH_CYTO(object):
             selected_ids = set(upstream_ids)
             selected_ids.add(node_id)
 
-            new_elements = select_nodes_in_elements(
-                current_elements,
-                selected_ids=selected_ids,
+            new_elements = clean_and_select_elements(
+                elements=current_elements,
+                selected_node_ids=selected_ids,
             )
 
             style = dict(current_style or {})
