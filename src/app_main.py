@@ -652,13 +652,7 @@ if st.session_state.loaded:
 
         ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
 
-        if ret:
-            dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=mtd.dflfc_ori)
-        else:
-            st.write("No differentially expressed genes found.")
-            dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=pd.DataFrame())
-
-
+  
     # --------------------------------------------------
     # SESSION STATE (RIGHT HERE ✅)
     # --------------------------------------------------
@@ -1002,6 +996,8 @@ if st.session_state.loaded:
 
                         st.session_state["selected_pathway_id"] = pathway_id
                         st.session_state["selected_pathway"] = pathway
+
+                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=mtd.dflfc_ori)
 
                         ret = dcy.read_owl(pathway_id, pathway, verbose=True)
                         if not ret:

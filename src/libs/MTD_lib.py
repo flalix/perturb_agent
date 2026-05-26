@@ -712,6 +712,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		dflfc_ori.reset_index(inplace=True, drop=True)
 
 		self.dflfc_ori = dflfc_ori
+
 		self.valid_genes = list(dflfc_ori.symbol)
 		self.n_total_genes = len(dflfc_ori)
 
