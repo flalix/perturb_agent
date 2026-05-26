@@ -9,6 +9,7 @@
 
 import json
 import math
+import numpy as np
 import os
 import re
 import subprocess
@@ -33,7 +34,7 @@ from libs.Basic import create_dir, pdreadcsv, download_url_file
 
 
 class DASH_CYTO(object):
-    def __init__(self, root0: Path, root0_data: Path, dflfc_ori: pd.DataFrame):
+    def __init__(self, root0: Path, root0_data: Path, dflfc_ori: pd.DataFrame, lfc_cutoff: float=1.0, fdr_cutoff: float=0.05):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
 
@@ -48,6 +49,8 @@ class DASH_CYTO(object):
         self.root_ncbi = create_dir(self.root_colab, "ncbi")
 
         self.dflfc_ori = dflfc_ori
+        self.lfc_cutoff = lfc_cutoff
+        self.fdr_cutoff = fdr_cutoff
         self.settings_file = self.root_owl /'graph_settings.json'
 
         self.fname_pos = "positions_%s.json"
@@ -1815,16 +1818,20 @@ class DASH_CYTO(object):
             """
 
             if self.dflfc_ori is None or self.dflfc_ori.empty:
-                return [], [], [], set()
+                return 0, [], [], [], set()
+            
+            dflfc = self.dflfc_ori[
+                (self.dflfc_ori["abs_lfc"] >= self.lfc_cutoff) &
+                (self.dflfc_ori["fdr"] < self.fdr_cutoff)
+            ].copy()
+
+            if dflfc.empty:
+                return 0, [], [], [], set()
+
+            dflfc.reset_index(drop=True, inplace=True)
 
             # Reference DEG symbols from the DEG table
-            deg_symbols = (
-                self.dflfc_ori["symbol"]
-                .dropna()
-                .astype(str)
-            )
-
-            deg_symbols = sorted(set(s for s in deg_symbols if s and s != "NAN"))
+            deg_symbols = np.unique(dflfc["symbol"].to_list())
 
             # Count graph node labels
             graph_symbol_counts = Counter()
@@ -1885,7 +1892,7 @@ class DASH_CYTO(object):
                 if label in deg_symbol_set:
                     deg_node_ids.add(node_id)
 
-            return found_once, found_multiple, not_found, deg_node_ids
+            return len(deg_symbols), found_once, found_multiple, not_found, deg_node_ids
 
 
         def make_deg_list_panel(title, items, color, background):
@@ -2292,7 +2299,7 @@ class DASH_CYTO(object):
             if trigger != "show-degs-button" or not show_clicks:
                 raise dash.exceptions.PreventUpdate
 
-            found_once, found_multiple, not_found, deg_node_ids = classify_degs_in_graph(
+            n_degs, found_once, found_multiple, not_found, deg_node_ids = classify_degs_in_graph(
                 all_elements=all_elements,
             )
 
@@ -2306,11 +2313,10 @@ class DASH_CYTO(object):
                 [
                     html.P(
                         [
-                            html.B("DEG nodes selected in graph: "),
-                            str(len(deg_node_ids)),
+                            html.B(f"{n_degs} DEGs; {len(deg_node_ids)} DEGs found as nodes.")
                         ],
                         style={
-                            "fontSize": "14px",
+                            "fontSize": "18px",
                             "marginBottom": "12px",
                         },
                     ),
@@ -2828,8 +2834,6 @@ class DASH_CYTO(object):
             if node_data is None:
                 return "Click a node to see details.", None
             
-            print(">>>> oi show_node_info")
-
             return self.make_node_info_panel(node_data), node_data
 
 
