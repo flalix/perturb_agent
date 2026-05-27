@@ -405,7 +405,7 @@ def plot_top_mutated_genes(dfpiv: pd.DataFrame, top_n: int = 20, figsize=(12, 6)
     plt.close(fig)
 
 
-def plot_heatmap(dfpiv: pd.DataFrame, title: str = "", figsize: tuple = (14, 10)):
+def plot_heatmap_gen(dfpiv: pd.DataFrame, title: str = "", figsize: tuple = (14, 10)):
     # Ensure numeric + binary (important for Jaccard)
     data = dfpiv.fillna(0).astype(int)
 
@@ -420,7 +420,7 @@ def plot_heatmap(dfpiv: pd.DataFrame, title: str = "", figsize: tuple = (14, 10)
     plt.close(cg.figure)
 
 
-def plot_umap(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
+def plot_umap_gen(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
 
     fig, _, _ = gdc.plot_UMAP(dfpiv=dfpiv, k=k, figsize=figsize)
 
@@ -429,7 +429,7 @@ def plot_umap(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
         plt.close(fig)
 
 
-def plot_hdbscan(dfpiv: pd.DataFrame, min_cluster_size: int = 10, min_samples: int = 3, figsize: tuple = (14, 10)):
+def plot_hdbscan_gen(dfpiv: pd.DataFrame, min_cluster_size: int = 10, min_samples: int = 3, figsize: tuple = (14, 10)):
 
     fig, embedding, labels, d = gdc.plot_HDBSCAN(
         dfpiv=dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples, figsize=figsize
@@ -648,7 +648,8 @@ if st.session_state.loaded:
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
 
         cases_ids = np.unique(df_all_samples.case_id)
-        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)]
+        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
+        df_cases.reset_index(drop=True, inplace=True)
 
         method = "deseq2"
         mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
@@ -675,7 +676,7 @@ if st.session_state.loaded:
         st.session_state.case_idx = 0
         st.session_state.case_ids_prev = case_ids
 
-    def set_case_from_id(case_id):
+    def set_case_from_id(case_id: str):
         if case_id in case_ids:
             st.session_state.case_idx = case_ids.index(case_id)
 
@@ -865,26 +866,26 @@ if st.session_state.loaded:
     # TAB 4 - MUTATION MATRIX
     # -------------------------------------------------------------------------
     with tab_head_cluster:
-        tab_heatmap, tab_umap, tab_hdbscan = st.tabs(["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"])
+        tab_heatmap_gen, tab_umap_gen, tab_hdbscan_gen = st.tabs(["Heatmap", "UMAP - cluster", "HDBSCAN - cluster"])
 
         if dfpiv.empty:
             st.info("No mutation matrix available for this primary site.")
         else:
-            with tab_heatmap:
+            with tab_heatmap_gen:
                 n_samples, n_genes = dfpiv.shape
                 st.subheader("Mutation matrix heatmap")
                 title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
-                plot_heatmap(dfpiv, title)
+                plot_heatmap_gen(dfpiv, title)
 
-            with tab_umap:
+            with tab_umap_gen:
                 st.subheader("UMAP Clustering")
 
                 n_samples = dfpiv.shape[0]
 
                 k = st.slider("K (number of clusters)", 2, min(15, n_samples), min(8, n_samples))
-                plot_umap(dfpiv, k=k)
+                plot_umap_gen(dfpiv, k=k)
 
-            with tab_hdbscan:
+            with tab_hdbscan_gen:
                 st.subheader("HDBSCAN Clustering")
 
                 n_samples = dfpiv.shape[0]
@@ -897,12 +898,13 @@ if st.session_state.loaded:
                     "Minimum samples", min_value=3, max_value=min(10, n_samples), value=3
                 )
 
-                fig, embedding, labels = plot_hdbscan(
+                fig, embedding, labels = plot_hdbscan_gen(
                     dfpiv, min_cluster_size=min_cluster_size2, min_samples=min_samples2
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes, tab_nonc, tab_enrich = st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Enrichment Analysis"])
+        tab_degs, tab_echo, tab_biotypes, tab_nonc, tab_heatmap_exp, tab_umap_exp, tab_hdbscan_exp, tab_enrich = \
+            st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "HDBSCAN - cluster" "Enrichment Analysis"])
 
         if dflfc.empty:
             st.write("No differentially expressed genes found.")
@@ -948,7 +950,6 @@ if st.session_state.loaded:
                     key=f"biotypes_{selected_primary_site}",
                 )
 
-
                 explain = "protein_coding, pseudogene, lncRNA, "
                 explain += "immune_receptor (IG_, TR_), small_RNA (miRNA, snRNA, snoRNA, scaRNA, misc_RNA, vault_RNA, scRNA), "
                 explain += "TEC (To be Experimentally Confirmed), mitochondrial_RNA, and other"
@@ -973,6 +974,38 @@ if st.session_state.loaded:
                 grid_key = f"non-coding_{psi_id}_lfc_{lfc_cutoff_nc}_fdr_{fdr_cutoff_nc}"
                 show_df(dfnc[cols], height=None, key=grid_key)
 
+            with tab_heatmap_exp:
+                n_samples, n_genes = dfpiv.shape
+                st.subheader("Expression matrix heatmap")
+                title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
+                plot_heatmap_gen(dfexp, title)
+
+            with tab_umap_exp:
+                st.subheader("UMAP Expressioon Clustering")
+
+                n_samples = dfexp.shape[0]
+
+                k = st.slider("K (number of clusters)", 2, min(15, n_samples), min(8, n_samples))
+                plot_umap_gen(dfexp, k=k)
+
+            with tab_hdbscan_exp:
+                st.subheader("HDBSCAN Expression Clustering")
+
+                n_samples = dfexp.shape[0]
+
+                min_cluster_size2 = st.slider(
+                    "Minimum cluster size", min_value=3, max_value=min(15, n_samples), value=5
+                )
+
+                min_samples2 = st.slider(
+                    "Minimum samples", min_value=3, max_value=min(10, n_samples), value=3
+                )
+
+                fig, embedding, labels = plot_hdbscan_exp(
+                    dfpiv, min_cluster_size=min_cluster_size2, min_samples=min_samples2
+                )
+
+xxxx
 
             with tab_enrich:
 

@@ -3706,7 +3706,6 @@ th {background-color: #f2f2f2; font-weight: bold;}
 		return ret
 
 
-
 	def save_degs_modulation_table(self, gem, title_head:str, chosen_model:int, context:str,
 						temperature:float=0.1, topK:int=50, topP:float=0.10, maxOutputTokens:int=-1,
 						stopSequences:List=[], start_dummy_word:str='Of course. ',

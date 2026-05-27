@@ -3140,24 +3140,15 @@ class GDC(object):
         return df_gtex_ctrl
 
 
-
-    def calc_lfc_table(
-        self,
-        psi_id: str,
-        run_conda: bool = False,
-        method: str = "edger",
-        verbose: bool = False,
-    ) -> tuple[pd.DataFrame, str]:
-
-        self.set_primary_site(psi_id=psi_id)
-
+    def get_tumor_normal_tables(self, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+        
         df_tumor, df_normal, df_gtex_ctrl = self.get_file_expression_both_tumor_and_normal(verbose=verbose)
 
         if df_tumor.empty:
             msg = f"No tumor expression data found for {self.psi_id}"
             if verbose:
                 print(msg)
-            return pd.DataFrame(), msg
+            return pd.DataFrame(),pd.DataFrame(), msg
 
         # geneid, symbol, biotype, samples
         min_N_cols = 3 + 3
@@ -3166,15 +3157,13 @@ class GDC(object):
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             if verbose:
                 print(msg)
-            return pd.DataFrame(), msg
+            return pd.DataFrame(),pd.DataFrame(), msg
 
-        cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
-
-        df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+        df_normal = self.cdegs.deduplicate_by_max_reads(df_normal)
 
         if df_normal.empty or df_normal.shape[1] < min_N_cols:
             df_normal2 = self.prepare_gtex(df_gtex_ctrl)
-            df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+            df_normal2 = self.cdegs.deduplicate_by_max_reads(df_normal2)
             msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
             if verbose:
                 print(msg)
@@ -3188,20 +3177,44 @@ class GDC(object):
 
         msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
 
-        df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
+        df_tumor = self.cdegs.deduplicate_by_max_reads(df_tumor)
         self.df_tumor = df_tumor
 
         if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
             msg = "Error: Tumor expression data has fewer than 3 samples."
-            return pd.DataFrame(), msg
+            return pd.DataFrame(),pd.DataFrame(), msg
 
         if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
-            print("Error: Normal expression data has fewer than 3 samples.")
+            msg = "Error: Normal expression data has fewer than 3 samples."
+            return pd.DataFrame(),pd.DataFrame(), msg
+        
+        return df_tumor, df_normal2, msg
+
+
+    def calc_lfc_table(
+        self,
+        psi_id: str,
+        run_conda: bool = False,
+        method: str = "edger",
+        verbose: bool = False,
+    ) -> tuple[pd.DataFrame, str]:
+
+        self.set_primary_site(psi_id=psi_id)
+
+        cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
+        self.cdegs = cdegs
+
+        df_tumor, df_normal, msg = self.get_tumor_normal_tables(verbose=verbose)
+
+        if df_tumor.empty:
+            return pd.DataFrame(), msg
+
+        if df_normal.empty:
             return pd.DataFrame(), msg
 
         df_lfc = cdegs.run_deg_rscript(
             df_tumor=df_tumor,
-            df_normal=df_normal2,
+            df_normal=df_normal,
             method=method,
             manual_dispersion=0.1,
             min_total_count=10,
