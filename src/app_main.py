@@ -71,7 +71,7 @@ from libs.tcga_gdc_lib import GDC
 from libs.config_lib import Config
 from libs.dashcyto_lib import DASH_CYTO
 from libs.reactome_lib import Reactome
-
+from libs.calc_degs_lib import CALC_DEGS
 from project_context_MTD import load_project_context
 
 try:
@@ -415,6 +415,14 @@ def plot_heatmap_gen(dfpiv: pd.DataFrame, title: str = "", figsize: tuple = (14,
 
     if title:
         cg.figure.suptitle(title, y=1.02)
+
+    st.pyplot(cg.figure)
+    plt.close(cg.figure)
+
+
+def plot_heatmap_exp(dff: pd.DataFrame, normal_samples: list, tumor_samples: list, title: str = "", figsize: tuple = (14, 10)):
+
+    cg = gdc.plot_heatmap_expression(dff, normal_samples, tumor_samples, title)
 
     st.pyplot(cg.figure)
     plt.close(cg.figure)
@@ -904,11 +912,31 @@ if st.session_state.loaded:
 
     with tab_head_diff_exp:
         tab_degs, tab_echo, tab_biotypes, tab_nonc, tab_heatmap_exp, tab_umap_exp, tab_hdbscan_exp, tab_enrich = \
-            st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "HDBSCAN - cluster" "Enrichment Analysis"])
+        st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "HDBSCAN - cluster", "Enrichment Analysis"])
 
+        msg = ''
         if dflfc.empty:
             st.write("No differentially expressed genes found.")
         else:
+
+            cdegs = CALC_DEGS(root_src=ROOT_SRC, run_conda=False)
+            gdc.cdegs = cdegs
+
+            df_tumor, df_normal, msg = gdc.get_tumor_normal_tables(verbose=False)
+
+            if df_tumor.empty:
+                dff = pd.DataFrame()
+                normal_samples, tumor_samples = [], []
+            else:
+                df_counts, df_meta = cdegs.build_counts_and_metadata(
+                            df_tumor=df_tumor,
+                            df_normal=df_normal,
+                            how="inner"
+                        )
+                
+                dff, normal_samples, tumor_samples = gdc.build_df_exp_and_filter(df_counts=df_counts, df_meta=df_meta,
+                            gene_col = "geneid",
+                            equal_var = False,)
 
             with tab_degs:
 
@@ -966,46 +994,25 @@ if st.session_state.loaded:
                     "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05, key="fdr_cutoff_nc"
                 )
 
-                dfnc, msg = mtd.filter_non_coding(lfc_cut=lfc_cutoff_nc, fdr_cut=fdr_cutoff_nc, verbose=False, force=False)
+                dfnc, msg_nc = mtd.filter_non_coding(lfc_cut=lfc_cutoff_nc, fdr_cut=fdr_cutoff_nc, verbose=False, force=False)
 
-                st.write(msg)
+                st.write(msg_nc)
 
                 cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 grid_key = f"non-coding_{psi_id}_lfc_{lfc_cutoff_nc}_fdr_{fdr_cutoff_nc}"
                 show_df(dfnc[cols], height=None, key=grid_key)
 
-            with tab_heatmap_exp:
-                n_samples, n_genes = dfpiv.shape
-                st.subheader("Expression matrix heatmap")
-                title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
-                plot_heatmap_gen(dfexp, title)
+            if not dff.empty:
+                with tab_heatmap_exp:
 
-            with tab_umap_exp:
-                st.subheader("UMAP Expressioon Clustering")
+                    n_samples, n_genes = dfpiv.shape
+                    st.subheader("Expression matrix heatmap")
+                    title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
+                    plot_heatmap_exp(dff, normal_samples, tumor_samples, title)
 
-                n_samples = dfexp.shape[0]
+                    if msg:
+                        st.write(msg)
 
-                k = st.slider("K (number of clusters)", 2, min(15, n_samples), min(8, n_samples))
-                plot_umap_gen(dfexp, k=k)
-
-            with tab_hdbscan_exp:
-                st.subheader("HDBSCAN Expression Clustering")
-
-                n_samples = dfexp.shape[0]
-
-                min_cluster_size2 = st.slider(
-                    "Minimum cluster size", min_value=3, max_value=min(15, n_samples), value=5
-                )
-
-                min_samples2 = st.slider(
-                    "Minimum samples", min_value=3, max_value=min(10, n_samples), value=3
-                )
-
-                fig, embedding, labels = plot_hdbscan_exp(
-                    dfpiv, min_cluster_size=min_cluster_size2, min_samples=min_samples2
-                )
-
-xxxx
 
             with tab_enrich:
 

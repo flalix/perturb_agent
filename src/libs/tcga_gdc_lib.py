@@ -6,7 +6,10 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-from fileinput import filename
+import numpy as np
+import pandas as pd
+import requests
+# from fileinput import filename
 import json
 import os
 import re
@@ -17,19 +20,19 @@ from pathlib import Path
 from tabnanny import verbose
 from typing import Any, Iterable, List, Optional, Tuple
 
-import hdbscan
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import requests
-import umap
-from scipy.stats import hypergeom
 
-# import seaborn as sns
+from scipy.stats import hypergeom, ttest_ind, zscore
 from sklearn.cluster import KMeans
 from sklearn.manifold import MDS
 from sklearn.metrics import pairwise_distances
+
+import umap
+import hdbscan
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 from libs.Basic import create_dir, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
 from libs.calc_degs_lib import CALC_DEGS
@@ -1166,6 +1169,19 @@ class GDC(object):
         if os.path.exists(filename) and not force:
             if is_expression:
                 df_table = pdreadcsv(fname, root, verbose=verbose)
+
+                changed = False
+                if "gene_id" in df_table.columns:
+                    df_table = df_table.rename(columns={"gene_id": "geneid"})
+                    changed = True
+                if "gene_type" in df_table.columns:
+                    df_table = df_table.rename(columns={"gene_type": "biotype"})
+                    changed = True
+
+                if changed:
+                    _ = pdwritecsv(df_table, fname, root, verbose=verbose)
+
+
                 self.df_table = df_table
                 return df_table, filename
             else:
@@ -3754,3 +3770,119 @@ class GDC(object):
                         f.write(chunk)
             except Exception as e:
                 print(f"Error: as writing file {filename_out}: {e}")
+
+
+    def build_df_exp_and_filter(self,
+        df_counts: pd.DataFrame,
+        df_meta: pd.DataFrame,
+        gene_col: str = "geneid",
+        condition_col: str = "condition",
+        sample_col: str = "sample",
+        tumor_label: str = "tumor",
+        normal_label: str = "normal",
+        equal_var: bool = False,   # False = Welch t-test, safer when n differs
+    ) -> tuple[pd.DataFrame, list, list]:
+        
+        df = df_counts.copy()
+
+        # Samples by condition
+        normal_samples = df_meta.loc[
+            df_meta[condition_col] == normal_label, sample_col
+        ].tolist()
+
+        tumor_samples = df_meta.loc[
+            df_meta[condition_col] == tumor_label, sample_col
+        ].tolist()
+
+        # Keep only samples present in df_counts
+        normal_samples = [s for s in normal_samples if s in df.columns]
+        tumor_samples = [s for s in tumor_samples if s in df.columns]
+
+        sample_cols = normal_samples + tumor_samples
+
+        ncols_normal = len(normal_samples)
+        ncols_tumor  = len(tumor_samples)
+
+        nmin_cols = min(ncols_normal, ncols_tumor)
+
+        df["total"] = df[sample_cols].sum(axis=1)
+
+        df = df.loc[
+            df["total"] > nmin_cols * 25
+        ].reset_index(drop=True, inplace=False)
+
+
+
+        # Convert counts to numeric
+        df[normal_samples + tumor_samples] = df[normal_samples + tumor_samples].apply(
+            pd.to_numeric, errors="coerce"
+        )
+
+        # Optional but recommended for RNA-seq counts:
+        # log-transform before t-test
+        normal_mat = np.log2(df[normal_samples] + 1)
+        tumor_mat = np.log2(df[tumor_samples] + 1)
+
+        # Row-wise t-test: tumor vs normal
+        t_stat, pval = ttest_ind(
+            tumor_mat,
+            normal_mat,
+            axis=1,
+            equal_var=equal_var,
+            nan_policy="omit",
+        )
+
+        df["t_stat"] = t_stat
+        df["pval"] = pval
+
+        # Useful summaries
+        df["mean_normal"] = normal_mat.mean(axis=1)
+        df["mean_tumor"] = tumor_mat.mean(axis=1)
+        df["lfc"] = df["mean_tumor"] - df["mean_normal"]
+        df["abs_lfc"] = df["lfc"].abs()
+
+        # Order by p-value
+        df = df.sort_values("pval", ascending=True)
+
+        # Keep the 40% lowest p-values
+        df = df[df.lfc < 0.01]
+        df.reset_index(drop=True, inplace=True)
+
+        return df, normal_samples, tumor_samples
+
+
+    def plot_heatmap_expression(self, dff: pd.DataFrame, normal_samples: list, tumor_samples: list, 
+                                title0: str = "", figsize: tuple = (14, 10)):
+        cols = ['geneid'] + normal_samples + tumor_samples
+
+        dff2 = dff[cols].copy()
+        dff2.set_index('geneid', inplace=True)
+
+        title = 'Hierarchical Clustering of Expression Data'
+        if title0 != '':
+            title += '\n' + title0
+
+        # numeric matrix
+        dff2 = dff2.apply(pd.to_numeric, errors="coerce").fillna(0)
+        mat = np.log2(dff2 + 1)
+
+        # gene-wise z-score using pandas/numpy
+        row_mean = mat.mean(axis=1)
+        row_std = mat.std(axis=1)
+
+        mat_z = mat.sub(row_mean, axis=0).div(row_std.replace(0, np.nan), axis=0)
+        mat_z = mat_z.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        cg = sns.clustermap(
+            mat_z,
+            metric="correlation",
+            method="average",
+            figsize=figsize,
+            cmap="viridis",
+            cbar=True,
+        )
+
+        title = "Hierarchical Clustering of Expression Data"
+        cg.figure.suptitle(title, y=1.02)
+
+        return cg
