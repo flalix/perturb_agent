@@ -152,6 +152,22 @@ class Reactome(object):
         self.df_gmt = df_gmt
 
         return df_gmt
+    
+    def get_genes_from_pathway(self, pathway_id: str, verbose: bool = False) -> list:
+        if self.df_gmt.empty:
+            df_gmt = self.open_reactome_gmt(verbose=verbose)
+
+            if df_gmt.empty:
+                print(f"Could not find genes for gmt file: open_reactome_gmt()")
+                return []
+
+        genes = self.df_gmt.loc[self.df_gmt['pathway_id'] == pathway_id].iloc[0]['genes']
+        if isinstance(genes, str):
+            genes = eval(genes)
+
+        if verbose: print(type(genes), len(genes), ";".join(genes))
+
+        return genes
 
     def merge_reactome_table_gmt(self, verbose: bool = False) -> bool:
         self.dfr_merge = pd.DataFrame()

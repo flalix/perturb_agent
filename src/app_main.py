@@ -70,6 +70,7 @@ from libs.enricher_lib import enricheR
 from libs.tcga_gdc_lib import GDC
 from libs.config_lib import Config
 from libs.dashcyto_lib import DASH_CYTO
+from libs.reactome_lib import Reactome
 
 from project_context_MTD import load_project_context
 
@@ -93,6 +94,11 @@ ctx = load_project_context(
 colors = ctx.colors
 
 gdc = GDC(root0=ROOT0, root0_data=ctx.ROOT0_DATA)
+
+ROOT_OWL = ROOT_COLAB / 'owl'
+ROOT_REACTOME = ROOT_COLAB / 'reactome'
+
+rea = Reactome(root_owl=ROOT_OWL, root_reactome=ROOT_REACTOME)
 
 verbose = False
 
@@ -994,10 +1000,21 @@ if st.session_state.loaded:
                         pathway = selected_pathway_row["pathway"]
                         print(">>> Selected pathway:", pathway_id, pathway, "...\n", selected_pathway_row)
 
+                        if rea.df_gmt.empty:
+                            df_gmt = rea.open_reactome_gmt(verbose=True)
+
+                        dfa = rea.df_gmt.loc[rea.df_gmt['pathway_id'] == pathway_id]
+                        pathway_genes = [] if dfa.empty else dfa.iloc[0]['genes']
+                        if isinstance(pathway_genes, str):
+                            pathway_genes = list(eval(pathway_genes))
+                            pathway_genes.sort()
+
                         st.session_state["selected_pathway_id"] = pathway_id
                         st.session_state["selected_pathway"] = pathway
 
-                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=mtd.dflfc_ori)
+                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=mtd.dflfc_ori, 
+                                        lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, 
+                                        found_degs=degs, pathway_genes=pathway_genes)
 
                         ret = dcy.read_owl(pathway_id, pathway, verbose=True)
                         if not ret:
