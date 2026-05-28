@@ -46,6 +46,7 @@ dependencies = [
     "biomart",
     "gseapy>=1.1",
     "mygene>=3.2",
+    "duckdb",
 
     # Plotting
     "matplotlib>=3.8,<3.10",
