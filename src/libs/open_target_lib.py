@@ -382,38 +382,113 @@ class OpenTarget(object):
 
         return target_id, df
     
-    
-    def has_target_moa(self, target_id: str) -> pd.DataFrame:
+
+    def has_target_moa(self, gene_or_ensembl: str) -> tuple[str, pd.DataFrame]:
+        target = self.resolve_target(gene_or_ensembl)
+
+        if target.empty:
+            raise ValueError(f"Target not found: {gene_or_ensembl}")
+
+        target_id = target.iloc[0]["target_id"]
+
         df = self.con.execute(
             """
-            SELECT *
-            FROM drug_moa
-            WHERE CAST(targets AS VARCHAR) ILIKE ?
+            SELECT
+                chembl_id,
+                dm.mechanismOfAction,
+                dm.actionType,
+                dm.targetName,
+                dm.targetType,
+                dm.targets,
+                dm.references
+            FROM drug_moa dm
+            LEFT JOIN UNNEST(dm.chemblIds) AS x(chembl_id) ON TRUE
+            WHERE list_contains(dm.targets, ?)
+            ORDER BY
+                chembl_id NULLS LAST,
+                dm.mechanismOfAction NULLS LAST
             """,
-            [f"%{target_id}%"]
+            [target_id],
         ).df()
 
-        return df
+        return target_id, df
     
-    def has_target_interactions(self, target_id: str, limit: int = 100) -> pd.DataFrame:
+    def has_target_interactions(self, gene_or_ensemblA: str, gene_or_ensemblB: str, 
+                                limit: int | None = 100) -> tuple[str|None, str|None, pd.DataFrame]:
 
-        query = \
-            """
-            SELECT *
-            FROM interactions
-            WHERE targetA = ?
-            OR targetB = ?
-            """
+        if gene_or_ensemblA:
+            targetA = self.resolve_target(gene_or_ensemblA)
+
+            if targetA.empty:
+                print("Error: TargetA not found: {gene_or_ensemblA}")
+                return None, None, pd.DataFrame()
+            
+            target_idA = targetA.iloc[0]["target_id"]
+        else:
+            target_idA = None
+
+        if gene_or_ensemblB:
+            targetB = self.resolve_target(gene_or_ensemblB)
+
+            if targetB.empty:
+                print("Error: TargetB not found: {gene_or_ensemblB}")
+                return None, None, pd.DataFrame()
+
+            target_idB = targetB.iloc[0]["target_id"]
+        else:
+            target_idB = None
+
+        if target_idA and target_idB is None:
+            query = \
+                """
+                SELECT *
+                FROM interactions
+                WHERE targetA = ?
+                """
+        elif target_idA is None and target_idB:
+            query = \
+                """
+                SELECT *
+                FROM interactions
+                WHERE targetB = ?
+                """
+        elif target_idA and target_idB:
+            query = \
+                """
+                SELECT *
+                FROM interactions
+                WHERE targetA = ?
+                AND   targetB = ?
+                """
+        else:
+            print("Error: define A or B or both")
+            return None, None, pd.DataFrame()
         
         if isinstance(limit, int) and limit > 0:
-            query += f" LIMIT {limit}"
+            query += f"\nLIMIT {limit}"
+
+        if target_idA and target_idB is None:
+            df = self.con.execute(
+                query,
+                [target_idA]
+            ).df()
+
+            return target_idA, None, df
+    
+        elif target_idA is None and target_idB:
+            df = self.con.execute(
+                query,
+                [target_idB]
+            ).df()
+
+            return None, target_idB, df
 
         df = self.con.execute(
             query,
-            [target_id, target_id]
+            [target_idA, target_idB]
         ).df()
 
-        return df
+        return target_idA, target_idB, df
     
 
      
