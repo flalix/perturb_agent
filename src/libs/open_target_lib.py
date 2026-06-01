@@ -31,6 +31,7 @@ colab/
     ├── target/
     ├── disease/
     ├── drug_mechanism_of_action/
+    ├── known_drug/
     ├── evidence_cancer_gene_census/
     ├── evidence_reactome/
     ├── interactions/
