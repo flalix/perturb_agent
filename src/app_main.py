@@ -428,6 +428,23 @@ def plot_heatmap_exp(dff: pd.DataFrame, normal_samples: list, tumor_samples: lis
     plt.close(cg.figure)
 
 
+def plot_umap_exp(dff: pd.DataFrame, samples: list, which_samples:str, n_clusters: int , n_neighbors: int, title: str = "", figsize: tuple = (14, 10)):
+
+    fig_umap, ax_umap, df_umap = gdc.plot_umap_expression(
+        dff=dff,
+        samples=samples,
+        which_samples=which_samples,
+        title=title,
+        figsize=figsize,
+        n_neighbors=n_neighbors,
+        n_clusters=n_clusters
+    )
+    st.pyplot(fig_umap)
+    plt.close(fig_umap)
+
+    return df_umap
+
+
 def plot_umap_gen(dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)):
 
     fig, _, _ = gdc.plot_UMAP(dfpiv=dfpiv, k=k, figsize=figsize)
@@ -911,7 +928,7 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes, tab_nonc, tab_heatmap_exp, tab_umap_exp, tab_hdbscan_exp, tab_enrich = \
+        tab_degs, tab_echo, tab_biotypes, tab_lnc, tab_heatmap_exp, tab_umap_exp, tab_hdbscan_exp, tab_enrich = \
         st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "HDBSCAN - cluster", "Enrichment Analysis"])
 
         msg = ''
@@ -984,7 +1001,7 @@ if st.session_state.loaded:
 
                 st.write(explain)
 
-            with tab_nonc:
+            with tab_lnc:
 
                 lfc_cutoff_nc = st.slider(
                     "Log2 fold change cutoff", min_value=0.1, max_value=10.0, value=1.0, key="lfc_cutoff_nc"
@@ -1002,13 +1019,33 @@ if st.session_state.loaded:
                 grid_key = f"non-coding_{psi_id}_lfc_{lfc_cutoff_nc}_fdr_{fdr_cutoff_nc}"
                 show_df(dfnc[cols], height=None, key=grid_key)
 
-            if not dff.empty:
+            if not dff.empty and not dfpiv.empty:
+                
+                n_samples, n_genes = dfpiv.shape
+                
                 with tab_heatmap_exp:
 
-                    n_samples, n_genes = dfpiv.shape
                     st.subheader("Expression matrix heatmap")
                     title = f"Primary Site: '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
                     plot_heatmap_exp(dff, normal_samples, tumor_samples, title)
+
+                    if msg:
+                        st.write(msg)
+
+                with tab_umap_exp:
+                    n_clusters_umap_exp = st.slider(
+                        "Number of clusters", min_value=2, max_value=20, value=3, key="n_clusters_umap_exp"
+                    )
+
+                    n_neighbors_umap_exp = st.slider(
+                        "Number of neighbors", min_value=2, max_value=100, value=10, key="n_neighbors_umap_exp"
+                    )
+
+                    n_samples, n_genes = dfpiv.shape
+                    st.subheader("UMAP expression")
+                    title = f"UMAP expression matrix for '{selected_primary_site}' #{n_samples} samples and #{n_genes} genes"
+                    df_umap_exp = plot_umap_exp(dff, samples=tumor_samples, which_samples='Tumor', title=title, 
+                                                n_clusters=n_clusters_umap_exp,  n_neighbors=n_neighbors_umap_exp)
 
                     if msg:
                         st.write(msg)

@@ -3886,3 +3886,101 @@ class GDC(object):
         cg.figure.suptitle(title, y=1.02)
 
         return cg
+
+
+    def plot_umap_expression(
+        self,
+        dff: pd.DataFrame,
+        samples: list,
+        which_samples: str = 'Tumor',
+        title: str = "",
+        figsize: tuple = (8, 6),
+        n_neighbors: int = 10,
+        min_dist: float = 0.2,
+        n_clusters: int = 3,
+        random_state: int = 42,
+    ):
+        # ------------------------------------------------------------
+        # 1. Use only tumor samples
+        # ------------------------------------------------------------
+        cols = ["geneid"] + samples
+
+        dff2 = dff[cols].copy()
+        dff2.set_index("geneid", inplace=True)
+
+        # numeric matrix
+        dff2 = dff2.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+        # log transform
+        mat = np.log2(dff2 + 1)
+
+        # ------------------------------------------------------------
+        # 2. Gene-wise z-score across tumor samples only
+        # ------------------------------------------------------------
+        row_mean = mat.mean(axis=1)
+        row_std = mat.std(axis=1)
+
+        mat_z = mat.sub(row_mean, axis=0).div(row_std.replace(0, np.nan), axis=0)
+        mat_z = mat_z.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        # ------------------------------------------------------------
+        # 3. UMAP uses samples x genes
+        # ------------------------------------------------------------
+        X_umap = mat_z.T.copy()
+
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            metric="correlation",
+            random_state=random_state,
+        )
+
+        emb = reducer.fit_transform(X_umap)
+
+        # ------------------------------------------------------------
+        # 4. Cluster tumor samples
+        # ------------------------------------------------------------
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+        )
+
+        clusters = kmeans.fit_predict(emb)
+
+        df_umap = pd.DataFrame(
+            {
+                "sample": X_umap.index,
+                "UMAP1": emb[:, 0],
+                "UMAP2": emb[:, 1],
+                "cluster": clusters.astype(str),
+            }
+        )
+
+        # ------------------------------------------------------------
+        # 5. Plot UMAP colored by tumor cluster
+        # ------------------------------------------------------------
+        if not title:
+            title = f"UMAP expression clustering using {which_samples} samples"
+        else:
+            title += f" using {which_samples} samples"
+
+        fig_umap, ax_umap = plt.subplots(figsize=figsize)
+
+        sns.scatterplot(
+            data=df_umap,
+            x="UMAP1",
+            y="UMAP2",
+            hue="cluster",
+            s=80,
+            ax=ax_umap,
+        )
+
+        ax_umap.set_title(title)
+        ax_umap.set_xlabel("UMAP1")
+        ax_umap.set_ylabel("UMAP2")
+        ax_umap.legend(title="Tumor cluster")
+
+        fig_umap.tight_layout()
+
+        return fig_umap, ax_umap, df_umap

@@ -22,7 +22,7 @@ import socket
 from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output, State, ctx, no_update
+from dash import html, dcc, dash_table, Input, Output, State, ctx, no_update
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
@@ -31,11 +31,12 @@ from rdflib import RDF, Graph, Namespace
 
 # import py4cytoscape as p4c
 from libs.Basic import create_dir, pdreadcsv, download_url_file
+from libs.open_target_lib import OpenTarget
 
 
 class DASH_CYTO(object):
     def __init__(self, root0: Path, root0_data: Path, dflfc_ori: pd.DataFrame, 
-                 found_degs: list, pathway_genes: list,
+                 found_degs: list, pathway_genes: list, psi_id: str = "",
                  lfc_cutoff: float=1.0, fdr_cutoff: float=0.05):
 
         self.GENE_COLS = ["gene_id", "symbol", "gene_type"]
@@ -49,6 +50,10 @@ class DASH_CYTO(object):
         self.root_colab= create_dir(root0_data, "colab")
         self.root_owl = create_dir(self.root_colab, "owl")
         self.root_ncbi = create_dir(self.root_colab, "ncbi")
+
+        self.ot = OpenTarget(root_colab=self.root_colab)
+        self.psi_id = psi_id
+        self.disease = psi_id.replace("TCGA-", "")
 
         self.dflfc_ori = dflfc_ori
         self.lfc_cutoff = lfc_cutoff
@@ -1415,6 +1420,15 @@ class DASH_CYTO(object):
                                         html.Button("⭐ Select main hubs", id="btn-select-hubs", className="popup-button"),
                                         html.Button("🔼 Select most upstream nodes", id="btn-select-sources", className="popup-button"),
                                         html.Button("🔽 Select most downstream nodes", id="btn-select-sinks", className="popup-button"),
+                                        
+                                        html.Hr(style={"margin": "8px 0"}),
+
+                                        html.Button("🎯 Open Targets: pathways", id="btn-ot-pathways", className="popup-button popup-button-ot", style={"display": "none"},),
+                                        html.Button("🧬 Open Targets: diseases", id="btn-ot-diseases", className="popup-button popup-button-ot", style={"display": "none"},),
+                                        html.Button("💊 Open Targets: drugs for TCGA disease", id="btn-ot-drugs", className="popup-button popup-button-ot",style={"display": "none"},),
+
+                                        html.Hr(style={"margin": "8px 0"}),
+
                                         html.Button("✖ Close", id="btn-close-popup", className="popup-button popup-close"),
                                     ],
                                     style={
@@ -1753,6 +1767,8 @@ class DASH_CYTO(object):
                 dcc.Store(id="right-click-node-store"),
                 dcc.Store(id="expanded-nodes-store", data=[]),
                 dcc.Store(id="all-elements-store", data=elements),
+                
+                dcc.Store(id="opentarget-action-store"),
 
                 html.Pre(id="saved-output"),
                 html.Pre(id="selected-output"),
@@ -1806,6 +1822,42 @@ class DASH_CYTO(object):
                     size="xl",
                     scrollable=True,
                 ),
+
+                dbc.Modal(
+                    [
+                        dbc.ModalHeader(
+                            dbc.ModalTitle(id="opentarget-modal-title")
+                        ),
+
+                        dbc.ModalBody(
+                            [
+                                html.Div(
+                                    id="opentarget-modal-message",
+                                    style={
+                                        "marginBottom": "12px",
+                                        "fontSize": "13px",
+                                        "color": "#444",
+                                    },
+                                ),
+
+                                html.Div(id="opentarget-modal-table"),
+                            ]
+                        ),
+
+                        dbc.ModalFooter(
+                            dbc.Button(
+                                "Close",
+                                id="btn-close-opentarget-modal",
+                                className="ms-auto",
+                                n_clicks=0,
+                            )
+                        ),
+                    ],
+                    id="opentarget-modal",
+                    is_open=False,
+                    size="xl",
+                    scrollable=True,
+                ),                
 
             ],
         )
@@ -2278,6 +2330,69 @@ class DASH_CYTO(object):
 
             return new_elements
 
+        def is_gene_node(node_data: dict) -> bool:
+            if not node_data:
+                return False
+
+            symbol = str(node_data.get("symbol", "")).strip()
+            ensembl_id = str(node_data.get("ensembl_id", "")).strip()
+
+            has_symbol = symbol not in ["", "-"]
+            has_ensembl = ensembl_id not in ["", "-"] and ensembl_id.startswith("ENSG")
+
+            return has_symbol and has_ensembl
+
+
+        def get_gene_symbol_from_node(node_data: dict) -> str:
+            if not is_gene_node(node_data):
+                return ""
+
+            return str(node_data.get("symbol", "")).strip()
+
+
+        def df_to_dash_table(df, max_rows: int = 500):
+            if df is None or df.empty:
+                return html.Div(
+                    "No records found.",
+                    style={
+                        "padding": "12px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRadius": "8px",
+                        "color": "#555",
+                    },
+                )
+
+            df = df.copy().head(max_rows)
+
+            return dash_table.DataTable(
+                data=df.to_dict("records"),
+                columns=[{"name": str(c), "id": str(c)} for c in df.columns],
+                page_size=15,
+                sort_action="native",
+                filter_action="native",
+                style_table={
+                    "overflowX": "auto",
+                    "maxHeight": "650px",
+                    "overflowY": "auto",
+                    "border": "1px solid #eee",
+                    "borderRadius": "8px",
+                },
+                style_cell={
+                    "fontFamily": "Arial",
+                    "fontSize": "12px",
+                    "padding": "7px",
+                    "textAlign": "left",
+                    "maxWidth": "320px",
+                    "whiteSpace": "normal",
+                    "height": "auto",
+                },
+                style_header={
+                    "fontWeight": "bold",
+                    "backgroundColor": "#f6f8fa",
+                    "borderBottom": "1px solid #ddd",
+                },
+            )
+
         @app.callback(
             Output("reactome-network", "elements", allow_duplicate=True),
             Output("deg-summary-window", "children"),
@@ -2718,6 +2833,10 @@ class DASH_CYTO(object):
             Output("node-info", "children", allow_duplicate=True),
             Output("selected-node-store", "data", allow_duplicate=True),
 
+            Output("btn-ot-pathways", "style"),
+            Output("btn-ot-diseases", "style"),
+            Output("btn-ot-drugs", "style"),
+
             Input("right-click-event-store", "data"),
             Input("btn-close-popup", "n_clicks"),
 
@@ -2738,6 +2857,14 @@ class DASH_CYTO(object):
 
             style = dict(current_style or {})
 
+            hidden_ot_style = {"display": "none"}
+
+            visible_ot_style = {
+                "display": "block",
+                "width": "100%",
+                "textAlign": "left",
+            }
+
             if trigger == "btn-close-popup":
                 style["display"] = "none"
                 return (
@@ -2746,6 +2873,9 @@ class DASH_CYTO(object):
                     dash.no_update,
                     dash.no_update,
                     dash.no_update,
+                    hidden_ot_style,
+                    hidden_ot_style,
+                    hidden_ot_style,
                 )
 
             if trigger == "right-click-event-store":
@@ -2783,15 +2913,163 @@ class DASH_CYTO(object):
 
                 node_info_panel = self.make_node_info_panel(hover_node_data)
 
+                if is_gene_node(hover_node_data):
+                    ot_pathways_style = visible_ot_style
+                    ot_diseases_style = visible_ot_style
+                    ot_drugs_style = visible_ot_style
+                else:
+                    ot_pathways_style = hidden_ot_style
+                    ot_diseases_style = hidden_ot_style
+                    ot_drugs_style = hidden_ot_style
+
                 return (
                     style,
                     hover_node_data,
                     new_elements,
                     node_info_panel,
                     hover_node_data,
+                    ot_pathways_style,
+                    ot_diseases_style,
+                    ot_drugs_style,
                 )
 
             raise dash.exceptions.PreventUpdate
+
+        @app.callback(
+            Output("opentarget-action-store", "data"),
+
+            Input("btn-ot-pathways", "n_clicks"),
+            Input("btn-ot-diseases", "n_clicks"),
+            Input("btn-ot-drugs", "n_clicks"),
+
+            prevent_initial_call=True,
+        )
+        def choose_opentarget_action(n_pathways, n_diseases, n_drugs):
+            trigger = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+
+            if trigger == "btn-ot-pathways":
+                return "pathways"
+
+            if trigger == "btn-ot-diseases":
+                return "diseases"
+
+            if trigger == "btn-ot-drugs":
+                return "drugs"
+
+            raise dash.exceptions.PreventUpdate
+
+
+        @app.callback(
+            Output("opentarget-modal", "is_open"),
+            Output("opentarget-modal-title", "children"),
+            Output("opentarget-modal-message", "children"),
+            Output("opentarget-modal-table", "children"),
+            Output("cyto-popup-menu", "style", allow_duplicate=True),
+
+            Input("opentarget-action-store", "data"),
+            Input("btn-close-opentarget-modal", "n_clicks"),
+
+            State("right-click-node-store", "data"),
+            State("opentarget-modal", "is_open"),
+            State("cyto-popup-menu", "style"),
+
+            prevent_initial_call=True,
+        )
+        def open_opentarget_modal(
+            action,
+            close_clicks,
+            right_click_node,
+            is_open,
+            popup_style,
+        ):
+            trigger = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+
+            if trigger == "btn-close-opentarget-modal":
+                return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+            if not action:
+                raise dash.exceptions.PreventUpdate
+
+            popup_style = dict(popup_style or {})
+            popup_style["display"] = "none"
+
+            if not is_gene_node(right_click_node):
+                return (
+                    True,
+                    "Open Targets",
+                    "Selected node is not a valid gene node.",
+                    html.Div("A valid gene node must have both symbol and Ensembl gene ID."),
+                    popup_style,
+                )
+
+            symbol = get_gene_symbol_from_node(right_click_node)
+
+            try:
+                if action == "pathways":
+                    target_id, df = self.ot.get_reactome_pathways_for_target(symbol)
+
+                    title = f"Open Targets: Reactome pathways — {symbol}"
+                    message = f"Target ID: {target_id}" if target_id else "Target ID not found."
+
+                    return (
+                        True,
+                        title,
+                        message,
+                        df_to_dash_table(df),
+                        popup_style,
+                    )
+
+                if action == "diseases":
+                    target_id, df = self.ot.get_reactome_disease_evidence_for_target(symbol)
+
+                    title = f"Open Targets: disease evidence — {symbol}"
+                    message = f"Target ID: {target_id}" if target_id else "Target ID not found."
+
+                    return (
+                        True,
+                        title,
+                        message,
+                        df_to_dash_table(df),
+                        popup_style,
+                    )
+
+                if action == "drugs":
+                    df = self.ot.get_drugs_for_disease(
+                        disease=self.disease,
+                        limit=None,
+                    )
+
+                    title = f"Open Targets: drugs for TCGA disease — {self.disease}"
+                    message = f"Current project: {self.psi_id}; disease query: {self.disease}"
+
+                    return (
+                        True,
+                        title,
+                        message,
+                        df_to_dash_table(df),
+                        popup_style,
+                    )
+
+            except Exception as e:
+                return (
+                    True,
+                    "Open Targets error",
+                    f"Action: {action}; selected gene: {symbol}",
+                    html.Pre(
+                        str(e),
+                        style={
+                            "backgroundColor": "#fff5f5",
+                            "color": "#b00020",
+                            "padding": "12px",
+                            "borderRadius": "8px",
+                            "whiteSpace": "pre-wrap",
+                        },
+                    ),
+                    popup_style,
+                )
+
+            raise dash.exceptions.PreventUpdate
+
 
         @app.callback(
             Output("reactome-network", "elements", allow_duplicate=True),
