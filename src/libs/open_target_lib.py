@@ -18,10 +18,12 @@ display(HTML("<style>:root_ot { --jp-notebook-max-width: 100% !important; }</sty
 """
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/26.03/output/evidence_cancer_gene_census .
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/26.03/output/drug_mechanism_of_action .
+rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/25.03/output/known_drug .
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/26.03/output/pharmacogenomics .
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/26.03/output/study .
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/26.03/output/evidence_reactome .
-
+rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/25.03/output/association_overall_direct .
+rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/25.03/output/association_by_datasource_direct .
 rsync -rpltvz --delete rsync.ebi.ac.uk::pub/databases/opentargets/platform/25.03/output/target .
 
 colab/
@@ -52,12 +54,14 @@ class OpenTarget(object):
             "target": self.root_ot / "target",
             "disease": self.root_ot / "disease",
             "drug_moa": self.root_ot / "drug_mechanism_of_action",
+            "known_drug": self.root_ot / "known_drug",
             "cgc": self.root_ot / "evidence_cancer_gene_census",
             "reactome": self.root_ot / "evidence_reactome",
             "interactions": self.root_ot / "interactions",
             "pharmacogenomics": self.root_ot / "pharmacogenomics",
             "study": self.root_ot / "study",
             "association_by_datasource_direct": self.root_ot / "association_by_datasource_direct",
+            "association_overall_direct": self.root_ot / "association_overall_direct",
         }
 
         self._create_views()
@@ -138,8 +142,26 @@ class OpenTarget(object):
         return df
     
     def is_target_related_to_disease(self, target_id: str, disease: str) -> pd.DataFrame:
+        '''
+        look for a target related to a disease
+        '''
 
         disease_like = f"%{disease.strip().lower()}%"
+
+        '''
+            disease:
+
+            STRUCT(
+                hasExactSynonym VARCHAR[],
+                hasRelatedSynonym VARCHAR[],
+                hasNarrowSynonym VARCHAR[],
+                hasBroadSynonym VARCHAR[]
+            )
+            So array_to_string() cannot be applied directly to d.synonyms.
+            lower(coalesce(CAST(d.synonyms AS VARCHAR), '')) LIKE ?
+        '''
+
+        # Some diseases may have NULL synonym subfields. This version is robust:
 
         df = self.con.execute(
             """
@@ -152,26 +174,29 @@ class OpenTarget(object):
                 a.score,
                 d.synonyms,
                 d.ontology
-            FROM association_by_datasource_direct a
+            FROM association_overall_direct a
             LEFT JOIN disease d
                 ON a.diseaseId = d.id
             LEFT JOIN target t
                 ON a.targetId = t.id
             WHERE a.targetId = ?
             AND (
-                lower(coalesce(d.name, '')) LIKE ?
+                    lower(coalesce(d.name, '')) LIKE ?
                 OR lower(coalesce(d.description, '')) LIKE ?
-                OR lower(coalesce(array_to_string(d.synonyms, ' '), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasExactSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasRelatedSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasNarrowSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasBroadSynonym AS VARCHAR), '')) LIKE ?
             )
             ORDER BY a.score DESC NULLS LAST
             """,
-            [target_id, disease_like, disease_like, disease_like]
+            [target_id, disease_like, disease_like, disease_like, disease_like, disease_like, disease_like]
         ).df()
 
         return df
 
 
-    def get_drugs_for_disease(self, disease: str, limit: int = 200) -> pd.DataFrame:
+    def get_drugs_for_disease(self, disease: str, limit: int | None = 200) -> pd.DataFrame:
         
         disease_like = f"%{disease.lower()}%"
 
@@ -181,8 +206,9 @@ class OpenTarget(object):
                 d.name AS disease_name,
 
                 kd.drugId,
-                kd.drugName,
+                kd.prefName AS drugName,
                 kd.targetId,
+
                 t.approvedSymbol,
                 t.approvedName,
 
@@ -190,32 +216,33 @@ class OpenTarget(object):
                 kd.status,
                 kd.urls
             FROM known_drug kd
-            LEFT JOIN disease d
-                ON kd.diseaseId = d.id
-            LEFT JOIN target t
-                ON kd.targetId = t.id
+            LEFT JOIN disease d ON kd.diseaseId = d.id
+            LEFT JOIN target t  ON kd.targetId = t.id
             WHERE
                 lower(coalesce(d.name, '')) LIKE ?
                 OR lower(coalesce(d.description, '')) LIKE ?
-                OR lower(coalesce(array_to_string(d.synonyms, ' '), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasExactSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasRelatedSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasNarrowSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasBroadSynonym AS VARCHAR), '')) LIKE ?
             ORDER BY
                 kd.phase DESC NULLS LAST,
-                kd.drugName
-            LIMIT ?
+                kd.prefName,
+                t.approvedSymbol
             """
 
         if isinstance(limit, int) and limit > 0:
-            query += f" LIMIT {limit}"
+            query += f"\nLIMIT {limit}"
 
         df = self.con.execute(
             query,
-            [disease_like, disease_like, disease_like]
+            [disease_like, disease_like, disease_like, disease_like, disease_like, disease_like]
         ).df()
 
         return df
 
 
-    def get_drugs_for_disease_with_moa(self, disease: str, limit: int = 300) -> pd.DataFrame:
+    def get_drugs_for_disease_with_moa(self, disease: str, limit: int | None = 300) -> pd.DataFrame:
 
         disease_like = f"%{disease.lower()}%"
 
@@ -225,63 +252,72 @@ class OpenTarget(object):
                 d.name AS disease_name,
 
                 kd.drugId,
-                kd.drugName,
+                kd.prefName AS drugName,
                 kd.targetId,
                 t.approvedSymbol,
                 t.approvedName,
 
                 kd.phase,
                 kd.status,
+                kd.urls,
 
                 moa.mechanismOfAction,
                 moa.actionType,
-                moa.description AS moa_description
+                moa.targetName AS moa_targetName,
+                moa.targetType AS moa_targetType,
+                moa.references AS moa_references
 
             FROM known_drug kd
-
-            LEFT JOIN disease d 
-                ON kd.diseaseId = d.id
-
-            LEFT JOIN target t
-                ON kd.targetId = t.id
-
+            LEFT JOIN disease d ON kd.diseaseId = d.id
+            LEFT JOIN target t ON kd.targetId = t.id
             LEFT JOIN drug_moa moa
-                ON kd.drugId = moa.drugId
+                 ON  list_contains(moa.chemblIds, kd.drugId)
+                 AND list_contains(moa.targets, kd.targetId)
 
             WHERE
                 lower(coalesce(d.name, '')) LIKE ?
                 OR lower(coalesce(d.description, '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasExactSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasRelatedSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasNarrowSynonym AS VARCHAR), '')) LIKE ?
+                OR lower(coalesce(CAST(d.synonyms.hasBroadSynonym AS VARCHAR), '')) LIKE ?
 
             ORDER BY
                 kd.phase DESC NULLS LAST,
-                kd.drugName,
+                kd.prefName,
                 t.approvedSymbol
             """
  
         if isinstance(limit, int) and limit > 0:
-            query += f" LIMIT {limit}"
+            query += f"\nLIMIT {limit}"
         
         df = self.con.execute(
             query,
-            [disease_like, disease_like]
+            [disease_like, disease_like, disease_like, disease_like, disease_like, disease_like]
         ).df()
 
         return df
 
 
-    def has_target_Reactome_evidence(self, target_id: str) -> pd.DataFrame:
-        df = self.con.execute(
-            """
+    def has_target_Reactome_evidence(self, target_id: str, limit: int | None = 50) -> pd.DataFrame:
+        
+        query =  """
             SELECT
                 r.*,
+                d.id AS diseaseId,
                 d.name AS disease_name
             FROM reactome r
             LEFT JOIN disease d
                 ON r.diseaseId = d.id
             WHERE r.targetId = ?
             ORDER BY r.score DESC NULLS LAST
-            LIMIT 50
-            """,
+            """
+ 
+        if isinstance(limit, int) and limit > 0:
+            query += f"\nLIMIT {limit}"
+        
+        df = self.con.execute(
+            query,
             [target_id]
         ).df()
 
