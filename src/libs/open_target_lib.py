@@ -299,31 +299,90 @@ class OpenTarget(object):
         return df
 
 
-    def has_target_Reactome_evidence(self, target_id: str, limit: int | None = 50) -> pd.DataFrame:
-        
-        query =  """
-            SELECT
-                r.*,
-                d.id AS diseaseId,
-                d.name AS disease_name
-            FROM reactome r
-            LEFT JOIN disease d
-                ON r.diseaseId = d.id
-            WHERE r.targetId = ?
-            ORDER BY r.score DESC NULLS LAST
-            """
- 
-        if isinstance(limit, int) and limit > 0:
-            query += f"\nLIMIT {limit}"
-        
+    def get_reactome_pathways_for_target(self, gene_or_ensembl: str) -> tuple[str, pd.DataFrame]:
+        target = self.resolve_target(gene_or_ensembl)
+
+        if target.empty:
+            raise ValueError(f"Target not found: {gene_or_ensembl}")
+
+        target_id = target.iloc[0]["target_id"]
+
         df = self.con.execute(
-            query,
-            [target_id]
+            """
+            SELECT
+                t.id AS targetId,
+                t.approvedSymbol,
+                t.approvedName,
+
+                p.pathwayId AS pathway_id,
+                p.pathway AS pathway,
+                p.topLevelTerm AS top_level_term
+
+            FROM target t
+            LEFT JOIN UNNEST(t.pathways) AS x(p) ON TRUE
+
+            WHERE t.id = ?
+
+            ORDER BY
+                p.topLevelTerm NULLS LAST,
+                p.pathway NULLS LAST
+            """,
+            [target_id],
         ).df()
 
-        return df
+        return target_id, df
     
+    def get_reactome_disease_evidence_for_target(self, gene_or_ensembl: str) -> tuple[str, pd.DataFrame]:
+        target = self.resolve_target(gene_or_ensembl)
 
+        if target.empty:
+            raise ValueError(f"Target not found: {gene_or_ensembl}")
+
+        target_id = target.iloc[0]["target_id"]
+
+        df = self.con.execute(
+            """
+            SELECT
+                r.targetId,
+                t.approvedSymbol,
+                t.approvedName,
+
+                r.diseaseId,
+                d.name AS disease_name,
+                r.diseaseFromSource,
+
+                p.id AS pathway_id,
+                p.name AS pathway_name,
+
+                r.reactionId,
+                r.reactionName,
+                r.targetModulation,
+                r.score,
+                r.literature,
+                r.publicationDate,
+                r.evidenceDate
+
+            FROM reactome r
+            LEFT JOIN target t
+                ON r.targetId = t.id
+            LEFT JOIN disease d
+                ON r.diseaseId = d.id
+            LEFT JOIN UNNEST(r.pathways) AS x(p)
+                ON TRUE
+
+            WHERE r.targetId = ?
+
+            ORDER BY
+                r.score DESC NULLS LAST,
+                pathway_name NULLS LAST,
+                r.reactionName NULLS LAST
+            """,
+            [target_id],
+        ).df()  
+
+        return target_id, df
+    
+    
     def has_target_moa(self, target_id: str) -> pd.DataFrame:
         df = self.con.execute(
             """
