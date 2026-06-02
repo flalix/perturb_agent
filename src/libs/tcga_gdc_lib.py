@@ -2100,6 +2100,8 @@ class GDC(object):
         self.df_all_mut = pd.DataFrame()
         self.all_barcode_list = []
 
+        self.set_filenames()
+
         if not os.path.exists(self.filename_cases):
             print("Error: could not find cases file:", self.filename_cases)
             return self.df_cases, self.df_all_samples, self.df_all_mut, self.all_barcode_list

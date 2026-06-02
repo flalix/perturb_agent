@@ -1767,7 +1767,7 @@ class DASH_CYTO(object):
                 dcc.Store(id="right-click-node-store"),
                 dcc.Store(id="expanded-nodes-store", data=[]),
                 dcc.Store(id="all-elements-store", data=elements),
-                
+
                 dcc.Store(id="opentarget-action-store"),
 
                 html.Pre(id="saved-output"),
@@ -2330,12 +2330,27 @@ class DASH_CYTO(object):
 
             return new_elements
 
+        def get_node_gene_symbol(node_data: dict) -> str:
+            if not node_data:
+                return ""
+
+            return (
+                node_data.get("symbol")
+                or node_data.get("gene_symbol")
+                or node_data.get("approvedSymbol")
+                or node_data.get("label")
+                or ""
+            )
+
         def is_gene_node(node_data: dict) -> bool:
             if not node_data:
                 return False
 
-            symbol = str(node_data.get("symbol", "")).strip()
+            symbol = str(get_node_gene_symbol(node_data)).strip()
             ensembl_id = str(node_data.get("ensembl_id", "")).strip()
+
+            print(f">>> symbol {symbol} label {node_data.get('label')} ensembl_id {ensembl_id}") 
+
 
             has_symbol = symbol not in ["", "-"]
             has_ensembl = ensembl_id not in ["", "-"] and ensembl_id.startswith("ENSG")
