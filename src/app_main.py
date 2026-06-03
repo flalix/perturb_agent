@@ -672,11 +672,6 @@ if st.session_state.loaded:
     with st.spinner("Loading primary site data..."):
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(verbose=False)
 
-        st.write(">>> cases", len(df_cases))
-        st.write(">>> samples", len(df_all_samples))
-        st.write(">>> mutations", len(df_all_mut))
-        st.write(">>> barcodes", len(barcode_list))
-
         cases_ids = np.unique(df_all_samples.case_id)
         df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
         df_cases.reset_index(drop=True, inplace=True)
