@@ -34,6 +34,7 @@ dependencies = [
     # Dash / Cytoscape web graph
     "dash>=2.16,<3",
     "dash-cytoscape>=1.0,<2",
+    "dash-bootstrap-components", 
 
     # Graph / pathway parsing
     "networkx>=3.2",
