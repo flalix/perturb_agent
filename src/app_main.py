@@ -19,6 +19,7 @@ import os
 from urllib import response
 import yaml
 import numpy as np
+import psutil
 
 # ----------- fix incompatibilities ---------------------
 import pandas as pd
@@ -539,6 +540,21 @@ def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
     return mtd.df_enr0
 
 
+def memory_available(do_print:bool=True, do_write:bool=False):
+    # Get available memory in bytes
+    avail_bytes = psutil.virtual_memory().available
+
+    # Convert to Megabytes and Gigabytes
+    avail_mb = avail_bytes / (1024 ** 2)
+
+    stri = f"Available Memory: {avail_mb:.2f} MB"
+
+    if do_print:
+        print(stri)
+    if do_write:
+        st.write(stri)
+
+
 # prog_list = gdc.get_gdc_progams(force=False, verbose=verbose)
 
 # -----------------------------------------------------------------------------
@@ -550,9 +566,13 @@ def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
 @st.cache_data(show_spinner=False)
 def load_primary_site_data(verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
+    memory_available(do_print=True, do_write=True)
+
     df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(
         sample_type_term="tumor", verbose=verbose
     )
+
+    memory_available(do_print=True, do_write=True)
 
     return (
         make_df_streamlit_safe(df_cases),
@@ -560,6 +580,7 @@ def load_primary_site_data(verbose: bool = False) -> Tuple[pd.DataFrame, pd.Data
         make_df_streamlit_safe(df_all_mut),
         barcode_list,
     )
+
 
 
 # hash error: @st.cache(show_spinner=False)
@@ -672,10 +693,6 @@ if st.session_state.loaded:
     with st.spinner("Loading primary site data..."):
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(verbose=False)
 
-        cases_ids = np.unique(df_all_samples.case_id)
-        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
-        df_cases.reset_index(drop=True, inplace=True)
-
         method = "deseq2"
         mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
 
@@ -725,9 +742,7 @@ if st.session_state.loaded:
     dfpiv = st_build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
 
     # For the mutation matrix tab, I would also make the boolean matrix explicitly integer before display:
-    if not dfpiv.empty:
-        st.write("dfpiv is empty.")
-    else:
+    if dfpiv.empty:
         dfpiv = dfpiv.astype(int)
 
     df_gene_counts = summarize_mutations(df_all_mut)
@@ -747,6 +762,8 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
+    memory_available(do_print=True, do_write=True)
+
     with tab_cases:
         st.info(f"Selected case_id: {current_case_id()}")
 
@@ -954,6 +971,8 @@ if st.session_state.loaded:
                 dff, normal_samples, tumor_samples = gdc.build_df_exp_and_filter(df_counts=df_counts, df_meta=df_meta,
                             gene_col = "geneid",
                             equal_var = False,)
+
+                memory_available(do_print=True, do_write=True)
 
             with tab_degs:
 

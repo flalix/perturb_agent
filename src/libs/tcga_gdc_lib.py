@@ -41,7 +41,9 @@ from project_context_GDC import load_project_context
 
 
 class GDC(object):
-    def __init__(self, root0: Path, root0_data: Path):
+    def __init__(self, root0: Path, root0_data: Path, memory_restriction: bool=True):
+
+        self.memory_restriction = memory_restriction
 
         self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
         self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
@@ -2189,6 +2191,18 @@ class GDC(object):
             pd.concat(df_list_samples, ignore_index=True) if df_list_samples else pd.DataFrame()
         )
 
+        if self.memory_restriction:
+            df_all_samples = df_all_samples.head(200).copy()
+        
+        df_all_samples.reset_index(drop=True, inplace=True)
+
+        cases_ids = np.unique(df_all_samples.case_id)
+        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
+        df_cases.reset_index(drop=True, inplace=True)
+
+        self.df_all_samples = df_all_samples
+        self.df_cases = df_cases
+                
         if len(df_list_mut) == 0:
             df_all_mut = pd.DataFrame()
             list_all_barcodes = []
