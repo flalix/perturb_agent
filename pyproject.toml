@@ -47,6 +47,7 @@ dependencies = [
     "gseapy>=1.1",
     "mygene>=3.2",
     "duckdb",
+    "pybiopax",
 
     # Plotting
     "matplotlib>=3.8,<3.10",
