@@ -546,9 +546,7 @@ def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
 
 
 @st.cache_data(show_spinner=False)
-def load_primary_site_data(
-    psi_id: str, verbose: bool = False
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
+def load_primary_site_data(verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
     df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(
         sample_type_term="tumor", verbose=verbose
@@ -670,7 +668,12 @@ if st.session_state.loaded:
     psi_id = str(selected_primary_site).split(" - ")[0]
     gdc.set_primary_site(psi_id=psi_id)
     with st.spinner("Loading primary site data..."):
-        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(psi_id, verbose=False)
+        df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(verbose=False)
+
+        st.write(">>> cases", len(df_cases))
+        st.write(">>> samples", len(df_all_samples))
+        st.write(">>> mutations", len(df_all_mut))
+        st.write(">>> barcodes", len(barcode_list))
 
         cases_ids = np.unique(df_all_samples.case_id)
         df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
