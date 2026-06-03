@@ -108,13 +108,21 @@ class DASH_CYTO(object):
 
         self.START_PORT = 8051
         self.END_PORT = 8070
-        self.kill_dash_ports()
+
+        if not self.is_render():
+            self.kill_dash_ports()
+        else:
+            print("Render detected: skipping local Dash port cleanup")
+
 
         self.hub_list = None
         self.hub_top_n = None
 
         self.source_node_list = None
         self.sink_node_list = None
+
+    def is_render(self) -> bool:
+        return os.environ.get("RENDER") == "true" or os.environ.get("RENDER_SERVICE_ID") is not None
 
     def reset_graph(self):
         self.G = nx.DiGraph()
