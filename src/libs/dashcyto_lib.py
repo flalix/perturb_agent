@@ -241,30 +241,30 @@ class DASH_CYTO(object):
         }
 
 
-    def get_lfc_bin(self, log2FC: float | None) -> str:
-        if log2FC is None:
+    def get_lfc_bin(self, lfc: float | None) -> str:
+        if lfc is None:
             return "none"
 
         try:
-            log2FC = float(log2FC)
+            lfc = float(lfc)
         except Exception:
             return "none"
 
-        if log2FC >= 3:
+        if lfc >= 3:
             return "up_3"
-        elif log2FC >= 2:
+        elif lfc >= 2:
             return "up_2"
-        elif log2FC >= 1:
+        elif lfc >= 1:
             return "up_1"
-        elif log2FC >= 0.4:
+        elif lfc >= 0.4:
             return "+weak"
-        elif log2FC <= -3:
+        elif lfc <= -3:
             return "down_3"
-        elif log2FC <= -2:
+        elif lfc <= -2:
             return "down_2"
-        elif log2FC <= -1:
+        elif lfc <= -1:
             return "down_1"
-        elif log2FC <= -0.4:
+        elif lfc <= -0.4:
             return "-weak"
 
         return "~zero"
@@ -291,31 +291,62 @@ class DASH_CYTO(object):
         for node_id, data in self.G.nodes(data=True):
 
             label = data.get("label", node_id)
-            symbol = str(label).upper()
 
-            dic_symbol = self.dic_lfc_lookup.get(symbol)
+            # --------------------------------------------------
+            # NEW: annotate Reactome node label using alias table
+            # --------------------------------------------------
+            annot = self.get_gene_annotation_for_node({
+                "id": node_id,
+                "label": label,
+                **data,
+            })
 
-            #if symbol == 'CCNB2':
-            #    print(f"Found CCNB2: {dic_symbol}")
+            symbol = annot.get("symbol", "")
+            ensembl_id = annot.get("ensembl_id", "NA")
+            name = annot.get("name", "NA")
+            uniprot_id = annot.get("uniprot_id", "NA")
+            refseq_summary = annot.get("refseq_summary", "NA")
+            n_matches = annot.get("n_matches", 0)
+            matches = annot.get("matches", [])
+
+            # Use official symbol for DEG lookup when available
+            if symbol not in [None, ""]:
+                lookup_symbol = str(symbol).upper()
+            else:
+                lookup_symbol = str(label).upper()
+
+            dic_symbol = self.dic_lfc_lookup.get(lookup_symbol)
 
             if dic_symbol is not None:
-                log2FC = dic_symbol["lfc"]
+                lfc = dic_symbol["lfc"]
                 fdr = dic_symbol["fdr"]
             else:
-                log2FC = None
+                lfc = None
                 fdr = None
-
 
             elem = {
                 "data": {
                     "id": node_id,
-                    "label": data.get("label", node_id),
+                    "label": label,
                     "biopax_type": data.get("biopax_type", "Unknown"),
-                    "log2FC": log2FC,
+
+                    # --------------------------------------------------
+                    # NEW: keep gene annotation inside Cytoscape data
+                    # --------------------------------------------------
+                    "symbol": symbol,
+                    "ensembl_id": ensembl_id,
+                    "name": name,
+                    "uniprot_id": uniprot_id,
+                    "refseq_summary": refseq_summary,
+                    "n_matches": n_matches,
+                    "matches": matches,
+
+                    # DEG fields
+                    "lfc": lfc,
                     "FDR": fdr,
-                    "abs_log2FC": abs(log2FC) if log2FC is not None else None,
-                    "lfc_bin": self.get_lfc_bin(log2FC),
-                    "is_deg_gene": log2FC is not None,                    
+                    "abs_lfc": abs(lfc) if lfc is not None else None,
+                    "lfc_bin": self.get_lfc_bin(lfc),
+                    "is_deg_gene": lfc is not None,
                 }
             }
 
@@ -982,7 +1013,7 @@ class DASH_CYTO(object):
                     html.Hr(),
                     html.P([html.B("Synonyms: "), str(info_data["synonyms"])]),
                     html.Hr(),
-                    html.P([html.B("LFC / log2FC: "), str(info_data["lfc"])]),
+                    html.P([html.B("LFC: "), str(info_data["lfc"])]),
                     html.P([html.B("FDR: "), str(info_data["fdr"])]),
 
                     html.Hr(),
@@ -2346,15 +2377,22 @@ class DASH_CYTO(object):
             if not node_data:
                 return False
 
-            symbol = str(get_node_gene_symbol(node_data)).strip()
-            ensembl_id = str(node_data.get("ensembl_id", "")).strip()
+            symbol = str(
+                node_data.get("symbol")
+                or node_data.get("label")
+                or ""
+            ).strip()
 
-            print(f">>> symbol {symbol} label {node_data.get('label')} ensembl_id {ensembl_id}") 
+            ensembl_id = str(
+                node_data.get("ensembl_id")
+                or ""
+            ).strip()
 
+            has_symbol = symbol not in ["", "-", "NA", "None"]
+            has_ensembl = ensembl_id not in ["", "-", "NA", "None"] and ensembl_id.startswith("ENSG")
 
-            has_symbol = symbol not in ["", "-"]
-            has_ensembl = ensembl_id not in ["", "-"] and ensembl_id.startswith("ENSG")
-
+            # For Open Targets I recommend requiring Ensembl,
+            # because symbol-only aliases can be ambiguous.
             return has_symbol and has_ensembl
 
 
@@ -2362,7 +2400,12 @@ class DASH_CYTO(object):
             if not is_gene_node(node_data):
                 return ""
 
-            return str(node_data.get("symbol", "")).strip()
+            symbol = node_data.get("symbol")
+
+            if symbol in [None, "", "NA", "None"]:
+                symbol = node_data.get("label", "")
+
+            return str(symbol).strip()
 
 
         def df_to_dash_table(df, max_rows: int = 500):
