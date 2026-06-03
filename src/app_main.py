@@ -44,8 +44,10 @@ import seaborn as sns
 │   └── styles/
 └── storage/
     └── data/
-        └── TCGA/
-
+        ├─── gdc_progams.txt
+        ├─── colab
+        ├─── TCGA/
+        └─── vector_store/
 
 """
 
@@ -93,7 +95,7 @@ ctx = load_project_context(
 
 colors = ctx.colors
 
-gdc = GDC(root0=ROOT0, root0_data=ctx.ROOT0_DATA)
+gdc = GDC(root0=ROOT0, root0_data=ROOT_DATA)
 
 ROOT_OWL = ROOT_COLAB / 'owl'
 ROOT_REACTOME = ROOT_COLAB / 'reactome'
@@ -473,7 +475,7 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:flo
     cfg = Config(root0=ROOT0, root_disease=root_disease, disease=ctx.disease, case_list=ctx.case_list)
 
     mtd = enricheR(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
-            root0=ROOT0, root0_data=ctx.ROOT0_DATA, prog_id=PROG_ID, psi_id=PSI_ID,
+            root0=ROOT0, root0_data=ROOT_DATA, prog_id=PROG_ID, psi_id=PSI_ID,
             case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
             has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
             std_filename=ctx.std_filename, std_filename_list=ctx.std_filename_list,
@@ -1092,7 +1094,7 @@ if st.session_state.loaded:
                         st.session_state["selected_pathway_id"] = pathway_id
                         st.session_state["selected_pathway"] = pathway
 
-                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ctx.ROOT0_DATA, dflfc_ori=mtd.dflfc_ori, 
+                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ROOT_DATA, dflfc_ori=mtd.dflfc_ori, 
                                         lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, 
                                         found_degs=degs, pathway_genes=pathway_genes)
 
