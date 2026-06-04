@@ -16,7 +16,7 @@ from typing import List, Tuple #  Optional, Iterable, Set, Any
 from libs.Basic import create_dir, pdwritecsv, pdreadcsv, to_roman_numeral
 
 class Gene(object):
-	def __init__(self, root0_data:Path):
+	def __init__(self, root0_data:Path, verbose:bool=False):
 
 		self.root0_data = root0_data
 		self.root_colab = create_dir(root0_data, 'colab')
@@ -280,7 +280,8 @@ class Gene(object):
 			'IGHA2' is and A2M marker; however 'A2M' exists
 		'''
 
-		print("Start opening tables ....")
+		if verbose:
+			print("Start opening tables ....")
 		# self.df_refseq, self.df_synonyms, self.dic_ref_seq = self.open_refseq(verbose=False)
 		# self.df_omim = self.open_omim(verbose=False)
 		# self.df_hgnc = self.open_hgnc(verbose=False)
@@ -291,7 +292,8 @@ class Gene(object):
 		self.dfunip = pd.DataFrame()
 		self.dfc = pd.DataFrame()
 
-		print("Building synonym dictionary ...")
+		if verbose:
+			print("Building synonym dictionary ...")
 		''' synonym dictionary - good one!!! 2024/04/27 '''
 		dic_synonyms={}; multiple_synonym_list = []
 
@@ -318,7 +320,6 @@ class Gene(object):
 		self.dic_synonyms = dic_synonyms
 		del(df)
 		del(multiple_synonym_list)
-		print("")
 
 
 	def filter_my_gene(self):

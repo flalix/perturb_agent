@@ -277,12 +277,18 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         paginationPageSize=page_size,
         suppressPaginationPanel=False,
         domLayout="autoHeight",
+        getRowId=JsCode("""
+        function(params) {
+            return params.data.case_id ? params.data.case_id : params.data.id;
+        }
+        """),        
     )
 
     if selectable:
         gb.configure_selection(
             selection_mode="single",
             use_checkbox=True,
+            pre_selected_rows=[],
         )
     
     grid_options = gb.build()
@@ -306,7 +312,7 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
         height=height,
         allow_unsafe_jscode=True,   # important for valueFormatter strings
         enable_enterprise_modules=False,
-        reload_data=True,
+        reload_data=False,
         key=key,
         update_mode=(
             GridUpdateMode.SELECTION_CHANGED
@@ -319,38 +325,38 @@ def show_df_AgGrid( df, height: int | None = None, page_size: int = 25, key: str
 
     st.markdown("<div style='height:30px;'></div>", unsafe_allow_html=True)
 
-    if selectable:
-        selected = response.get("selected_rows", [])
+    if not selectable:
+        return response
+    
+    #------------- selectable ------------------
+    selected_rows = response.get("selected_rows", [])
 
-        if isinstance(selected, list) and len(selected) > 0:
-            return selected[0]
+    selected_row = None
 
-        if isinstance(selected, pd.DataFrame) and not selected.empty:
-            return selected.iloc[0].to_dict()
+    if isinstance(selected_rows, pd.DataFrame):
+        if not selected_rows.empty:
+            selected_row = selected_rows.iloc[0].to_dict()
 
+    elif isinstance(selected_rows, list):
+        if len(selected_rows) > 0:
+            selected_row = selected_rows[0]
+
+    '''
+    if selected_row is None:
         return None
 
-    return response
+    case_id = selected_row.get("case_id")
 
-def show_selectable_df(df, height: float | None = None, key=None):
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_selection(selection_mode="single", use_checkbox=True)
-    # gb.configure_grid_options(domLayout="normal")
+    if case_id is not None:
+        case_id = str(case_id)
 
-    response = AgGrid(
-        df,
-        gridOptions=gb.build(),
-        height=height,
-        key=key,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        allow_unsafe_jscode=False,
-    )
+        if st.session_state.get("case_id") != case_id:
+            st.session_state["case_id"] = case_id
+            safe_rerun()
+    '''
 
-    selected = response.get("selected_rows", [])
-    if selected:
-        return selected[0]
+    return selected_row
 
-    return None
 
 def show_df_html(df, height: int = 600):
     if df is None or df.empty:
@@ -566,13 +572,13 @@ def memory_available(do_print:bool=True, do_write:bool=False):
 @st.cache_data(show_spinner=False)
 def load_primary_site_data(verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
 
-    memory_available(do_print=True, do_write=True)
+    # memory_available(do_print=True, do_write=True)
 
     df_cases, df_all_samples, df_all_mut, barcode_list = gdc.get_filtered_tables(
         sample_type_term="tumor", verbose=verbose
     )
 
-    memory_available(do_print=True, do_write=True)
+    # memory_available(do_print=True, do_write=True)
 
     return (
         make_df_streamlit_safe(df_cases),
@@ -718,6 +724,15 @@ if st.session_state.loaded:
         st.session_state.case_idx = 0
         st.session_state.case_ids_prev = case_ids
 
+
+    def safe_rerun():
+        if hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+        elif hasattr(st, "rerun"):
+            st.rerun()
+        else:
+            raise RuntimeError("No rerun function available in this Streamlit version")
+
     def set_case_from_id(case_id: str):
         if case_id in case_ids:
             st.session_state.case_idx = case_ids.index(case_id)
@@ -762,10 +777,10 @@ if st.session_state.loaded:
     # -------------------------------------------------------------------------
     # TAB 1 - CASES xxxx
     # -------------------------------------------------------------------------
-    memory_available(do_print=True, do_write=True)
+    # memory_available(do_print=True, do_write=True)
 
     with tab_cases:
-        st.info(f"Selected case_id: {current_case_id()}")
+        selected_case_box = st.empty()   # position above grid
 
         cols = ["case_id", "disease_type", "diagnoses", "subtype_global", "subtype_tissue", 
                 "primary_diagnosis", "tumor_grade", "tumor_stage", "stage", "tumor_class", "histology",]
@@ -780,7 +795,13 @@ if st.session_state.loaded:
         selected_row = show_df(df_cases2[cols], height=None, selectable=True, key="cases")
 
         if selected_row is not None:
-            set_case_from_id(selected_row["case_id"])
+            case_id = str(selected_row["case_id"])
+
+            if current_case_id() != case_id:
+                set_case_from_id(case_id)
+                safe_rerun()
+
+        selected_case_box.info(f"Selected case_id: {current_case_id()}")
 
     # -------------------------------------------------------------------------
     # TAB 2 - TUMOR SAMPLES
@@ -805,12 +826,12 @@ if st.session_state.loaded:
                 with col2:
                     if st.button("Previous"):
                         st.session_state.case_idx -= 1
-                        st.experimental_rerun()
+                        safe_rerun()
 
                 with col3:
                     if st.button("Next"):
                         st.session_state.case_idx += 1
-                        st.experimental_rerun()
+                        safe_rerun()
 
                 if selected_case_id is None:
                     st.warning("Select a case first.")
@@ -972,7 +993,7 @@ if st.session_state.loaded:
                             gene_col = "geneid",
                             equal_var = False,)
 
-                memory_available(do_print=True, do_write=True)
+                # memory_available(do_print=True, do_write=True)
 
             with tab_degs:
 
@@ -992,12 +1013,19 @@ if st.session_state.loaded:
                 cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 dflfc = dflfc[cols]
 
-                st.write(
-                    f"There are {len(degs)} DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
-                )
+                max_degs = 400
+
+                if len(dflfc) > max_degs:
+                    stri = f"There are {len(degs)}/ limited to {max_degs}"
+                else:
+                    stri = f"There are {len(degs)}"
+
+                stri += " DEGs: params = lfc_cutoff={lfc_cutoff}, fdr_cutoff={fdr_cutoff}, and method={method}"
+                    
+                st.write(stri)
 
                 grid_key = f"degs_{psi_id}_lfc_{lfc_cutoff}_fdr_{fdr_cutoff}"
-                show_df(dflfc, height=None, key=grid_key)
+                show_df(dflfc.head(max_degs), height=None, key=grid_key)
 
             with tab_echo:
                 stri = mtd.echo_parameters(want_echo_default=True, jump_line=True, echo=False)
@@ -1108,21 +1136,22 @@ if st.session_state.loaded:
                         st.session_state["selected_pathway_id"] = pathway_id
                         st.session_state["selected_pathway"] = pathway
 
-                        dcy = DASH_CYTO(root0=ROOT0, root0_data=ROOT_DATA, dflfc_ori=mtd.dflfc_ori, 
-                                        lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, 
-                                        found_degs=degs, pathway_genes=pathway_genes)
+                        with st.spinner("Please wait, opening the graphic/network..."):
+                            dcy = DASH_CYTO(root0=ROOT0, root0_data=ROOT_DATA, dflfc_ori=mtd.dflfc_ori, 
+                                            lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, 
+                                            found_degs=degs, pathway_genes=pathway_genes)
 
-                        ret = dcy.read_owl(pathway_id, pathway, verbose=True)
-                        if not ret:
-                            fname_owl = f"{pathway_id}_level3.owl"
-                            filename = dcy.root_owl / fname_owl
-                            st.error(f"Failed to load OWL file {filename}")
-                        else:
-                            height = "95%"
-                            width = "100%"
-                            marginTop="20px"
+                            ret = dcy.read_owl(pathway_id, pathway, verbose=True)
+                            if not ret:
+                                fname_owl = f"{pathway_id}_level3.owl"
+                                filename = dcy.root_owl / fname_owl
+                                st.error(f"Failed to load OWL file {filename}")
+                            else:
+                                height = "95%"
+                                width = "100%"
+                                marginTop="20px"
 
-                            dcy.run_app(height=height, width=width, marginTop=marginTop)
+                                dcy.run_app(height=height, width=width, marginTop=marginTop)
 
 
     # -------------------------------------------------------------------------

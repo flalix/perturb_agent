@@ -20,6 +20,7 @@ import threading
 import webbrowser
 import socket
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import dash
 from dash import html, dcc, dash_table, Input, Output, State, ctx, no_update
@@ -27,7 +28,7 @@ from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import dash_cytoscape as cyto
 import networkx as nx
-from rdflib import RDF, Graph, Namespace
+from rdflib import RDF, Graph, Namespace, query
 
 # import py4cytoscape as p4c
 from libs.Basic import create_dir, pdreadcsv, download_url_file
@@ -122,7 +123,21 @@ class DASH_CYTO(object):
         self.sink_node_list = None
 
     def is_render(self) -> bool:
-        return os.environ.get("RENDER") == "true" or os.environ.get("RENDER_SERVICE_ID") is not None
+        return (
+            os.environ.get("RENDER") == "true" or
+            os.environ.get("RENDER_SERVICE_ID") is not None
+        )
+    
+    def get_dash_port(self) -> tuple[str, int]:
+        if self.is_render():
+            port = int(os.environ.get("PORT", 10000))
+            host = "0.0.0.0"
+        else:
+            port = self.find_free_dash_port()
+            host = "127.0.0.1"            
+        
+        return host, port
+
 
     def reset_graph(self):
         self.G = nx.DiGraph()
@@ -1186,6 +1201,43 @@ class DASH_CYTO(object):
 
         return set(source_nodes), set(sink_nodes)
 
+    def load_elements_for_pathway(self, pathway_id: str, pathway: str | None = None,) -> list:
+        """
+        Load one Reactome pathway and return Cytoscape elements.
+        Used when the Dash URL changes, e.g. ?pathway=R-HSA-12345
+        """
+
+        if not pathway_id:
+            return []
+
+        if pathway is None:
+            pathway = pathway_id
+
+        ok = self.read_owl(
+            pathway_id=pathway_id,
+            pathway=pathway,
+            verbose=False,
+        )
+
+        if not ok:
+            print(f"Could not load pathway: {pathway_id}")
+            return []
+
+        # remove isolated nodes, same logic used in create_cytoscape_app()
+        self.G = self.G.subgraph(
+            [n for n in self.G.nodes() if self.G.degree(n) > 0]
+        ).copy()
+
+        elements = self.nx_to_cytoscape_elements()
+        self.elements = elements
+
+        # reset cached graph-derived lists
+        self.hub_list = None
+        self.hub_top_n = None
+        self.source_node_list = None
+        self.sink_node_list = None
+
+        return elements
 
     def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
 
@@ -1360,6 +1412,8 @@ class DASH_CYTO(object):
 
         app.layout = html.Div(
             [
+                dcc.Location(id="url", refresh=False),
+                
                 html.H2(
                     title,
                     style={
@@ -2460,6 +2514,24 @@ class DASH_CYTO(object):
             )
 
         @app.callback(
+            Output("reactome-network", "elements"),
+            Input("url", "search"),
+        )
+        def update_graph_from_url(search):
+            if not search:
+                raise dash.exceptions.PreventUpdate
+
+            query = parse_qs(search.lstrip("?"))
+            pathway_id = query.get("pathway_id", [None])[0]
+            pathway = query.get("pathway_name", [pathway_id])[0]
+
+            if pathway_id is None:
+                raise dash.exceptions.PreventUpdate
+
+            return self.load_elements_for_pathway(pathway_id=pathway_id, pathway=pathway)
+
+
+        @app.callback(
             Output("reactome-network", "elements", allow_duplicate=True),
             Output("deg-summary-window", "children"),
             Output("deg-summary-modal", "is_open"),
@@ -3472,19 +3544,30 @@ class DASH_CYTO(object):
     def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int | None = None,):
 
         if port is None:
-            port = self.find_free_dash_port()
+            host, port = self.get_dash_port()
+        else:
+            host = "0.0.0.0" if self.is_render() else "127.0.0.1"
             
-        app = self.create_cytoscape_app(height=height, width=width, marginTop=marginTop, port=port)
-        url = f"http://localhost:{port}"
+        app = self.create_cytoscape_app(
+            height=height,
+            width=width,
+            marginTop=marginTop,
+            port=port,
+        )
 
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-        print(f"Open in browser: {url}")
+        if self.is_render():
+            print(f"Running on Render at host={host}, port={port}")
+        else:
+            url = f"http://localhost:{port}"
+            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+            print(f"Open in browser: {url}")
 
         app.run(
+            host=host,
+            port=str(port),
             debug=False,
-            port=port,
             use_reloader=False,
-            jupyter_mode="external",
+            # jupyter_mode="external",
         )
 
     def build_gene_alias_table(self, force:bool=False, verbose:bool=False) -> pd.DataFrame:
