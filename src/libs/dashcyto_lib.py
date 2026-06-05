@@ -1224,7 +1224,7 @@ class DASH_CYTO(object):
             print(f"Could not load pathway: {pathway_id}")
             return []
 
-        # remove isolated nodes, same logic used in create_cytoscape_app()
+        # remove isolated nodes, same logic used in cytoscape
         self.G = self.G.subgraph(
             [n for n in self.G.nodes() if self.G.degree(n) > 0]
         ).copy()
@@ -1240,7 +1240,7 @@ class DASH_CYTO(object):
 
         return elements
 
-    def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int = 8050):
+    def create_cytoscape_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px"):
 
         self.G = self.G.subgraph([n for n in self.G.nodes() if self.G.degree(n) > 0]).copy()
 
@@ -1844,7 +1844,7 @@ class DASH_CYTO(object):
                                         "width": "100%",
                                         "padding": "8px 12px",
                                         "fontWeight": "700",
-                                        "backgroundColor": "#dfc786",
+                                        "backgroundColor": "#e2bf5e",
                                         "border": "1px solid #d1d5db",
                                         "borderRadius": "10px",
                                     },
@@ -3604,8 +3604,12 @@ class DASH_CYTO(object):
             height=height,
             width=width,
             marginTop=marginTop,
-            port=port,
         )
+
+        # Dash may read Render's PORT=10000 and override your port.
+        # Temporarily remove it only while launching Dash.
+        render_port = os.environ.pop("PORT", None)
+        os.environ["PORT"] = str(port)
 
         if self.is_render():
             print(f"Running on Render at host={host}, port={port}")
@@ -3614,13 +3618,16 @@ class DASH_CYTO(object):
             threading.Timer(1.0, lambda: webbrowser.open(url)).start()
             print(f"Open in browser: {url}")
 
-        app.run(
-            host=host,
-            port=str(port),
-            debug=False,
-            use_reloader=False,
-            # jupyter_mode="external",
-        )
+        try:
+            app.run(
+                host=host,
+                port=str(port),
+                debug=False,
+                use_reloader=False,
+            )
+        finally:
+            if self.is_render() and render_port is not None:
+                os.environ["PORT"] = render_port
 
     def build_gene_alias_table(self, force:bool=False, verbose:bool=False) -> pd.DataFrame:
         """
