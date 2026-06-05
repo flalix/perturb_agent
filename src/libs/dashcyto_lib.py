@@ -130,12 +130,13 @@ class DASH_CYTO(object):
     
     def get_dash_port(self) -> tuple[str, int]:
         if self.is_render():
-            port = int(os.environ.get("PORT", 10000))
+            # port = int(os.environ.get("PORT", 10000))
             host = "0.0.0.0"
         else:
-            port = self.find_free_dash_port()
             host = "127.0.0.1"            
-        
+
+        port = self.find_free_dash_port()
+
         return host, port
 
 
