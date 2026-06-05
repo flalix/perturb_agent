@@ -1269,7 +1269,7 @@ class DASH_CYTO(object):
         cyto_settings = self.load_cyto_settings(default_font_size=base_font_size)
         initial_font_size = cyto_settings["font_size"]
 
-        def make_stylesheet(font_size=10):
+        def make_stylesheet(font_size:int=10,  show_edge_labels:bool=True):
             edge_font_size = max(font_size - 3, 6)
             return [
                 {
@@ -1370,7 +1370,7 @@ class DASH_CYTO(object):
                     "style": {
                         "curve-style": "bezier",
                         "target-arrow-shape": "triangle",
-                        "label": "data(interaction)",
+                        "label": "data(interaction)" if show_edge_labels else "",
                         "font-size": f"{edge_font_size}px",
                     },
                 },
@@ -1491,7 +1491,8 @@ class DASH_CYTO(object):
                                             boxSelectionEnabled=True,
                                             autoungrabify=False,
                                             autounselectify=False,
-                                            stylesheet=make_stylesheet(initial_font_size),
+                                            stylesheet=make_stylesheet(font_size=initial_font_size,
+                                                                       show_edge_labels=False,),
                                             zoom=1.0,
                                             minZoom=0.2,
                                             maxZoom=3.0,
@@ -1557,6 +1558,7 @@ class DASH_CYTO(object):
                                 html.Div(id="node-info", className="node-info-box"),
                                 dcc.Store(id="cyto-font-size-store", data=initial_font_size),
                                 dcc.Store(id="cyto-zoom-store", data=1.0),
+                                dcc.Store(id="show-edge-labels-store", data=False),
 
                                 # Search for genes
                                 html.Div(
@@ -1830,6 +1832,22 @@ class DASH_CYTO(object):
                                     id="save-graph-button",
                                     n_clicks=0,
                                     className="cyto-button cyto-button-save",
+                                ),
+
+                                html.Button(
+                                    "🙈 Show edge labels",
+                                    id="toggle-edge-labels-button",
+                                    n_clicks=0,
+                                    className="cyto-button cyto-button-hide",
+                                    style={
+                                        "marginTop": "8px",
+                                        "width": "100%",
+                                        "padding": "8px 12px",
+                                        "fontWeight": "700",
+                                        "backgroundColor": "#dfc786",
+                                        "border": "1px solid #d1d5db",
+                                        "borderRadius": "10px",
+                                    },
                                 ),
 
                                 # reset/save buttons
@@ -3268,6 +3286,36 @@ class DASH_CYTO(object):
             
             return self.make_node_info_panel(node_data), node_data
 
+        @app.callback(
+            Output("reactome-network", "stylesheet", allow_duplicate=True),
+            Output("show-edge-labels-store", "data"),
+            Output("toggle-edge-labels-button", "children"),
+
+            Input("toggle-edge-labels-button", "n_clicks"),
+
+            State("show-edge-labels-store", "data"),
+            State("cyto-font-size-store", "data"),
+
+            prevent_initial_call=True,
+        )
+        def toggle_edge_labels(n_clicks, show_edge_labels, font_size):
+            if not n_clicks:
+                raise dash.exceptions.PreventUpdate
+
+            show_edge_labels = not bool(show_edge_labels)
+
+            button_text = (
+                "🙈 Hide edge labels"
+                if show_edge_labels
+                else "👁️ Show edge labels"
+            )
+
+            stylesheet = make_stylesheet(
+                font_size=font_size or 10,
+                show_edge_labels=show_edge_labels,
+            )
+
+            return stylesheet, show_edge_labels, button_text
 
         @app.callback(
             Output("main-cyto-layout", "style"),
@@ -3440,8 +3488,9 @@ class DASH_CYTO(object):
             Output("reactome-network", "stylesheet"),
             Output("font-size-label", "children"),
             Input("cyto-font-size-store", "data"),
+            State("show-edge-labels-store", "data"),
         )
-        def refresh_graph_font_size(font_size):
+        def refresh_graph_font_size(font_size, show_edge_labels):
             if font_size is None:
                 font_size = base_font_size
 
@@ -3450,8 +3499,13 @@ class DASH_CYTO(object):
 
             self.save_cyto_settings(font_size)
 
-            return make_stylesheet(font_size), f"{font_size}px"
-
+            return (
+                make_stylesheet(
+                    font_size=font_size,
+                    show_edge_labels=show_edge_labels,
+                ),
+                f"{font_size}px",
+            )
        
         @app.callback(
             Output("cyto-zoom-store", "data"),
@@ -3542,12 +3596,9 @@ class DASH_CYTO(object):
             f"No free Dash port found between {self.START_PORT} and {self.END_PORT}"
         )
 
-    def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px", port: int | None = None,):
+    def run_app(self, height: str = "95%", width: str = "100%", marginTop: str = "20px"):
 
-        if port is None:
-            host, port = self.get_dash_port()
-        else:
-            host = "0.0.0.0" if self.is_render() else "127.0.0.1"
+        host, port = self.get_dash_port()
             
         app = self.create_cytoscape_app(
             height=height,

@@ -966,8 +966,8 @@ if st.session_state.loaded:
                 )                
 
     with tab_head_diff_exp:
-        tab_degs, tab_echo, tab_biotypes, tab_lnc, tab_heatmap_exp, tab_umap_exp, tab_hdbscan_exp, tab_enrich = \
-        st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "HDBSCAN - cluster", "Enrichment Analysis"])
+        tab_degs, tab_echo, tab_biotypes, tab_lnc, tab_heatmap_exp, tab_umap_exp, tab_enrich = \
+        st.tabs(["DEGs", "Echo", "Biotypes", "Non-Coding", "Heatmap", "UMAP - cluster", "Enrichment Analysis"])
 
         msg = ''
         if dflfc.empty:
