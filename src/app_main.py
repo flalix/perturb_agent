@@ -70,7 +70,7 @@ if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
 from libs.enricher_lib import enricheR
-from libs.tcga_gdc_lib import GDC
+from libs.GDC_lib import GDC
 from libs.config_lib import Config
 from libs.dashcyto_lib import DASH_CYTO
 from libs.reactome_lib import Reactome
@@ -481,7 +481,7 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:flo
 
     cfg = Config(root0=ROOT0, root_disease=root_disease, disease=ctx.disease, case_list=ctx.case_list)
 
-    mtd = enricheR(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
+    enr = enricheR(disease=PSI_ID, gene_protein=ctx.gene_protein, s_omics=ctx.s_omics, project=ctx.project, s_project=ctx.s_project, 
             root0=ROOT0, root0_data=ROOT_DATA, prog_id=PROG_ID, psi_id=PSI_ID,
             case_list=ctx.case_list, dic_case_list=ctx.dic_case_list, 
             has_age=ctx.has_age, has_gender=ctx.has_gender, exp_normalization=ctx.exp_normalization,
@@ -494,9 +494,9 @@ def load_disease(PSI_ID:str, root_disease:Path, LFC_cut:float=1, lfc_FDR_cut:flo
             saturation_lfc_param=ctx.saturation_lfc_param, enr_db_list=ctx.enr_db_list, pPMI_normalized=ctx.pPMI_normalized)
 
 
-    mtd.cfg.set_default_best_lfc_cutoff(mtd.normalization, LFC_cut=LFC_cut, lfc_FDR_cut=lfc_FDR_cut)
+    enr.cfg.set_default_best_lfc_cutoff(enr.normalization, LFC_cut=LFC_cut, lfc_FDR_cut=lfc_FDR_cut)
 
-    return mtd
+    return enr
 
 def classify_biotype(b):
     if b == "protein_coding":
@@ -535,15 +535,15 @@ def group_biotypes(dflfc: pd.DataFrame) -> pd.DataFrame:
     
 def calc_enrichment_analysis(verbose: bool = False, force: bool = False):
 
-    _, _, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
+    _, _, dflfc = enr.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
 
-    df2 = dflfc[dflfc.biotype.isin(mtd.biotype_annot)]
+    df2 = dflfc[dflfc.biotype.isin(enr.biotype_annot)]
     df2 = df2.sort_values('fdr', ascending=True)
     
-    degs_to_reactome = df2.symbol.to_list()[:mtd.MAX_GENES_ENRICHR_SAFE]
+    degs_to_reactome = df2.symbol.to_list()[:enr.MAX_GENES_ENRICHR_SAFE]
 
-    mtd.calc_EA_dataset_symbol(list(degs_to_reactome), calc_many_sig=False, default=False, force=force, verbose=verbose)
-    return mtd.df_enr0
+    enr.calc_EA_dataset_symbol(list(degs_to_reactome), calc_many_sig=False, default=False, force=force, verbose=verbose)
+    return enr.df_enr0
 
 
 def memory_available(do_print:bool=True, do_write:bool=False):
@@ -700,12 +700,12 @@ if st.session_state.loaded:
         df_cases, df_all_samples, df_all_mut, barcode_list = load_primary_site_data(verbose=False)
 
         method = "deseq2"
-        mtd = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
+        enr = load_disease(PSI_ID=psi_id, root_disease=gdc.root_disease,  LFC_cut=1, lfc_FDR_cut=0.05, verbose=False)
 
         icase=0
         case = ctx.case_list[icase]
 
-        ret, degs, _, dflfc = mtd.open_case(case=case, prompt_verbose=False, verbose=False)
+        ret, degs, _, dflfc = enr.open_case(case=case, prompt_verbose=False, verbose=False)
 
   
     # --------------------------------------------------
@@ -1005,10 +1005,10 @@ if st.session_state.loaded:
                     "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05
                 )
 
-                mtd.LFC_cut = lfc_cutoff
-                mtd.lfc_FDR_cut = fdr_cutoff
+                enr.LFC_cut = lfc_cutoff
+                enr.lfc_FDR_cut = fdr_cutoff
 
-                degs, _, dflfc = mtd.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
+                degs, _, dflfc = enr.list_of_degs(save_file=False, force=False, prompt_verbose=False, verbose=verbose)
 
                 cols = ['ensembl_id','symbol','biotype', 'abs_lfc', 'lfc','pval','fdr', 'baseMean']
                 dflfc = dflfc[cols]
@@ -1028,7 +1028,7 @@ if st.session_state.loaded:
                 show_df(dflfc.head(max_degs), height=None, key=grid_key)
 
             with tab_echo:
-                stri = mtd.echo_parameters(want_echo_default=True, jump_line=True, echo=False)
+                stri = enr.echo_parameters(want_echo_default=True, jump_line=True, echo=False)
                 stri = stri.replace('\n', '<br>').replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
                 st.markdown(stri, unsafe_allow_html=True)
 
@@ -1058,7 +1058,7 @@ if st.session_state.loaded:
                     "FDR cutoff", min_value=0.01, max_value=1.0, value=0.05, key="fdr_cutoff_nc"
                 )
 
-                dfnc, msg_nc = mtd.filter_non_coding(lfc_cut=lfc_cutoff_nc, fdr_cut=fdr_cutoff_nc, verbose=False, force=False)
+                dfnc, msg_nc = enr.filter_non_coding(lfc_cut=lfc_cutoff_nc, fdr_cut=fdr_cutoff_nc, verbose=False, force=False)
 
                 st.write(msg_nc)
 
@@ -1137,7 +1137,7 @@ if st.session_state.loaded:
                         st.session_state["selected_pathway"] = pathway
 
                         with st.spinner("Please wait, opening the graphic/network..."):
-                            dcy = DASH_CYTO(root0=ROOT0, root0_data=ROOT_DATA, dflfc_ori=mtd.dflfc_ori, 
+                            dcy = DASH_CYTO(root0=ROOT0, root0_data=ROOT_DATA, dflfc_ori=enr.dflfc_ori, 
                                             lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, 
                                             found_degs=degs, pathway_genes=pathway_genes)
 

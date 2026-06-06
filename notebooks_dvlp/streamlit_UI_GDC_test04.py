@@ -42,7 +42,7 @@ if str(SRC) not in sys.path:
 root_css = SRC / "styles"
 
 from libs.Basic import *
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import *
 
 root0 = ROOT / "data"
 

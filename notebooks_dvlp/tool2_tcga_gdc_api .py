@@ -26,7 +26,7 @@ print("ROOT:", ROOT)
 print("SRC added:", SRC)
 
 from libs.Basic import *
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import *
 
 root_data = "/media/flavio/36873e3e-7941-48d7-aecb-45900ef92659/colaboracoes/tcga"
 case = "Breast Cancer"

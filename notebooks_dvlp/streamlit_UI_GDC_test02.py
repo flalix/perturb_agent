@@ -32,7 +32,7 @@ print("SRC added:", SRC)
 
 from libs.Basic import *
 from libs.calc_degs_lib import CALC_DEGS
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import *
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")

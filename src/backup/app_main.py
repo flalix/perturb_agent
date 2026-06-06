@@ -65,7 +65,7 @@ if str(ROOT_SRC) not in sys.path:
     sys.path.insert(0, str(ROOT_SRC))
 
 from libs.enricher_lib import enricheR
-from libs.tcga_gdc_lib import GDC
+from libs.GDC_lib import GDC
 from libs.config_lib import Config
 from libs.dashcyto_lib import DASH_CYTO
 

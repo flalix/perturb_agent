@@ -44,7 +44,7 @@ from libs.biomart_lib import *
 from libs.graphic_lib import plotly_colors_proteins
 
 from libs.calc_degs_lib import CALC_DEGS
-from libs.tcga_gdc_lib import GDC
+from libs.GDC_lib import GDC
 
 from project_context_GDC import load_project_context
 

@@ -23,7 +23,7 @@ print("ROOT:", ROOT)
 print("SRC added:", SRC)
 
 from libs.Basic import *
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import *
 
 ROOT = Path().resolve().parent
 root_data = os.path.join(ROOT, "data/tcga")

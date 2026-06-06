@@ -27,7 +27,7 @@ if str(SRC) not in sys.path:
     sys.path.append(str(SRC))
 
 from libs.Basic import *
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import *
 
 root0 = ROOT / "data"
 

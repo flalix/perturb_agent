@@ -49,9 +49,9 @@ print("ROOT_SRC:", ROOT_SRC)
 print("ROOT_DATA:", ROOT_DATA)
 
 from libs.Basic import *
-from libs.tcga_gdc_lib import *
+from libs.GDC_lib import GDC
 
-gdc = GDC(ROOT_DATA0=ROOT_DATA)
+gdc = GDC(root0=ROOT0, root0_data=ROOT_DATA)
 
 verbose = True
 colors = [
