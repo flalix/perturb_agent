@@ -26,9 +26,16 @@ from scipy.stats import hypergeom, ttest_ind, zscore
 from sklearn.cluster import KMeans
 from sklearn.manifold import MDS
 from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 
 import umap
 import hdbscan
+
+from scipy.stats import ttest_ind
+from statsmodels.stats.multitest import multipletests
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -3558,6 +3565,368 @@ class GDC(object):
                 print(f"{row.tcga_project_id} -> '{gtex_id}' tissue '{gtex_tissue_ids}'")
 
         return self.gtex_id, self.gtex_tissue_ids
+
+    def cluster_data(self, df_tumor: pd.DataFrame, perc_min_samples: float = 0.25, 
+                     top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray]:
+        
+        df_sel, df_cpm,  dfg_filt = self.calc_cpm_and_filter_data(df_tumor, perc_min_samples, top_n)
+        
+        # Scale genes
+        df_scaled = StandardScaler().fit_transform(df_sel)
+
+        return df_sel, df_cpm,  dfg_filt, df_scaled
+
+    def calc_PCA(self, df_scaled: np.ndarray, n_components: int = 10, verbose: bool = False) -> pd.DataFrame:
+        pca = PCA(n_components=n_components, random_state=42)
+
+        df_pca = pca.fit_transform(df_scaled)
+
+        df_pca = pd.DataFrame(
+            df_pca[:, :3],
+            index=self.df_sel.index,
+            columns=["PC1", "PC2", "PC3"]
+        )
+
+        if verbose:
+            print(pca.explained_variance_ratio_[:5])   
+
+        return df_pca
+    
+    def calc_best_cluster(self, df_pca: pd.DataFrame, min_clusters: int = 3, max_clusters: int = 8) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+        cluster_results = []
+
+        for k in range(min_clusters, max_clusters + 1):
+            model = KMeans(n_clusters=k, random_state=42, n_init="auto")
+            labels = model.fit_predict(df_pca)
+
+            sil = silhouette_score(df_pca, labels)
+
+            cluster_results.append({
+                "k": k,
+                "silhouette": sil,
+                "labels": labels
+            })
+
+        df_eval = pd.DataFrame([
+            {"k": r["k"], "silhouette": r["silhouette"]}
+            for r in cluster_results
+        ])
+
+        # Choose best k
+        best = max(cluster_results, key=lambda x: x["silhouette"])
+
+        df_samp_clusters = pd.DataFrame({
+            "sample": self.df_sel.index,
+            "cluster": best["labels"] + 1
+        })
+
+        return df_eval, df_samp_clusters
+
+
+    def plot_PCA(self, df_pca: pd.DataFrame, figsize : tuple = (6, 5)):
+        plt.figure(figsize=figsize)
+        plt.scatter(df_pca["PC1"], df_pca["PC2"], s=80)
+
+        for sample in df_pca.index:
+            plt.text(x=df_pca.loc[sample, "PC1"], y=df_pca.loc[sample, "PC2"], s=sample, fontsize=8)
+
+        plt.xlabel("PC1")
+        plt.ylabel("PC2")
+        plt.title("PCA of tumor samples")
+        plt.tight_layout()
+        plt.show()
+
+             
+    def calc_PCA_UMAP(self, df_pca: pd.DataFrame, df_samp_clusters: pd.DataFrame, n_neighbors: int = 5, 
+                      min_dist: float = 0.2, metric: str = "euclidean") -> pd.DataFrame:
+
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            metric=metric,
+            random_state=42
+        )
+
+        X_umap = reducer.fit_transform(df_pca)
+
+        df_umap = pd.DataFrame(
+            X_umap,
+            index=self.df_sel.index,
+            columns=["UMAP1", "UMAP2"]
+        )
+
+        df_umap = df_umap.merge(
+            df_samp_clusters,
+            left_index=True,
+            right_on="sample",
+            how="left"
+        )
+
+        return df_umap
+
+    def plot_PCA_UMAP(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, figsize : tuple = (6, 5)):
+        plt.figure(figsize=figsize)
+        plt.scatter(df_umap["UMAP1"], df_umap["UMAP2"], s=80)
+
+        for sample in df_umap.index:
+            plt.text(x=df_umap.loc[sample, "UMAP1"], y=df_umap.loc[sample, "UMAP2"], s=sample, fontsize=8)
+
+        plt.xlabel("UMAP1")
+        plt.ylabel("UMAP2")
+        plt.title(f"UMAP of tumor samples (n_neighbors={n_neighbors}, min_dist={min_dist})")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_HCA_PCA(self, df_pca: pd.DataFrame,  method: str = "ward", figsize : tuple = (6, 5)):
+        Z = linkage(df_pca, method=method)
+
+        plt.figure(figsize=figsize)
+        dendrogram(Z, labels=self.df_sel.index.tolist(), leaf_rotation=90)
+        plt.title("PCA Hierarchical clustering of tumor samples")
+        plt.tight_layout()
+        plt.show()
+
+    def cut_HCA_PCA(self, df_pca: pd.DataFrame, n_clusters: int = 3, 
+                    method: str = "ward", criterion="maxclust", verbose:bool = True) -> pd.DataFrame:
+
+        Z = linkage(df_pca, method=method)
+        hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
+
+        df_samp_clust_hc = pd.DataFrame({
+            "sample": self.df_sel.index,
+            "cluster": hc_labels
+        })
+
+        if verbose:
+            print( df_samp_clust_hc.groupby("cluster").size() )
+
+        return df_samp_clust_hc
+
+
+    def plot_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, method: str = "ward", figsize : tuple = (6, 5)):
+        df2 = df_umap[ ['sample', 'UMAP1', 'UMAP2'] ]
+        df2.set_index('sample', inplace=True)
+
+        Z = linkage(df2, method=method)
+
+        plt.figure(figsize=figsize)
+        dendrogram(Z, labels=df2.index.tolist(), leaf_rotation=90)
+        plt.title("PCA-UMAP Hierarchical clustering of tumor samples")
+        plt.tight_layout()
+        plt.show()
+
+
+    def cut_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, n_clusters: int = 3, 
+                    method: str = "ward", criterion="maxclust", verbose:bool = True) -> pd.DataFrame:
+        
+        df2 = df_umap[ ['sample', 'UMAP1', 'UMAP2'] ]
+        df2.set_index('sample', inplace=True)
+
+        Z = linkage(df2, method=method)
+
+        hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
+
+        df_samp_clust_hc = pd.DataFrame({
+            "sample": self.df_sel.index,
+            "cluster": hc_labels
+        })
+
+        if verbose:
+            print( df_samp_clust_hc.groupby("cluster").size() )
+
+        return df_samp_clust_hc
+    
+
+
+
+    def calc_cpm_and_filter_data(self, df_tumor: pd.DataFrame, perc_min_samples: float = 0.25, 
+                                 top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        ### Data treatment
+
+        1. get raw dfc
+        2. filter low-expression genes
+        3. normalize for library size
+        4. variance-stabilizing transformation
+        5. select most variable genes
+        6. cluster samples into k = 3..8 groups
+        7. evaluate clusters
+        8. find gene dfsig for each cluster
+
+        A low-expression gene can be biologically important and even differentially expressed, especially if it is a transcription factor, cytokine, receptor, lncRNA, or rare-cell marker.
+
+        But for unsupervised tumor clustering, we usually do not want thousands of genes with mostly zero/very low counts because they add noise and unstable distances.        
+        """
+
+        gene_cols = ["geneid", "symbol"]
+        sample_cols = [c for c in df_tumor.columns if c not in gene_cols]
+
+        dfc = (
+            df_tumor[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        dfg = df_tumor[gene_cols].copy()
+
+        dfc.index = df_tumor["geneid"]
+
+        # filter low-count genes
+        min_samples = int(perc_min_samples * len(sample_cols))
+
+        print(f"sample_cols {len(sample_cols)} and min_samples")
+
+        keep = list ((dfc >= 10).sum(axis=1) >= min_samples)
+
+        dfc_filt = dfc.loc[keep]
+        dfg_filt = dfg.loc[keep]
+
+        # normalize by library size
+
+        library_sizes = dfc_filt.sum(axis=0)
+
+        df_cpm = dfc_filt.div(library_sizes, axis=1) * 1_000_000
+        self.df_cpm = df_cpm
+
+        dfc_log = np.log2(df_cpm + 1)
+
+        # Select most variable genes
+        gene_var = dfc_log.var(axis=1)
+
+        top_genes = (
+            gene_var
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index
+        )
+
+        df_sel = dfc_log.loc[top_genes].T.copy()
+        self.df_sel = df_sel
+
+        return df_sel, df_cpm,  dfg_filt
+
+
+    def find_cluster_signature_genes(self, 
+        df_logcpm: pd.DataFrame,
+        df_samp_clusters: pd.DataFrame,
+        gene_annot: pd.DataFrame,
+        sample_col: str = "sample",
+        cluster_col: str = "cluster",
+        lfc_cutoff: float = 1.0,
+        fdr_cutoff=0.05,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Find marker/signature genes for each cluster.
+
+        df_logcpm:
+            genes x samples matrix, log2(CPM + 1)
+
+        df_samp_clusters:
+            dataframe with columns: sample, cluster
+
+        gene_annot:
+            optional dataframe with geneid, symbol
+        """
+
+        results = []
+
+        for cluster_id in sorted(df_samp_clusters[cluster_col].unique()):
+
+            in_samples  = df_samp_clusters.loc[df_samp_clusters[cluster_col] == cluster_id, sample_col].tolist()
+            out_samples = df_samp_clusters.loc[df_samp_clusters[cluster_col] != cluster_id, sample_col].tolist()
+
+            # keep only samples present in expression matrix
+            in_samples  = [s for s in in_samples  if s in df_logcpm.columns]
+            out_samples = [s for s in out_samples if s in df_logcpm.columns]
+
+            if len(in_samples) < 2 or len(out_samples) < 2:
+                print(f"Skipping cluster {cluster_id}: too few samples")
+                continue
+
+            df_mean_in = df_logcpm[in_samples].mean(axis=1)
+            df_mean_out = df_logcpm[out_samples].mean(axis=1)
+
+            df_lfc = df_mean_in - df_mean_out
+
+            pvals = []
+
+            for geneid in df_logcpm.index:
+                stat, p = ttest_ind(
+                    df_logcpm.loc[geneid, in_samples],
+                    df_logcpm.loc[geneid, out_samples],
+                    equal_var=False,
+                    nan_policy="omit",
+                )
+                pvals.append(p)
+
+            fdr = multipletests(pvals, method="fdr_bh")[1]
+
+            res = pd.DataFrame({
+                "geneid": df_logcpm.index,
+                "cluster": cluster_id,
+                "n_in": len(in_samples),
+                "n_out": len(out_samples),
+                "mean_in": df_mean_in.values,
+                "mean_out": df_mean_out.values,
+                "lfc": df_lfc.values,
+                "pvalue": pvals,
+                "fdr": fdr,
+            })
+
+            if gene_annot is not None:
+                res = res.merge(gene_annot, on="geneid", how="left")
+
+            res = res.sort_values(
+                ["lfc", "fdr"],
+                ascending=[False, True]
+            )
+
+            results.append(res)
+
+        dfall = pd.concat(results, ignore_index=True)
+
+        dfsig = (
+            dfall
+            .query("lfc >= @lfc_cutoff and fdr <= @fdr_cutoff")
+            .sort_values(["cluster", "lfc", "fdr"], ascending=[True, False, True])
+            .reset_index(drop=True)
+        )
+
+        return dfall, dfsig
+
+
+    def write_clusters(self, dfall: pd.DataFrame, dfsig: pd.DataFrame,
+                       LFC_cutoff: float = 1, FDR_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
+    
+        lista = np.unique(dfall.cluster)
+        dic = {}; icount=-1
+
+        for ncluster in lista:
+            df2 = dfsig[dfsig.cluster == ncluster]
+            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+            
+            s_genes = '\n'.join(df2.symbol)
+
+            icount += 1
+            dic[icount] = {}
+            dic2 = dic[icount]
+            dic2['ncluster'] = ncluster
+            dic2['ngenes'] = len(df2)
+            dic2['genes'] = df2.symbol.to_list()
+
+            fname = f"cluster_{ncluster}_{self.psi_id}_signature_genes.txt"
+            write_txt(s_genes, fname, self.root_lfc)
+
+            if verbose:
+                print(f"Cluster {ncluster} -> {len(df2)} signatures: {s_genes}")
+
+        df = pd.DataFrame(dic).T
+
+        fname = f"clusters_signatures_for_{self.psi_id}.txt"
+        _ = pdwritecsv(df, fname, self.root_lfc, verbose=verbose)
+
+        return df
 
     def add_entropy(self, df, read_limit: int = 50, min_read: int = 200, n_quantiles: int = 10):
         # select tumor columns
