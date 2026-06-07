@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+import math
 import warnings
 from collections import Counter
 from pathlib import Path
@@ -61,7 +62,7 @@ class GDC(object):
         self.root_colab = create_dir(self.root0_data, 'colab')
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
-        self.fname_gtex = "tcga_primary_site_to_gtex_ids.tsv"
+        self.fname_gtex_table = "tcga_primary_site_to_gtex_ids.tsv"
         self.df_gtex_to_tcga = pd.DataFrame()
         self.gtex_id = ""
         self.fname_gtex_exp_counts = "gtex_expression_counts_%s.tsv"
@@ -77,6 +78,10 @@ class GDC(object):
         self.df_gtex_pheno = pd.DataFrame()
         self.df_meta = pd.DataFrame()
   
+        self.fname_exp_tumor = 'expression_tumor_for_%s.tsv'
+        self.fname_exp_normal = 'expression_normal_for_%s.tsv'
+        self.fname_exp_gtex = 'expression_gtex_for_%s.tsv'
+
         # self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
         # GTEx control - per tissue
         self.df_gtex_ctrl = pd.DataFrame()
@@ -1281,12 +1286,12 @@ class GDC(object):
 
         return df_table
 
-    def get_file_expression_both_tumor_and_normal(self, imax_samples: int = 12, 
-                                                  verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def calc_file_expression_tumor_normal_gtex(self, imax_samples: int = 200, force: bool = False,
+                                               verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         '''
 
         flow:
-            get_file_expression_both_tumor_and_normal
+            calc_file_expression_tumor_normal_gtex
                 get_dic_expression_tumor_and_normal
 
                     _, df_tumor_samples, _, _ = self.get_filtered_tables( sample_type_term="Primary Tumor", verbose=verbose )
@@ -1309,6 +1314,26 @@ class GDC(object):
             output: df_tumor, df_normal, df_gtex_ctrl
         
         '''
+
+        fname_exp_tumor = self.fname_exp_tumor%(self.psi_id)
+        filename_tumor = self.root_lfc / fname_exp_tumor
+
+        fname_exp_normal = self.fname_exp_normal%(self.psi_id)
+        filename_normal = self.root_lfc / fname_exp_normal
+
+        fname_exp_gtex = self.fname_exp_gtex%(self.psi_id)
+        filename_gtex = self.root_lfc / fname_exp_gtex
+
+        if filename_tumor.exists() and filename_normal.exists() and filename_gtex.exists() and not force:
+            df_tumor = pdreadcsv(fname_exp_tumor, self.root_lfc, verbose=verbose)
+            df_normal = pdreadcsv(fname_exp_normal, self.root_lfc, verbose=verbose)
+            df_gtex_ctrl = pdreadcsv(fname_exp_gtex, self.root_lfc, verbose=verbose)
+
+            self.df_tumor = df_tumor
+            self.df_normal = df_normal
+            self.df_gtex_ctrl = df_gtex_ctrl
+
+            return df_tumor, df_normal, df_gtex_ctrl
 
         dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
         self.dic_tumor = dic_tumor
@@ -1337,6 +1362,10 @@ class GDC(object):
         self.df_tumor = df_tumor
         self.df_normal = df_normal
         self.df_gtex_ctrl = df_gtex_ctrl
+
+        _ = pdwritecsv(df_tumor, fname_exp_tumor, self.root_lfc)
+        _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
+        _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
 
         return df_tumor, df_normal, df_gtex_ctrl
 
@@ -1492,6 +1521,78 @@ class GDC(object):
 
         return hits[0]["case_id"]
 
+    def get_representative_geneids(self, 
+        dfs: list[pd.DataFrame],
+        min_fraction: float = 0.75,
+    ) -> pd.DataFrame:
+        """
+        Return genes present in more than min_fraction of dataframes.
+
+        For 10 dataframes and min_fraction=0.75:
+        strict >75% means present in at least 8 dataframes.
+
+        Presence is counted once per dataframe, even if duplicated inside a dataframe.
+        """
+
+        gene_cols: list[str] = ["geneid", "symbol"]
+
+        n = len(dfs)
+        if n == 0:
+            return pd.DataFrame(columns=gene_cols + ["n_dfs", "fraction"])
+
+        min_count = math.floor(n * min_fraction) + 1  # strict > min_fraction
+
+        counter = Counter()
+
+        for df in dfs:
+            missing = [c for c in gene_cols if c not in df.columns]
+            if missing:
+                raise ValueError(f"Missing columns in dataframe: {missing}")
+
+            genes_in_df = (
+                df[gene_cols]
+                .dropna(subset=gene_cols)
+                .astype(str)
+                .drop_duplicates()
+            )
+
+            counter.update(map(tuple, genes_in_df.to_numpy()))
+
+        result = (
+            pd.DataFrame(
+                [(geneid, symbol, count) for (geneid, symbol), count in counter.items()],
+                columns=gene_cols + ["n_dfs"],
+            )
+            .assign(fraction=lambda x: x["n_dfs"] / n)
+            .query("n_dfs >= @min_count")
+            .sort_values(["n_dfs"] + gene_cols, ascending=[False] + [True] * len(gene_cols))
+            .reset_index(drop=True)
+        )
+
+        return result
+    
+    def get_common_gene_list(self, dic_tumor: dict, min_fraction: float = 0.75) -> np.ndarray:
+        df_list = []
+
+        cols = ["geneid", "symbol", "biotype", "counts"]
+
+        for _, dfa in dic_tumor.items():
+            if dfa is None or dfa.empty:
+                continue
+
+            if "gene_id" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_id": "geneid"})
+            if "gene_type" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_type": "biotype"})
+
+            dfa = dfa[cols]
+            df_list.append(dfa)
+
+        dfq = self.get_representative_geneids(df_list, min_fraction=min_fraction)
+        lista = np.unique(dfq.geneid.to_list())
+        return lista
+
+
     def prepare_normal_tumor_tables(
         self,
         dic_tumor: dict,
@@ -1506,14 +1607,15 @@ class GDC(object):
         input:
                 dic_tumor
                 dic_normal
+                    # get the most common geneids to merge all tumor tables
+                    lista = self.get_common_gene_list(dic_tumor, min_fraction=0.75)
                 verbose: bool, whether to print verbose messages
         output:
-                Tuple[pd.DataFrame, pd.DataFrame]: df_tumor and df_normal tables
-
+                df_tumor and df_normal tables
         """
 
-        cols = ["geneid", "symbol", "biotype", "counts"]
-        common_cols = ["geneid", "symbol", "biotype"]
+        cols = ["geneid", "symbol", "counts"]
+        common_cols = ["geneid", "symbol"]        
 
         # ----------- Normal tissue ----------------
         df_normal = pd.DataFrame()
@@ -1544,12 +1646,18 @@ class GDC(object):
                         print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
                     break
 
-        # print("")
-
         # ----------- tumor ----------------
+        lista = self.get_common_gene_list(dic_tumor, min_fraction=0.75)
         df_tumor = pd.DataFrame()
+
+        if len(lista) == 0:
+            if verbose:
+                print(">>> No common genes found.")
+            return df_tumor, df_normal
+
         if verbose:
             print(">>> Processing tumor data:", len(dic_tumor))
+
         i = 0
         for _, dfa in dic_tumor.items():
             if dfa is None or dfa.empty:
@@ -1563,8 +1671,22 @@ class GDC(object):
                 dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
+
+            dfa = (
+                dfa.dropna(subset=['geneid', 'symbol'])
+                .drop_duplicates(['geneid', 'symbol'])
+            )
+            if dfa.empty:
+                continue
+
             dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
 
+            dfa = dfa[dfa.geneid.isin(lista)]
+            if dfa.empty:
+                continue
+            
+            dfa.reset_index(drop=True, inplace=True)
+    
             if df_tumor.empty:
                 df_tumor = dfa
             else:
@@ -1574,10 +1696,6 @@ class GDC(object):
                     if verbose:
                         print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
                     break
-        # print("")
-
-        self.df_tumor = df_tumor
-        self.df_normal = df_normal
 
         return df_tumor, df_normal
 
@@ -3173,10 +3291,11 @@ class GDC(object):
         return df_gtex_ctrl
 
 
-    def get_tumor_normal_tables(self, imax_samples: int = 12, 
+    def get_tumor_normal_tables(self, imax_samples: int = 200, force: bool = False,
                                 verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, str]:
         
-        df_tumor, df_normal, df_gtex_ctrl = self.get_file_expression_both_tumor_and_normal(imax_samples=imax_samples, verbose=verbose)
+        df_tumor, df_normal, df_gtex_ctrl = \
+            self.calc_file_expression_tumor_normal_gtex(imax_samples=imax_samples, force=force, verbose=verbose)
 
         if df_tumor.empty:
             msg = f"No tumor expression data found for {self.psi_id}"
@@ -3238,7 +3357,7 @@ class GDC(object):
         cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
         self.cdegs = cdegs
 
-        df_tumor, df_normal, msg = self.get_tumor_normal_tables(verbose=verbose)
+        df_tumor, df_normal, msg = self.get_tumor_normal_tables(force=False, verbose=verbose)
 
         if df_tumor.empty:
             return pd.DataFrame(), msg
@@ -3283,14 +3402,14 @@ class GDC(object):
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
         method: str = "edger",
-        imax_samples: int = 12,
+        imax_samples: int = 200,
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
 
         self.set_primary_site(psi_id=psi_id)
 
-        df_tumor, df_normal, df_gtex_ctrl = self.get_file_expression_both_tumor_and_normal(imax_samples=imax_samples, verbose=verbose)
+        df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_samples=imax_samples, verbose=verbose)
 
         if df_tumor.empty:
             if verbose:
@@ -3388,29 +3507,29 @@ class GDC(object):
         return df_degs, df_lfc, degs_txt, msg
 
 
-    def read_GTEx_to_TCGA_table(self, verbose: bool = False) -> pd.DataFrame:
+    def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
         """
-        read self.fname_gtex = 'tcga_primary_site_to_gtex_ids.tsv'
+        read self.fname_gtex_table = 'tcga_primary_site_to_gtex_ids.tsv'
         output: df_gtex_to_tcga
         """
 
-        filename = self.root_gtex / self.fname_gtex
+        filename = self.root_gtex / self.fname_gtex_table
 
         if not filename.exists():
             print(f"GTEx to TCGA table not found in {self.root_gtex}.")
             return pd.DataFrame()
 
-        self.df_gtex_to_tcga = pdreadcsv(self.fname_gtex, self.root_gtex, verbose=verbose)
+        self.df_gtex_to_tcga = pdreadcsv(self.fname_gtex_table, self.root_gtex, verbose=verbose)
 
         return self.df_gtex_to_tcga
 
-    def find_GTEx_to_TCGA_row(self, verbose: bool = False) -> Tuple[str, str]:
+    def find_GTEx(self, verbose: bool = False) -> Tuple[str, str]:
 
         self.gtex_id = ""
         self.gtex_tissue_ids = ""
 
         if self.df_gtex_to_tcga.empty:
-            df_gtex_to_tcga = self.read_GTEx_to_TCGA_table(verbose=verbose)
+            df_gtex_to_tcga = self.read_GTEx_table(verbose=verbose)
 
             if df_gtex_to_tcga.empty:
                     print("GTEx to TCGA table is empty.")
@@ -3600,7 +3719,7 @@ class GDC(object):
 
         return df_gtex
 
-    def read_GTEx_counts(self, verbose: bool = False):
+    def read_GTEx_counts_pheno_meta(self, verbose: bool = False):
         # load matrix'1
 
         if self.df_gtex_counts.empty:
@@ -3609,20 +3728,20 @@ class GDC(object):
             self.df_gtex_counts = df_gtex_counts
 
         if self.df_gtex_pheno.empty:
-            _ = self.read_GTEx_pheno(verbose=verbose)
+            _ = self.read_GTEx_table_pheno(verbose=verbose)
 
         if self.df_meta.empty:
-            _ = self.read_GTEx_metadata(verbose=verbose)
+            _ = self.read_GTEx_table_metadata(verbose=verbose)
 
         return self.df_gtex_counts
 
-    def read_GTEx_pheno(self, verbose: bool = False):
+    def read_GTEx_table_pheno(self, verbose: bool = False):
         # load phenotype
         df_gtex_pheno = pdreadcsv(self.fname_GTEx_pheno, self.root_gtex, verbose=verbose)
         self.df_gtex_pheno = df_gtex_pheno
         return df_gtex_pheno
 
-    def read_GTEx_metadata(self, verbose: bool = False):
+    def read_GTEx_table_metadata(self, verbose: bool = False):
         # load metadata
         df_meta = pdreadcsv(self.fname_GTEx_meta, self.root_gtex, verbose=verbose)
         self.df_meta = df_meta
@@ -3635,11 +3754,11 @@ class GDC(object):
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
 
-        gtex_id, _ = self.find_GTEx_to_TCGA_row(verbose=verbose)
+        gtex_id, _ = self.find_GTEx(verbose=verbose)
         self.gtex_id = gtex_id
 
         if gtex_id == "":
-            print(f"Error: could not find GTEx ID for TCGA ID '{self.psi_id}'")
+            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.psi_id}'")
             return pd.DataFrame(), pd.DataFrame()
 
         # prepare metadata
@@ -3682,14 +3801,14 @@ class GDC(object):
         print("Preparing GTEx metadata...")
 
         if self.df_meta.empty:
-            self.read_GTEx_metadata()
+            self.read_GTEx_table_metadata()
 
             if self.df_meta.empty:
                 print("Metadata DataFrame is empty.")
                 return pd.DataFrame()
 
         if self.df_gtex_pheno.empty:
-            self.read_GTEx_pheno()
+            self.read_GTEx_table_pheno()
 
             if self.df_gtex_pheno.empty:
                 print("Phenotype DataFrame is empty.")
@@ -3753,7 +3872,7 @@ class GDC(object):
             # Reading GTEx count super-file
             # to big, do not store in Render
             if not self.running_on_render():
-                _ = self.read_GTEx_counts(verbose=verbose)
+                _ = self.read_GTEx_counts_pheno_meta(verbose=verbose)
 
             if self.df_gtex_counts.empty:
                 print("Count DataFrame is empty.")
