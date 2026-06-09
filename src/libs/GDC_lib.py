@@ -140,7 +140,8 @@ class GDC(object):
         self.fname_programs = "gdc_programs.txt"
 
         # primary_site
-        self.fname_prim_site = "primary_site_program_%s.tsv"
+        self.fname_prim_site_tcga = "primary_site_program_TCGA.tsv"
+        self.fname_prim_site_cbio = "gdc_to_cbioportal_study_mapping.tsv"
         self.fname_cases0 = "cases_for_%s.tsv"
         self.fname_subtype0 = "subtype_for_%s.tsv"
         self.fname_samples0 = "samples_for_%s.tsv"
@@ -246,18 +247,45 @@ class GDC(object):
     ) -> pd.DataFrame:
         '''
         A primary site (like TCGA-BRCA) is a 'disease'
-        root_disease = root_project / psi_id
+        root_disease = root0_data / psi_id
 
         input: project or prog_id, force, verbose
         output: df_psi (dataframe)
         '''
 
-        self.df_psi = pd.DataFrame()
-
         self.set_program(prog_id)
 
-        fname = self.fname_prim_site % (prog_id)
-        filename = self.root_project / fname
+        if prog_id == 'TCGA':
+            fname = self.fname_prim_site_tcga
+        else:
+            fname = self.fname_prim_site_cbio
+
+        filename = self.root0_data / fname
+
+        if filename.exists() and not force:
+            df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
+            self.df_psi = df_psi
+
+            if prog_id != 'TCGA':
+                df_psi = df_psi[df_psi.prog_id == prog_id].copy()
+                df_psi.reset_index(drop=True, inplace=True)
+
+            self.df_psi = df_psi
+
+            return df_psi
+        
+        self.df_psi = pd.DataFrame()
+        print("Could not find primary site information for:", prog_id)
+        return self.df_psi
+
+    def get_priamry_site_TCGA(self, force: bool = False, verbose: bool = False):
+
+        prog_id = "TCGA"
+        self.set_program(prog_id)
+        self.df_psi = pd.DataFrame()
+
+        fname = self.fname_prim_site_tcga
+        filename = self.root0_data / fname
 
         if filename.exists() and not force:
             df_psi = pdreadcsv(fname, self.root_project, verbose=verbose)
@@ -304,7 +332,6 @@ class GDC(object):
         except Exception as e:
             print(f"Error searching for '{self.prog_id}': {e}")
             print(">>> response", response)
-            self.df_psi = pd.DataFrame()
             return self.df_psi
 
         self.df_psi = df_psi
@@ -312,7 +339,7 @@ class GDC(object):
         return df_psi
 
     def set_primary_site(
-        self, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
+        self, psi_id: Any = None, primary_site: Any = None, disease_id: Any = None, verbose: bool = False
     ) -> bool:
         '''
         primary site, here, is a disease
@@ -335,16 +362,32 @@ class GDC(object):
             if dfa.empty:
                 print("No primary site information found for:", primary_site)
                 return False
+        elif isinstance(disease_id, str) and disease_id != "":
+            dfa = self.df_psi[self.df_psi.disease_id == disease_id]
+            if dfa.empty:
+                print("No primary site information found for:", disease_id)
+                return False
         else:
             print("No primary site information provided.")
             return False
 
         row = dfa.iloc[0]
 
+        self.many_cbioportal = True if len(dfa) > 1 else False
+
         self.psi_id = row.psi_id
         self.primary_site = row.primary_site
-        self.disease_type = row.disease_type
-        self.disease_name = row.name
+
+        if self.prog_id == 'TCGA':
+            self.disease_id = None
+            self.disease_type = row.disease_type
+            self.disease_name = row['name']
+            s_name = 'name'
+        else:
+            self.disease_id = row.disease_id
+            self.disease_type = row.disease_id
+            self.disease_name = row.disease_context
+            s_name = 'context'
 
         self.root_disease = create_dir(self.root_project, self.psi_id)
         self.root_samples = create_dir(self.root_disease, 'samples')
@@ -352,6 +395,12 @@ class GDC(object):
         self.root_mutations = create_dir(self.root_disease, 'mutations')
 
         if verbose:
+            print("\n-----------------------------")
+            print(">> psi_id:", self.psi_id)
+            print(">> primary_site:", self.primary_site)
+            print(">> disease_id:", self.disease_id)
+            print(">> disease_type:", self.disease_type)
+            print(f">> disease_{s_name}:", self.disease_name)
             print("\n-----------------------------")
             print(">> root disease:", self.root_disease)
             print(">> root samples:", self.root_samples)
