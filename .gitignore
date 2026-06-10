@@ -15,6 +15,9 @@ downloads/
 eggs/
 .eggs/
 /backup
+/backup01
+/backup02
+
 lib/
 lib64/
 parts/
