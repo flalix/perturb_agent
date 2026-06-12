@@ -388,8 +388,10 @@ class GDC(object):
             s_name = 'name'            
 
             self.disease_id = row.psi_id
+            self.gdc_project_id = row.psi_id
             self.disease_type = row.disease_type
             self.disease_name = row['name']
+            self.disease_context = row['name']
 
             study_id = row.psi_id
             mat = study_id.lower().split("-")
@@ -397,11 +399,11 @@ class GDC(object):
             study_id = mat[1] + "_" + mat[0]
 
             self.study_id = self.change_cbioportal_studyid(study_id)
-            self.disease_context = None
             self.cbioportal_study_id = None
         else:
             s_name = 'context'     
             self.disease_id = row.disease_id
+            self.gdc_project_id = row.gdc_project_id
 
             # disease_id example: 'PAAD'
             df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
@@ -415,8 +417,8 @@ class GDC(object):
                 row = df2.iloc[0]
                 self.psi_id = row.psi_id
                 self.primary_site = row.primary_site
-                
                 self.disease_id = row.disease_id
+
                 self.disease_type = row.disease_context
                 self.disease_name = row.primary_site
                 self.disease_context = row.disease_context
@@ -533,7 +535,6 @@ class GDC(object):
         self,
         batch_size: int = 200,
         do_filter: bool = True,
-        debug: bool = False,
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -710,9 +711,12 @@ class GDC(object):
         # -------------------------- batch loop ---------------------------
         filters = {
             "op": "in",
-            "content": {"field": "cases.project.project_id", "value": [self.psi_id]},
+            "content": {
+                "field": "cases.project.project_id",
+                "value": [self.gdc_project_id],
+            },
         }
-
+                
         all_hits = []
         from_ = 0
         size_ = batch_size
@@ -799,13 +803,12 @@ class GDC(object):
 			'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
 			"""
 
-            df_cases = df_cases.rename(columns={"project.project_id": "psi_id"})
-            self.df_cases = df_cases
+            df_cases = df_cases.rename(columns={"project.project_id": "gdc_project_id"})
+            df_cases["psi_id"] = self.psi_id
+            df_cases["disease_id"] = self.disease_id
+            df_cases["cbioportal_study_id"] = self.cbioportal_study_id
 
-            if debug:
-                print("----------- 2 ---------------")
-                print(df_cases.head(3).T)
-                print("---------------------------")
+            self.df_cases = df_cases
 
             df_cases = build_tcga_ontology(df_cases)
 
@@ -1151,9 +1154,11 @@ class GDC(object):
                                 {
                                     "case_id": case["case_id"],
                                     "submitter_id": case["submitter_id"],
+
                                     "sample_id": sample["sample_id"],
                                     "sample_type": sample["sample_type"],
                                     "barcode_sample": sample["submitter_id"],
+
                                     "file_id": hit["file_id"],
                                     "file_name": hit["file_name"],
                                     "data_type": hit["data_type"],
@@ -1889,6 +1894,18 @@ class GDC(object):
 
         df["keyword"] = [x.split(" ")[0] if isinstance(x, str) else x for x in df["keyword"]]
 
+
+        # sometime these fields are not present
+        optional_api_cols = [
+            "tumorRefCount",
+            "normalRefCount",
+            "tumorAltCount",
+        ]
+
+        for col in optional_api_cols:
+            if col not in df.columns:
+                df[col] = None     
+
         dic_rename = {
             "uniqueSampleKey": "unique_sample_key",
             "uniquePatientKey": "unique_patient_key",
@@ -2079,6 +2096,10 @@ class GDC(object):
 			"variant_type", "chr", "start", "end",
 			"ref_allele", "tumor_seq_allele"]		
 		"""
+
+        self.dff = pd.DataFrame()
+        self.df_mut = pd.DataFrame()
+
         if self.prog_id == 'TCGA':
             dff, df_mut = self.get_dff_mutation(
                 study_id=study_id,
@@ -2100,6 +2121,9 @@ class GDC(object):
                 df_list_mut.append(dfmut)
                 df_list.append(dffa)
 
+            if df_list_mut == [] or df_list == []:
+                return pd.DataFrame(), pd.DataFrame()
+
             df_mut = pd.concat(df_list_mut, ignore_index=True)
             dff    = pd.concat(df_list, ignore_index=True)
 
@@ -2111,11 +2135,126 @@ class GDC(object):
 
         return dff, df_mut
     
+
+    def get_cbioportal_samples_for_study(
+        self,
+        study_id: str,
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+    ) -> pd.DataFrame:
+
+        http = session or requests.Session()
+
+        url = f"{self.url_cbioportal}/studies/{study_id}/samples"
+
+        resp = http.get(
+            url,
+            params={"projection": "DETAILED"},
+            headers={"Accept": "application/json"},
+            timeout=timeout,
+        )
+
+        if not resp.ok:
+            print(f"Could not retrieve samples for study_id={study_id}")
+            print("HTTP:", resp.status_code)
+            print(resp.text[:500])
+            return pd.DataFrame()
+
+        data = resp.json()
+        if not data:
+            return pd.DataFrame()
+
+        return pd.DataFrame(data)
+
+    '''
+    verify sample overlap before fetching mutations
+    Before calling /mutations/fetch, test whether your barcode_sample_list exists in the selected cBioPortal study.
+    '''
+    def check_cbioportal_sample_overlap(
+        self,
+        study_id: str,
+        barcode_sample_list: list[str],
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+    ) -> pd.DataFrame:
+
+        df_cbio_samples = self.get_cbioportal_samples_for_study(
+            study_id=study_id,
+            session=session,
+            timeout=timeout,
+        )
+
+        if df_cbio_samples.empty:
+            print(f"No cBioPortal samples found for study_id={study_id}")
+            return pd.DataFrame()
+
+        cbio_sample_ids = set(df_cbio_samples["sampleId"].astype(str))
+        query_sample_ids = set(map(str, barcode_sample_list))
+
+        overlap = sorted(query_sample_ids & cbio_sample_ids)
+        missing = sorted(query_sample_ids - cbio_sample_ids)
+
+        print("study_id:", study_id)
+        print("query samples:", len(query_sample_ids))
+        print("cBioPortal samples:", len(cbio_sample_ids))
+        print("overlap:", len(overlap))
+
+        if len(overlap) == 0:
+            print("First query samples:")
+            print(sorted(list(query_sample_ids))[:10])
+
+            print("First cBioPortal samples:")
+            print(sorted(list(cbio_sample_ids))[:10])
+
+        return pd.DataFrame(
+            {
+                "barcode_sample": sorted(query_sample_ids),
+                "in_cbioportal": [x in cbio_sample_ids for x in sorted(query_sample_ids)],
+            }
+        )
+
     def get_dff_mutation(self, 
                         study_id: str,
                         barcode_sample_list: List[str],
                         session: Optional[requests.Session] = None,
-                        timeout: int = 60) -> Tuple[pd.DataFrame, pd.DataFrame]:
+                        timeout: int = 60,
+                        verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        if self.prog_id == 'TCGA':
+            pass
+        else:
+            df_cbio = self.get_cbioportal_samples_for_study(
+                    study_id=study_id,
+                    session=session,
+                    timeout=timeout,
+                )
+            
+            if df_cbio is None or df_cbio.empty:
+                print(f"No cBioPortal samples found for study_id={study_id}.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            if "sequenced" in df_cbio.columns:
+                sequenced = df_cbio["sequenced"].astype(bool)
+                df_cbio = df_cbio[sequenced].copy()
+
+            if "sampleId" not in df_cbio.columns:
+                print(f"cBioPortal sample table for {study_id} has no sampleId column.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            barcode_sample_list = (
+                df_cbio["sampleId"]
+                .dropna()
+                .astype(str)
+                .unique()
+                .tolist()
+            )
+
+            if len(barcode_sample_list) == 0:
+                print(f"No sequenced cBioPortal samples found for {study_id}.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            if verbose:
+                print(f"Using {len(barcode_sample_list)} cBioPortal samples.")
 
         df_mut = self.get_cBioportal_mutations_from_samples(
             barcode_sample_list=barcode_sample_list,
