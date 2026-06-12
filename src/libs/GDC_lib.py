@@ -357,6 +357,9 @@ class GDC(object):
         self.psi_id = ""
         self.primary_site, self.disease_type, self.disease_name, self.disease_id = "", "", "", ""
 
+        self.fname_cases, self.filename_cases = '', Path()
+        self.fname_subt, self.filename_subt = '', Path()
+
         if isinstance(psi_id, str) and psi_id != "":
             dfa = self.df_psi[self.df_psi.psi_id == psi_id]
             if dfa.empty:
@@ -388,7 +391,7 @@ class GDC(object):
             self.disease_type = row.disease_type
             self.disease_name = row['name']
 
-            study_id = psi_id
+            study_id = row.psi_id
             mat = study_id.lower().split("-")
             # cBioPortal disease - tcga
             study_id = mat[1] + "_" + mat[0]
@@ -398,9 +401,10 @@ class GDC(object):
             self.cbioportal_study_id = None
         else:
             s_name = 'context'     
+            self.disease_id = row.disease_id
 
             # disease_id example: 'PAAD'
-            df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == disease_id)]
+            df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
 
             if df2.empty:
                 print("Error: No data found for the specified parameters.")
@@ -713,6 +717,11 @@ class GDC(object):
         from_ = 0
         size_ = batch_size
         total = None
+
+        self.df_cases = pd.DataFrame()
+        self.df_subt = pd.DataFrame()
+        self.df_prof = pd.DataFrame()
+
         df_cases = pd.DataFrame()
 
         try:
@@ -745,9 +754,6 @@ class GDC(object):
                 if "data" not in response.keys():
                     print(f"No data found while searching for '{self.psi_id}'")
                     print(">>> response", response)
-                    self.df_cases = pd.DataFrame()
-                    self.df_subt = pd.DataFrame()
-                    self.df_prof = pd.DataFrame()
                     return self.df_cases, self.df_subt, self.df_prof
 
                 hits = response.get("data", {}).get("hits", [])
@@ -765,9 +771,6 @@ class GDC(object):
 
             if all_hits == []:
                 print(f"No subtypes found for {self.psi_id} ")
-                self.df_cases = response
-                self.df_subt = pd.DataFrame()
-                self.df_prof = pd.DataFrame()
                 return self.df_cases, self.df_subt, self.df_prof
 
             # ------------ lost data? ------------------
@@ -785,32 +788,6 @@ class GDC(object):
             df_cases = pd.json_normalize(all_hits)
             self.df_cases = df_cases
 
-            """
-			print("> 1")
-			print("----------- 1 ---------------")
-			print('rows', len(df_cases), '\ncolumns', df_cases.columns)
-			print("---------------------------")
-
-
-			"fields": ",".join([
-				"case_id",
-				"project.project_id",
-				"primary_site",
-				"disease_type",
-				"diagnoses.primary_diagnosis",
-				"diagnoses.tumor_grade",
-				"diagnoses.ajcc_pathologic_stage",
-				"diagnoses.ajcc_clinical_stage"
-				"diagnoses.figo_stage",
-				"diagnoses.tumor_stage",
-			]),
-
-			['id', 'primary_site', 'disease_type', 'case_id', 'diagnoses', 'project.project_id']
-			"""
-
-            # rename for sanity
-            self.df_cases = df_cases
-
             # ------------------- main_diag -------------------------------------------------------
             main_diag = calc_main_diagnosis(df_cases)
             self.main_diag = main_diag
@@ -823,16 +800,10 @@ class GDC(object):
 			"""
 
             df_cases = df_cases.rename(columns={"project.project_id": "psi_id"})
+            self.df_cases = df_cases
 
             if debug:
                 print("----------- 2 ---------------")
-                print(df_cases.head(3).T)
-                print("---------------------------")
-
-            self.df_cases2 = df_cases
-
-            if debug:
-                print("----------- 3 ---------------")
                 print(df_cases.head(3).T)
                 print("---------------------------")
 
@@ -846,6 +817,8 @@ class GDC(object):
             df_cases.reset_index(drop=True, inplace=True)
 
             df_cases = df_cases.drop(columns=["id"])
+            self.df_cases = df_cases
+
             df_subt = self.groupby_case_by_subtypes(df_cases)
 
             _ = pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
@@ -2059,20 +2032,26 @@ class GDC(object):
 		if TCGA remove the last characters if len > 2
 		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
 
-        self.psi_id already defined
+        already defined
+            a) set_primary_site() -> self.psi_id 
+            b) df_samples = self.get_samples_for_subtypes(
+                subtype_global=subtype_global,
+                tumor_class=tumor_class,
+                subtype_tissue=subtype_tissue,
+                batch_size=200,
+                force=force,
+                verbose=verbose,
+                )
+            c) self.s_case -> to call self.set_mutation_filenames()
+        )
 
 		"""
         barcode_sample_list = list(np.unique(barcode_sample_list))
 
         if self.prog_id == 'TCGA':
-            study_id = self.psi_id
-
-            if study_id[0].isupper():
-                mat = study_id.lower().split("-")
-                # cBioPortal disease - tcga
-                study_id = mat[1] + "_" + mat[0]
-
-            study_id = self.change_cbioportal_studyid(study_id)
+            # see set_primary_site()
+            study_id = self.study_id
+            df2 = pd.DataFrame()
         else:
             df2 = self.df_psi[ (self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
 
@@ -2100,31 +2079,32 @@ class GDC(object):
 			"variant_type", "chr", "start", "end",
 			"ref_allele", "tumor_seq_allele"]		
 		"""
-
         if self.prog_id == 'TCGA':
-            dff = self.get_dff_mutation(
+            dff, df_mut = self.get_dff_mutation(
                 study_id=study_id,
                 barcode_sample_list=barcode_sample_list,
                 session=session,
                 timeout=timeout
             )
         else:
-            df2 = self.df_psi[ (self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
-
-            df_list=[]
+            df_list_mut, df_list = [], []
+        
             for _, row in df2.iterrows():
 
-                dfa = self.get_dff_mutation(
+                dffa, dfmut = self.get_dff_mutation(
                     study_id=row.cbioportal_study_id,
                     barcode_sample_list=barcode_sample_list,
                     session=session,
                     timeout=timeout
                 )
-                df_list.append(dfa)
+                df_list_mut.append(dfmut)
+                df_list.append(dffa)
 
-            dff = pd.concat(df_list, ignore_index=True)
+            df_mut = pd.concat(df_list_mut, ignore_index=True)
+            dff    = pd.concat(df_list, ignore_index=True)
 
         self.dff = dff
+        self.df_mut = df_mut
 
         _ = pdwritecsv(dff, self.fname_mut_summ, self.root_mutations, verbose=False)
         _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_mutations, verbose=False)
@@ -2135,7 +2115,7 @@ class GDC(object):
                         study_id: str,
                         barcode_sample_list: List[str],
                         session: Optional[requests.Session] = None,
-                        timeout: int = 60):
+                        timeout: int = 60) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         df_mut = self.get_cBioportal_mutations_from_samples(
             barcode_sample_list=barcode_sample_list,
@@ -2143,8 +2123,6 @@ class GDC(object):
             session=session,
             timeout=timeout,
         )
-
-        self.df_mut = df_mut
 
         if df_mut.empty:
             print("No mutations found for these samples.")
@@ -2187,6 +2165,8 @@ class GDC(object):
         dff = dff.sort_values(["barcode", "symbol", "protein_mut"])
         dff = dff.reset_index(drop=True)
 
+        return dff, df_mut
+
 
     def cbioportal_studies(self):
         url = "https://www.cbioportal.org/api/studies"
@@ -2200,11 +2180,23 @@ class GDC(object):
 
         return study_ids
 
-    def loop_program_psi_samples(
+    def loop_program_psi_get_cases_samples_mut(
         self, prog_id: str = "TCGA", force: bool = False, verbose: bool = True
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+            input: prog_id
 
-        df_psi = self.get_primary_sites(prog_id=prog_id, force=force, verbose=verbose)
+            "get or calc" -> df_all_cases, df_all_samples, df_all_mutations
+
+            df_all_cases -> self.get_cases_and_subtypes()
+            loop on subtypes ->
+                df_all_samples ->  self.get_samples_for_subtypes(subtype_global=subtype_global, tumor_class=tumor_class, subtype_tissue=subtype_tissue, )
+                df_all_mutations -> for each subtype get from samples the barcode_sample_list -> self.get_df_mut_transform_mutation_table()
+
+            output: df_all_cases, df_all_samples, df_all_mutations
+        """
+
+        df_psi = self.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
 
         df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
@@ -2235,6 +2227,7 @@ class GDC(object):
 
         df_list_cases, df_list_samples, df_list_mutations = [], [], []
 
+        # loop for all primary sites in df_psi
         for ipsi, row in df_psi.iterrows():
 
             psi_id = row.psi_id
@@ -2245,11 +2238,15 @@ class GDC(object):
             print(f"{ipsi}) {psi_id} -{primary_site}", end=" - ")
 
             df_cases, df_subt, _ = self.get_cases_and_subtypes(
-                batch_size=200, do_filter=False, force=force, verbose=verbose
+                batch_size=200, do_filter=False, force=False, verbose=verbose
             )
 
             if df_cases.empty:
                 print("No cases found for PSI_ID:", psi_id)
+                continue
+
+            if df_subt.empty:
+                print("No df_subt found for PSI_ID:", psi_id)
                 continue
 
             if isinstance(df_cases, pd.DataFrame):
@@ -2268,7 +2265,7 @@ class GDC(object):
                     tumor_class=tumor_class,
                     subtype_tissue=subtype_tissue,
                     batch_size=200,
-                    force=force,
+                    force=False,
                     verbose=verbose,
                 )
                 print(f"{isubt}) {self.s_case}")
@@ -2290,13 +2287,13 @@ class GDC(object):
                     print("No samples having non-blood types for PSI_ID:", psi_id)
                     continue
 
-                barcode_sample_list = list(np.unique(df2.barcode_sample))
+                barcode_sample_list = list(self.prepare_barcode_sample_list(df2.barcode_sample))
                 self.barcode_sample_list = barcode_sample_list
 
                 print("Getting mutations", end=" ")
                 dff, _ = self.get_df_mut_transform_mutation_table(
                     barcode_sample_list=barcode_sample_list,
-                    force=force,
+                    force=False,
                     verbose=verbose,
                 )
 
@@ -2479,7 +2476,7 @@ class GDC(object):
 
         return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
 
-    def prepare_barcode_sample_list(self, barcode_sample_list: list[str]) -> list[str]:
+    def prepare_barcode_sample_list(self, barcode_sample_list: list[str] | np.ndarray | pd.Series) -> list[str]:
         """
         if TCGA remove the last characters if len > 2
         TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
@@ -3230,7 +3227,6 @@ class GDC(object):
 
         df_vcf = pd.DataFrame()
         self.df_vcf = df_vcf
-
 
         self.set_s_case(subtype_global, tumor_class, subtype_tissue)
 
