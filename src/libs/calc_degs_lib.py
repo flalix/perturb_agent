@@ -21,7 +21,7 @@ import pandas as pd
 class CALC_DEGS(object):
     def __init__(self, root_src: Path, run_conda: bool = False):
 
-        self.COMMONS = ["geneid", "symbol", "biotype"]
+        self.COMMONS = ["geneid", "symbol"]
 
         self.root_src = Path(root_src)
         self.libs_dir = root_src / "libs"
@@ -155,13 +155,14 @@ class CALC_DEGS(object):
         self,
         df_tumor: pd.DataFrame,
         df_normal: pd.DataFrame,
-        method: Literal["auto", "deseq2", "edger"] = "auto",
+        method: str = "auto",  # Literal["auto", "deseq2", "edger"]
         manual_dispersion: float = 0.1,
         min_total_count: int = 10,
         merge_how: Literal["inner", "outer"] = "inner",
         keep_temp: bool = False,
         conda_env: str = "renv",
     ) -> pd.DataFrame:
+        
         """
         Run DEG analysis in R using DESeq2 or edgeR through a conda environment.
 

@@ -15,6 +15,7 @@ import os
 import re
 import time
 import math
+import random
 import warnings
 from collections import Counter
 from pathlib import Path
@@ -1380,7 +1381,7 @@ class GDC(object):
 
         return df_table
 
-    def calc_file_expression_tumor_normal_gtex(self, imax_samples: int = 200, force: bool = False,
+    def calc_file_expression_tumor_normal_gtex(self, imax_tumor: int = 100, imax_normal: int = 50, force: bool = False,
                                                verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         '''
 
@@ -1438,7 +1439,7 @@ class GDC(object):
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
-            dic_tumor, dic_normal, imax_tumor=imax_samples, imax_normal=imax_samples, verbose=verbose
+            dic_tumor, dic_normal, imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose
         )
 
         df_gtex_ctrl, _ = self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
@@ -1665,12 +1666,17 @@ class GDC(object):
 
         return result
     
-    def get_common_gene_list(self, dic_tumor: dict, min_fraction: float = 0.75) -> np.ndarray:
+    def get_common_gene_list(self, dic_tum_norm: dict, isel_list: List[int], min_fraction: float = 0.75) -> np.ndarray:
         df_list = []
 
         cols = ["geneid", "symbol", "biotype", "counts"]
 
-        for _, dfa in dic_tumor.items():
+        keys = list(dic_tum_norm.keys())
+
+        for ikey in isel_list:
+            key = keys[ikey]
+            dfa = dic_tum_norm[key]
+
             if dfa is None or dfa.empty:
                 continue
 
@@ -1691,8 +1697,8 @@ class GDC(object):
         self,
         dic_tumor: dict,
         dic_normal: dict,
-        imax_tumor: int = 12,
-        imax_normal: int = 12,
+        imax_tumor: int = 100,
+        imax_normal: int = 50,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -1708,43 +1714,69 @@ class GDC(object):
                 df_tumor and df_normal tables
         """
 
+        # ----------- Normal tissue ----------------
+        if verbose:
+            print(">>> Processing normal data:", len(dic_normal))
+
+        isel_tumor_list = np.arange(len(dic_tumor))
+        isel_normal_list = np.arange(len(dic_normal))
+
+        if len(isel_tumor_list) > imax_tumor:
+            isel_tumor_list = random.sample(list(isel_tumor_list), imax_tumor)
+        if len(isel_normal_list) > imax_normal:
+            isel_normal_list = random.sample(list(isel_normal_list), imax_normal)
+
+        df_tumor = pd.DataFrame()
+        df_normal = pd.DataFrame()
+
         cols = ["geneid", "symbol", "counts"]
         common_cols = ["geneid", "symbol"]        
 
-        # ----------- Normal tissue ----------------
-        df_normal = pd.DataFrame()
-        if verbose:
-            print(">>> Processing normal data:", len(dic_normal))
-        i = 0
-        for _, dfa in dic_normal.items():
-            if dfa is None or dfa.empty:
-                continue
+        # ----------- normal tissue ----------------
+        common_gene_list = self.get_common_gene_list(dic_normal, list(isel_normal_list), min_fraction=0.75)
 
-            i += 1
-            # print(i, end=' ')
+        if len(common_gene_list) == 0:
+            if verbose:
+                print(">>> No common genes found.")
+            return df_tumor, df_normal
+        
+        keys = list(dic_normal.keys())
+        i=0
+        for ikey in isel_normal_list:
+            key = keys[ikey]
+            dfa = dic_normal[key]
+
             if "gene_id" in dfa.columns:
                 dfa = dfa.rename(columns={"gene_id": "geneid"})
             if "gene_type" in dfa.columns:
                 dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
+            dfa = (
+                dfa.dropna(subset=['geneid', 'symbol'])
+                .drop_duplicates(['geneid', 'symbol'])
+            )
+            if dfa.empty:
+                continue
+
+            i+=1
             dfa = dfa.rename(columns={"counts": f"normal_{i}"})
 
+            dfa = dfa[dfa.geneid.isin(common_gene_list)]
+            if dfa.empty:
+                continue
+            
+            dfa.reset_index(drop=True, inplace=True)
+    
             if df_normal.empty:
                 df_normal = dfa
             else:
-                if i <= imax_normal:
-                    df_normal = df_normal.merge(dfa, on=common_cols, how="outer")
-                else:
-                    if verbose:
-                        print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
-                    break
-
+                df_normal = df_normal.merge(dfa, on=common_cols, how="outer")
+ 
         # ----------- tumor ----------------
-        lista = self.get_common_gene_list(dic_tumor, min_fraction=0.75)
-        df_tumor = pd.DataFrame()
+        common_gene_list = self.get_common_gene_list(dic_tumor, list(isel_tumor_list), min_fraction=0.75)
 
-        if len(lista) == 0:
+        if len(common_gene_list) == 0:
             if verbose:
                 print(">>> No common genes found.")
             return df_tumor, df_normal
@@ -1752,13 +1784,15 @@ class GDC(object):
         if verbose:
             print(">>> Processing tumor data:", len(dic_tumor))
 
-        i = 0
-        for _, dfa in dic_tumor.items():
+        keys = list(dic_tumor.keys())
+        i=0
+        for ikey in isel_tumor_list:
+            key = keys[ikey]
+            dfa = dic_tumor[key]
+
             if dfa is None or dfa.empty:
                 continue
 
-            i += 1
-            # print(i, end=' ')
             if "gene_id" in dfa.columns:
                 dfa = dfa.rename(columns={"gene_id": "geneid"})
             if "gene_type" in dfa.columns:
@@ -1773,9 +1807,10 @@ class GDC(object):
             if dfa.empty:
                 continue
 
+            i+=1
             dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
 
-            dfa = dfa[dfa.geneid.isin(lista)]
+            dfa = dfa[dfa.geneid.isin(common_gene_list)]
             if dfa.empty:
                 continue
             
@@ -1784,12 +1819,8 @@ class GDC(object):
             if df_tumor.empty:
                 df_tumor = dfa
             else:
-                if i <= imax_tumor:
-                    df_tumor = df_tumor.merge(dfa, on=common_cols, how="outer")
-                else:
-                    if verbose:
-                        print(">>> dfa", len(dfa), ",".join(dfa.symbol[:30]))
-                    break
+                df_tumor = df_tumor.merge(dfa, on=common_cols, how="outer")
+
 
         return df_tumor, df_normal
 
@@ -3605,11 +3636,11 @@ class GDC(object):
         return df_gtex_ctrl
 
 
-    def get_tumor_normal_tables(self, imax_samples: int = 200, force: bool = False,
+    def get_tumor_normal_tables(self, imax_tumor: int = 200, imax_normal: int = 100, force: bool = False,
                                 verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, str]:
         
         df_tumor, df_normal, df_gtex_ctrl = \
-            self.calc_file_expression_tumor_normal_gtex(imax_samples=imax_samples, force=force, verbose=verbose)
+            self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, force=force, verbose=verbose)
 
         if df_tumor.empty:
             msg = f"No tumor expression data found for {self.psi_id}"
@@ -3662,7 +3693,9 @@ class GDC(object):
         self,
         psi_id: str,
         run_conda: bool = False,
-        method: str = "edger",
+        method: str = "deseq2",
+        imax_tumor: int = 200, 
+        imax_normal: int = 100, 
         verbose: bool = False,
     ) -> tuple[pd.DataFrame, str]:
 
@@ -3671,7 +3704,7 @@ class GDC(object):
         cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
         self.cdegs = cdegs
 
-        df_tumor, df_normal, msg = self.get_tumor_normal_tables(force=False, verbose=verbose)
+        df_tumor, df_normal, msg = self.get_tumor_normal_tables(imax_tumor=imax_tumor, imax_normal=imax_normal, force=False, verbose=verbose)
 
         if df_tumor.empty:
             return pd.DataFrame(), msg
@@ -3692,7 +3725,7 @@ class GDC(object):
         cols = df_lfc.columns.to_list()
 
         commons =  ["geneid"]
-        tum_cols = ["geneid", "symbol", "biotype"]
+        tum_cols = ["geneid", "symbol"]
 
         self.df_lfc5 = df_lfc.copy()
         self.df_tumor = df_tumor
@@ -3700,7 +3733,7 @@ class GDC(object):
         # biotype can be loose: biotypes come from df_tumor
         df_lfc = pd.merge(df_lfc, df_tumor[tum_cols], on=commons, how="inner")
 
-        cols2 = ["geneid", "symbol", "biotype"] + cols[1:]
+        cols2 = ["geneid", "symbol"] + cols[1:]
         df_lfc = df_lfc[cols2]
 
         df_lfc = df_lfc.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "pvalue": "pval", "padj": "fdr"})
@@ -3715,15 +3748,16 @@ class GDC(object):
         run_conda: bool = False,
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
-        method: str = "edger",
-        imax_samples: int = 200,
+        method: str = "deseq2",
+        imax_tumor: int = 200,
+        imax_normal: int = 100, 
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
 
         self.set_primary_site(psi_id=psi_id)
 
-        df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_samples=imax_samples, verbose=verbose)
+        df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose)
 
         if df_tumor.empty:
             if verbose:
