@@ -64,9 +64,10 @@ class GDC(object):
         self.prog_id, self.psi_id = "", ""
         self.s_case = ''
         self.primary_site = ''
-        self.disease_id = ''
+        self.disease_id, self.psi_disease_id = '', ''
         self.disease_type = ''
         self.disease_name = ''
+
         
         self.root0 = Path(root0)
         self.root_src   =  create_dir(self.root0, 'src')
@@ -75,27 +76,26 @@ class GDC(object):
         self.root_colab = create_dir(self.root0_data, 'colab')
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
-        self.fname_gtex_table = "tcga_primary_site_to_gtex_ids.tsv"
-        self.df_gtex_to_tcga = pd.DataFrame()
+        self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
+        self.df_gdc_to_gtex = pd.DataFrame()
         self.gtex_id = ""
         self.fname_gtex_exp_counts = "gtex_expression_counts_%s.tsv"
 
         self.fname_tpm_exp = "gtex_TPM_%s.tsv"
         self.fname_GTEx_counts = "GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_reads.gct.gz"
-        self.fname_GTEx_meta = "GTEx_Analysis_v11_Annotations_SampleAttributesDS.tsv"
-        self.fname_GTEx_pheno = "GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.tsv"
+        self.fname_GTEx_meta   = "GTEx_Analysis_v11_Annotations_SampleAttributesDS.tsv"
+        self.fname_GTEx_pheno  = "GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.tsv"
 
         self.GTEX_API = "https://gtexportal.org/api/v2"
 
         self.df_gtex_counts = pd.DataFrame()
         self.df_gtex_pheno = pd.DataFrame()
-        self.df_meta = pd.DataFrame()
+        self.df_gtex_meta = pd.DataFrame()
   
         self.fname_exp_tumor = 'expression_tumor_for_%s.tsv'
         self.fname_exp_normal = 'expression_normal_for_%s.tsv'
         self.fname_exp_gtex = 'expression_gtex_for_%s.tsv'
 
-        # self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
         # GTEx control - per tissue
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
@@ -243,6 +243,8 @@ class GDC(object):
     def set_program(self, prog_id: str):
         self.prog_id = prog_id
 
+        self.is_tcga = True if prog_id == "TCGA" else False
+
         self.root_project = create_dir(self.root0_data, prog_id)
         self.root_summary = create_dir(self.root_project, "summary")
 
@@ -261,7 +263,7 @@ class GDC(object):
 
         self.set_program(prog_id)
 
-        if prog_id == 'TCGA':
+        if self.is_tcga:
             fname = self.fname_prim_site_tcga
         else:
             fname = self.fname_prim_site_cbio
@@ -271,7 +273,7 @@ class GDC(object):
         if filename.exists() and not force:
             df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
 
-            if prog_id == 'TCGA':
+            if self.is_tcga:
                 required_cols = ["primary_site", "psi_id"]
             else:
                 required_cols = ["prog_id", "gdc_project_id", "disease_id", "psi_id"]
@@ -399,9 +401,10 @@ class GDC(object):
         self.primary_site = row.primary_site
 
         #---------------------
-        if self.prog_id == 'TCGA':
-            s_name = 'name'            
-
+        if self.is_tcga:
+            s_name = 'name'
+            self.psi_disease_id = row.psi_id
+            
             self.disease_id = row.psi_id
             self.gdc_project_id = row.psi_id
             self.disease_type = row.disease_type
@@ -416,7 +419,9 @@ class GDC(object):
             self.study_id = self.change_cbioportal_studyid(study_id)
             self.cbioportal_study_id = None
         else:
-            s_name = 'context'     
+            s_name = 'context'   
+            self.psi_disease_id = row.disease_id
+
             self.disease_id = row.disease_id
             self.gdc_project_id = row.gdc_project_id
 
@@ -440,8 +445,8 @@ class GDC(object):
                 self.cbioportal_study_id = row.cbioportal_study_id
 
                 if verbose:
-                    print("Only one entry found for {self.psi_id}.")
-                    print(f"\tpsi_id={self.psi_id}, primary_site={self.primary_site}")
+                    print("Only one entry found for {self.psi_disease_id}.")
+                    print(f"\tpsi_id={self.psi_disease_id}, primary_site={self.primary_site}")
             else:
                 print("Multiple entries found for the specified parameters.")
 
@@ -456,10 +461,10 @@ class GDC(object):
                     self.cbioportal_study_id = row.cbioportal_study_id
 
                     if verbose:
-                        print(f"\tpsi_id={self.psi_id}, disease_id={self.disease_id}, primary_site={self.primary_site}")
+                        print(f"\tpsi_id={self.psi_disease_id}, disease_id={self.disease_id}, primary_site={self.primary_site}")
 
         #------------- create dirs ------------------
-        if self.prog_id == 'TCGA':
+        if self.is_tcga:
             self.root_disease = create_dir(self.root_project, self.psi_id)
         else:
             self.root_disease = create_dir(self.root_project, self.disease_id)
@@ -774,7 +779,7 @@ class GDC(object):
                 response = res.json()
 
                 if "data" not in response.keys():
-                    print(f"No data found while searching for '{self.psi_id}'")
+                    print(f"No data found while searching for '{self.psi_disease_id}'")
                     print(">>> response", response)
                     return self.df_cases, self.df_subt, self.df_prof
 
@@ -792,7 +797,7 @@ class GDC(object):
             print("\n")
 
             if all_hits == []:
-                print(f"No subtypes found for {self.psi_id} ")
+                print(f"No subtypes found for {self.psi_disease_id} ")
                 return self.df_cases, self.df_subt, self.df_prof
 
             # ------------ lost data? ------------------
@@ -846,7 +851,7 @@ class GDC(object):
             _ = pdwritecsv(df_subt, self.fname_subt, self.root_disease, verbose=verbose)
 
         except Exception as e:
-            print(f"Error for searching diags for '{self.psi_id}'. error: {e}")
+            print(f"Error for searching diags for '{self.psi_disease_id}'. error: {e}")
             self.df_cases = df_cases
             self.df_subt = pd.DataFrame()
             self.df_prof = pd.DataFrame()
@@ -980,10 +985,10 @@ class GDC(object):
 
     def set_s_case(self, subtype_global: str, tumor_class: str, subtype_tissue: str):
 
-        self.s_case = f"{self.psi_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
+        self.s_case = f"{self.psi_disease_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
 
         if len(self.s_case) > 180:
-            self.s_case = f"{self.psi_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
+            self.s_case = f"{self.psi_disease_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
 
         self.s_case = title_replace(self.s_case)
 
@@ -1128,7 +1133,7 @@ class GDC(object):
                     response = res.json()
 
                     if "data" not in response.keys():
-                        print(f"No data found while searching for '{self.psi_id}' cases {case_id_list}")
+                        print(f"No data found while searching for '{self.psi_disease_id}' cases {case_id_list}")
                         print(">>> response", response)
                         self.df_samples = pd.DataFrame()
                         return self.df_samples
@@ -1147,7 +1152,7 @@ class GDC(object):
                 # print("\n")
 
                 if all_hits == []:
-                    print(f"No files were found for {self.psi_id} cases {case_id_list}")
+                    print(f"No files were found for {self.psi_disease_id} cases {case_id_list}")
                     self.df_samples = pd.DataFrame()
                     return self.df_samples
 
@@ -1328,7 +1333,7 @@ class GDC(object):
                
 
         except Exception as e:
-            s_error = f"Download error for '{self.psi_id}', '{file_type}', case {case_id} and {file_id}: {e}"
+            s_error = f"Download error for '{self.psi_disease_id}', '{file_type}', case {case_id} and {file_id}: {e}"
             if verbose:
                 print(s_error)
 
@@ -1435,14 +1440,14 @@ class GDC(object):
         self.dic_normal = dic_normal
 
         if len(dic_tumor) == 0 and len(dic_normal) == 0:
-            print(f"Insufficient expression data for {self.psi_id}.")
+            print(f"Insufficient expression data for {self.psi_disease_id}.")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
             dic_tumor, dic_normal, imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose
         )
 
-        df_gtex_ctrl, _ = self.get_gtex_control(Nsamples=15, force=False, verbose=verbose)
+        df_gtex_ctrl, _ = self.get_gtex_control(force=False, verbose=verbose)
 
         if "gene_id" in df_tumor.columns:
             df_tumor = df_tumor.rename(columns={"gene_id": "geneid"})
@@ -1477,12 +1482,12 @@ class GDC(object):
 
         if df_tumor_samples.empty:
             if verbose:
-                print(f"No tumor expression data found for {self.psi_id}.")
+                print(f"No tumor expression data found for {self.psi_disease_id}.")
             return {}, {}
 
         if df_normal_samples.empty:
             if verbose:
-                print(f"No normal expression data found for {self.psi_id}.")
+                print(f"No normal expression data found for {self.psi_disease_id}.")
             return {}, {}
 
         self.file_type_list = np.unique(df_tumor_samples.data_type)
@@ -1503,7 +1508,7 @@ class GDC(object):
             )
 
         if len(dff_tumor) == 0 and len(dff_normal) == 0:
-            print(f"No valid expression data found for {self.psi_id}.")
+            print(f"No valid expression data found for {self.psi_disease_id}.")
             return {}, {}
 
         print("Downloading normal files:", end=" ")
@@ -2071,7 +2076,7 @@ class GDC(object):
 
     def set_mutation_filenames(self):
 
-        if self.prog_id == 'TCGA':
+        if self.is_tcga:
             self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
             self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
         else:
@@ -2113,7 +2118,7 @@ class GDC(object):
 		"""
         barcode_sample_list = list(np.unique(barcode_sample_list))
 
-        if self.prog_id == 'TCGA':
+        if self.is_tcga:
             # see set_primary_site()
             study_id = self.study_id
             df2 = pd.DataFrame()
@@ -2143,7 +2148,7 @@ class GDC(object):
 
         self.dff, self.df_mut = pd.DataFrame(), pd.DataFrame()
 
-        if self.prog_id == 'TCGA':
+        if self.is_tcga:
             dff, df_mut = self.get_dff_mutation(
                 study_id=study_id,
                 barcode_sample_list=barcode_sample_list,
@@ -2278,9 +2283,7 @@ class GDC(object):
                     
         '''
 
-        if self.prog_id == 'TCGA':
-            pass
-        else:
+        if not self.is_tcga:
             df_cbio = self.get_cbioportal_samples_for_study(
                     study_id=study_id,
                     session=session,
@@ -3000,7 +3003,7 @@ class GDC(object):
         )
 
         stri = "Clustering using HDBSCAN mutation profiles"
-        stri += f"\nPrimary Site: {self.psi_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
+        stri += f"\nPrimary Site: {self.psi_disease_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
         stri += f"\nmin_cluster_size={min_cluster_size} and min_samples={min_samples}"
         ax.set_title(stri)
         ax.set_xlabel("embedding1")
@@ -3358,7 +3361,7 @@ class GDC(object):
         dic = self.SUBTYPE_GENES.get(self.psi_id, {})
 
         if dic == {}:
-            print(f"No subtype genes found for PSI ID: {self.psi_id}")
+            print(f"No subtype genes found for PSI ID: {self.psi_disease_id}")
             return dfempty, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
 
         lista = []
@@ -3643,7 +3646,7 @@ class GDC(object):
             self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, force=force, verbose=verbose)
 
         if df_tumor.empty:
-            msg = f"No tumor expression data found for {self.psi_id}"
+            msg = f"No tumor expression data found for {self.psi_disease_id}"
             if verbose:
                 print(msg)
             return pd.DataFrame(),pd.DataFrame(), msg
@@ -3761,7 +3764,7 @@ class GDC(object):
 
         if df_tumor.empty:
             if verbose:
-                print(f"No tumor expression data found for {self.psi_id}")
+                print(f"No tumor expression data found for {self.psi_disease_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
         fname_degs = self.fname_degs % self.psi_id
@@ -3858,7 +3861,7 @@ class GDC(object):
     def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
         """
         read self.fname_gtex_table = 'tcga_primary_site_to_gtex_ids.tsv'
-        output: df_gtex_to_tcga
+        output: df_gdc_to_gtex
         """
 
         filename = self.root_gtex / self.fname_gtex_table
@@ -3867,23 +3870,26 @@ class GDC(object):
             print(f"GTEx to TCGA table not found in {self.root_gtex}.")
             return pd.DataFrame()
 
-        self.df_gtex_to_tcga = pdreadcsv(self.fname_gtex_table, self.root_gtex, verbose=verbose)
+        self.df_gdc_to_gtex = pdreadcsv(self.fname_gtex_table, self.root_gtex, verbose=verbose)
 
-        return self.df_gtex_to_tcga
+        return self.df_gdc_to_gtex
 
     def find_GTEx(self, verbose: bool = False) -> Tuple[str, str]:
 
         self.gtex_id = ""
         self.gtex_tissue_ids = ""
 
-        if self.df_gtex_to_tcga.empty:
-            df_gtex_to_tcga = self.read_GTEx_table(verbose=verbose)
+        if self.df_gdc_to_gtex.empty:
+            df_gdc_to_gtex = self.read_GTEx_table(verbose=verbose)
 
-            if df_gtex_to_tcga.empty:
+            if df_gdc_to_gtex.empty:
                     print("GTEx to TCGA table is empty.")
                     return "", ""
 
-        dfa = self.df_gtex_to_tcga[self.df_gtex_to_tcga.tcga_project_id == self.psi_id]
+        if self.is_tcga:
+            dfa = self.df_gdc_to_gtex[self.df_gdc_to_gtex.tcga_project_id == self.psi_id]
+        else:
+            dfa = self.df_gdc_to_gtex[self.df_gdc_to_gtex.disease_id  == self.disease_id]
 
         if len(dfa) == 1:
             row = dfa.iloc[0]
@@ -4256,7 +4262,7 @@ class GDC(object):
             dic2['ngenes'] = len(df2)
             dic2['genes'] = df2.symbol.to_list()
 
-            fname = f"cluster_{ncluster}_{self.psi_id}_signature_genes.txt"
+            fname = f"cluster_{ncluster}_{self.psi_disease_id}_signature_genes.txt"
             write_txt(s_genes, fname, self.root_lfc)
 
             if verbose:
@@ -4264,7 +4270,7 @@ class GDC(object):
 
         df = pd.DataFrame(dic).T
 
-        fname = f"clusters_signatures_for_{self.psi_id}.txt"
+        fname = f"clusters_signatures_for_{self.psi_disease_id}.txt"
         _ = pdwritecsv(df, fname, self.root_lfc, verbose=verbose)
 
         return df
@@ -4440,7 +4446,7 @@ class GDC(object):
         if self.df_gtex_pheno.empty:
             _ = self.read_GTEx_table_pheno(verbose=verbose)
 
-        if self.df_meta.empty:
+        if self.df_gtex_meta.empty:
             _ = self.read_GTEx_table_metadata(verbose=verbose)
 
         return self.df_gtex_counts
@@ -4453,13 +4459,11 @@ class GDC(object):
 
     def read_GTEx_table_metadata(self, verbose: bool = False):
         # load metadata
-        df_meta = pdreadcsv(self.fname_GTEx_meta, self.root_gtex, verbose=verbose)
-        self.df_meta = df_meta
-        return df_meta
+        df_gtex_meta = pdreadcsv(self.fname_GTEx_meta, self.root_gtex, verbose=verbose)
+        self.df_gtex_meta = df_gtex_meta
+        return df_gtex_meta
 
-    def get_gtex_control(
-        self, Nsamples: int = 15, force: bool = False, verbose: bool = False
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def get_gtex_control(self, force: bool = False, verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
@@ -4468,14 +4472,14 @@ class GDC(object):
         self.gtex_id = gtex_id
 
         if gtex_id == "":
-            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.psi_id}'")
+            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.psi_disease_id}'")
             return pd.DataFrame(), pd.DataFrame()
 
         # prepare metadata
         df_meta_prep = self.prepare_gtex_df_meta()
 
         # get all GTEx samples for self.psi_id
-        df_gtex_ctrl = self.prepare_gtex_count_table(Nsamples=Nsamples, force=force, verbose=verbose)
+        df_gtex_ctrl = self.prepare_gtex_count_table(force=force, verbose=verbose)
 
         self.df_gtex_ctrl = df_gtex_ctrl
         self.df_meta_prep = df_meta_prep
@@ -4499,9 +4503,9 @@ class GDC(object):
             print(gtex_id)
             term = " - ".join(gtex_id.split('_')[:2])
             print("term", term)
-            df_meta = mtd.gdc.df_meta
+            df_gtex_meta = mtd.gdc.df_gtex_meta
 
-            df2 = df_meta[df_meta["SMTSD"].str.startswith(term)]
+            df2 = df_gtex_meta[df_gtex_meta["SMTSD"].str.startswith(term)]
             print(len(df2))
             df2
 
@@ -4510,10 +4514,10 @@ class GDC(object):
 
         print("Preparing GTEx metadata...")
 
-        if self.df_meta.empty:
+        if self.df_gtex_meta.empty:
             self.read_GTEx_table_metadata()
 
-            if self.df_meta.empty:
+            if self.df_gtex_meta.empty:
                 print("Metadata DataFrame is empty.")
                 return pd.DataFrame()
 
@@ -4525,14 +4529,14 @@ class GDC(object):
                 return pd.DataFrame()
 
         # 1. Filter for Tissue
-        # df_meta_prep is df_meta filtered by gtex_id
+        # df_meta_prep is df_gtex_meta filtered by gtex_id
         # 'Colon_Transverse' --> 'Colon - Transverse'
 
         if self.gtex_id == 'Adrenal_Gland' or self.gtex_id == 'Whole_Blood':
             term = self.gtex_id.replace('_', ' ')
         else:
             term = " - ".join(self.gtex_id.split('_')[:2])
-        df_meta_prep = self.df_meta[self.df_meta["SMTSD"].str.startswith(term)].copy()
+        df_meta_prep = self.df_gtex_meta[self.df_gtex_meta["SMTSD"].str.startswith(term)].copy()
         df_meta_prep.reset_index(drop=True, inplace=True)
 
         self.df_meta_prep = df_meta_prep
@@ -4566,9 +4570,7 @@ class GDC(object):
     def running_on_render(self) -> bool:
         return "RENDER_SERVICE_ID" in os.environ
 
-    def prepare_gtex_count_table(
-        self, Nsamples=15, force: bool = False, verbose: bool = False
-    ) -> pd.DataFrame:
+    def prepare_gtex_count_table(self, force: bool = False, verbose: bool = False) -> pd.DataFrame:
 
         fname = self.fname_gtex_exp_counts % (self.gtex_id)
         filename = self.root_gtex / fname
@@ -4589,13 +4591,10 @@ class GDC(object):
                 return pd.DataFrame()
 
         self.df_meta_prep = self.df_meta_prep.sort_values("SMRIN", ascending=False)
-        samples = self.df_meta_prep.head(Nsamples * 3)["SAMPID"].to_list()
+        samples = self.df_meta_prep["SAMPID"].to_list()
 
         cols = list(samples)
         good_cols = [x for x in cols if x in self.df_gtex_counts.columns]
-        if len(good_cols) > Nsamples:
-            good_cols = good_cols[:Nsamples]
-
         good_cols = ["Name", "Description"] + good_cols
 
         df_gtex_normal = self.df_gtex_counts.loc[:, good_cols].copy()
@@ -4622,7 +4621,7 @@ class GDC(object):
 
     def build_df_exp_and_filter(self,
         df_counts: pd.DataFrame,
-        df_meta: pd.DataFrame,
+        df_gtex_meta: pd.DataFrame,
         gene_col: str = "geneid",
         condition_col: str = "condition",
         sample_col: str = "sample",
@@ -4634,12 +4633,12 @@ class GDC(object):
         df = df_counts.copy()
 
         # Samples by condition
-        normal_samples = df_meta.loc[
-            df_meta[condition_col] == normal_label, sample_col
+        normal_samples = df_gtex_meta.loc[
+            df_gtex_meta[condition_col] == normal_label, sample_col
         ].tolist()
 
-        tumor_samples = df_meta.loc[
-            df_meta[condition_col] == tumor_label, sample_col
+        tumor_samples = df_gtex_meta.loc[
+            df_gtex_meta[condition_col] == tumor_label, sample_col
         ].tolist()
 
         # Keep only samples present in df_counts
