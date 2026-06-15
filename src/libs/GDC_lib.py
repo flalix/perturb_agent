@@ -251,7 +251,7 @@ class GDC(object):
         self.clean_gdc_files()
 
     def get_primary_sites(
-        self, prog_id: str = "TCGA", force: bool = False, verbose: bool = False
+        self, prog_id: str, force: bool = False, verbose: bool = False
     ) -> pd.DataFrame:
         '''
         A primary site (like TCGA-BRCA) is a 'disease'
@@ -1436,6 +1436,7 @@ class GDC(object):
             return df_tumor, df_normal, df_gtex_ctrl
 
         dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
+        print(f"Retrieved expression data for {self.psi_id} dic_tumor {len(dic_tumor)}, dic_normal {len(dic_normal)}")
         self.dic_tumor = dic_tumor
         self.dic_normal = dic_normal
 

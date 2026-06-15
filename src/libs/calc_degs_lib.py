@@ -199,8 +199,8 @@ class CALC_DEGS(object):
             how=merge_how
         )
 
-        _ = pdwritecsv(df_counts, "counts.tsv")
-        _ = pdwritecsv(df_meta, "meta.tsv")
+        # _ = pdwritecsv(df_counts, "counts.tsv")
+        # _ = pdwritecsv(df_meta, "meta.tsv")
 
         tmpdir_obj = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_obj.name)
