@@ -580,8 +580,7 @@ class GDC(object):
 
             self.df_cases = df_cases
 
-            if do_filter:
-                df_cases = self.apply_filter_cases(df_cases)
+            df_cases = self.apply_filter_cases(df_cases)
 
             df_subt = self.groupby_case_by_subtypes(df_cases)
             df_prof = self.build_profile(df_cases)
@@ -1464,9 +1463,10 @@ class GDC(object):
         self.df_normal = df_normal
         self.df_gtex_ctrl = df_gtex_ctrl
 
-        _ = pdwritecsv(df_tumor, fname_exp_tumor, self.root_lfc)
-        _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
-        _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
+        if not df_tumor.empty and not df_normal.empty and not df_gtex_ctrl.empty:
+            _ = pdwritecsv(df_tumor, fname_exp_tumor, self.root_lfc)
+            _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
+            _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
 
         return df_tumor, df_normal, df_gtex_ctrl
 
@@ -1720,114 +1720,116 @@ class GDC(object):
                 df_tumor and df_normal tables
         """
 
-        # ----------- Normal tissue ----------------
-        if verbose:
-            print(">>> Processing normal data:", len(dic_normal))
-
-        isel_tumor_list = np.arange(len(dic_tumor))
-        isel_normal_list = np.arange(len(dic_normal))
-
-        if len(isel_tumor_list) > imax_tumor:
-            isel_tumor_list = random.sample(list(isel_tumor_list), imax_tumor)
-        if len(isel_normal_list) > imax_normal:
-            isel_normal_list = random.sample(list(isel_normal_list), imax_normal)
-
         df_tumor = pd.DataFrame()
         df_normal = pd.DataFrame()
 
         cols = ["geneid", "symbol", "biotype", "counts"]
         common_cols = ["geneid", "symbol", "biotype"]        
-
-        # ----------- normal tissue ----------------
-        common_gene_list = self.get_common_gene_list(dic_normal, list(isel_normal_list), min_fraction=0.75)
-
-        if len(common_gene_list) == 0:
-            if verbose:
-                print(">>> No common genes found.")
-            return df_tumor, df_normal
         
-        keys = list(dic_normal.keys())
-        i=0
-        for ikey in isel_normal_list:
-            key = keys[ikey]
-            dfa = dic_normal[key]
+        # ----------- Normal tissue ----------------
+        if len(dic_normal) == 0:
+            print(">>> No data for normal samples")
+        else:
+            print(">>> Processing normal data:", len(dic_normal))
 
-            if "gene_id" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_id": "geneid"})
-            if "gene_type" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_type": "biotype"})
+            isel_normal_list = np.arange(len(dic_normal))
 
-            dfa = dfa[cols]
+            if len(isel_normal_list) > imax_normal:
+                isel_normal_list = random.sample(list(isel_normal_list), imax_normal)
 
-            dfa = (
-                dfa.dropna(subset=['geneid', 'symbol'])
-                .drop_duplicates(['geneid', 'symbol'])
-            )
-            if dfa.empty:
-                continue
 
-            i+=1
-            dfa = dfa.rename(columns={"counts": f"normal_{i}"})
+            # ----------- normal tissue ----------------
+            common_gene_list = self.get_common_gene_list(dic_normal, list(isel_normal_list), min_fraction=0.75)
 
-            dfa = dfa[dfa.geneid.isin(common_gene_list)]
-            if dfa.empty:
-                continue
-            
-            dfa.reset_index(drop=True, inplace=True)
-    
-            if df_normal.empty:
-                df_normal = dfa
+            if len(common_gene_list) == 0:
+                print(">>> No common genes found for normal samples.")
             else:
-                df_normal = df_normal.merge(dfa, on=common_cols, how="outer")
+                keys = list(dic_normal.keys())
+                i=0
+                for ikey in isel_normal_list:
+                    key = keys[ikey]
+                    dfa = dic_normal[key]
+
+                    if "gene_id" in dfa.columns:
+                        dfa = dfa.rename(columns={"gene_id": "geneid"})
+                    if "gene_type" in dfa.columns:
+                        dfa = dfa.rename(columns={"gene_type": "biotype"})
+
+                    dfa = dfa[cols]
+
+                    dfa = (
+                        dfa.dropna(subset=['geneid', 'symbol'])
+                        .drop_duplicates(['geneid', 'symbol'])
+                    )
+                    if dfa.empty:
+                        continue
+
+                    i+=1
+                    dfa = dfa.rename(columns={"counts": f"normal_{i}"})
+
+                    dfa = dfa[dfa.geneid.isin(common_gene_list)]
+                    if dfa.empty:
+                        continue
+                    
+                    dfa.reset_index(drop=True, inplace=True)
+            
+                    if df_normal.empty:
+                        df_normal = dfa
+                    else:
+                        df_normal = df_normal.merge(dfa, on=common_cols, how="outer")
  
         # ----------- tumor ----------------
-        common_gene_list = self.get_common_gene_list(dic_tumor, list(isel_tumor_list), min_fraction=0.75)
-
-        if len(common_gene_list) == 0:
-            if verbose:
-                print(">>> No common genes found.")
-            return df_tumor, df_normal
-
-        if verbose:
+        if len(dic_tumor) == 0:
+            print(">>> No data for tumor samples")
+        else:
             print(">>> Processing tumor data:", len(dic_tumor))
 
-        keys = list(dic_tumor.keys())
-        i=0
-        for ikey in isel_tumor_list:
-            key = keys[ikey]
-            dfa = dic_tumor[key]
+            isel_tumor_list = np.arange(len(dic_tumor))
+            if len(isel_tumor_list) > imax_tumor:
+                isel_tumor_list = random.sample(list(isel_tumor_list), imax_tumor)
 
-            if dfa is None or dfa.empty:
-                continue
+            common_gene_list = self.get_common_gene_list(dic_tumor, list(isel_tumor_list), min_fraction=0.75)
 
-            if "gene_id" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_id": "geneid"})
-            if "gene_type" in dfa.columns:
-                dfa = dfa.rename(columns={"gene_type": "biotype"})
+            if len(common_gene_list) == 0:
+                print(">>> No common genes found for tumor samples.")
+                return df_tumor, df_normal
 
-            dfa = dfa[cols]
+            keys = list(dic_tumor.keys())
+            i=0
+            for ikey in isel_tumor_list:
+                key = keys[ikey]
+                dfa = dic_tumor[key]
 
-            dfa = (
-                dfa.dropna(subset=['geneid', 'symbol'])
-                .drop_duplicates(['geneid', 'symbol'])
-            )
-            if dfa.empty:
-                continue
+                if dfa is None or dfa.empty:
+                    continue
 
-            i+=1
-            dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
+                if "gene_id" in dfa.columns:
+                    dfa = dfa.rename(columns={"gene_id": "geneid"})
+                if "gene_type" in dfa.columns:
+                    dfa = dfa.rename(columns={"gene_type": "biotype"})
 
-            dfa = dfa[dfa.geneid.isin(common_gene_list)]
-            if dfa.empty:
-                continue
-            
-            dfa.reset_index(drop=True, inplace=True)
-    
-            if df_tumor.empty:
-                df_tumor = dfa
-            else:
-                df_tumor = df_tumor.merge(dfa, on=common_cols, how="outer")
+                dfa = dfa[cols]
 
+                dfa = (
+                    dfa.dropna(subset=['geneid', 'symbol'])
+                    .drop_duplicates(['geneid', 'symbol'])
+                )
+                if dfa.empty:
+                    continue
+
+                i+=1
+                dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
+
+                dfa = dfa[dfa.geneid.isin(common_gene_list)]
+                if dfa.empty:
+                    continue
+                
+                dfa.reset_index(drop=True, inplace=True)
+        
+                if df_tumor.empty:
+                    df_tumor = dfa
+                else:
+                    df_tumor = df_tumor.merge(dfa, on=common_cols, how="outer")
 
         return df_tumor, df_normal
 
@@ -2440,7 +2442,7 @@ class GDC(object):
             print(f"{ipsi}) {psi_id} -{primary_site}", end=" - ")
 
             df_cases, df_subt, _ = self.get_cases_and_subtypes(
-                batch_size=200, do_filter=False, force=False, verbose=verbose
+                batch_size=200, do_filter=True, force=False, verbose=verbose
             )
 
             if df_cases.empty:
