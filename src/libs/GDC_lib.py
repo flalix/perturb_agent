@@ -985,10 +985,10 @@ class GDC(object):
 
     def set_s_case(self, subtype_global: str, tumor_class: str, subtype_tissue: str):
 
-        self.s_case = f"{self.psi_disease_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
+        self.s_case = f"{self.psi_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
 
         if len(self.s_case) > 180:
-            self.s_case = f"{self.psi_disease_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
+            self.s_case = f"{self.psi_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
 
         self.s_case = title_replace(self.s_case)
 
@@ -1734,8 +1734,8 @@ class GDC(object):
         df_tumor = pd.DataFrame()
         df_normal = pd.DataFrame()
 
-        cols = ["geneid", "symbol", "counts"]
-        common_cols = ["geneid", "symbol"]        
+        cols = ["geneid", "symbol", "biotype", "counts"]
+        common_cols = ["geneid", "symbol", "biotype"]        
 
         # ----------- normal tissue ----------------
         common_gene_list = self.get_common_gene_list(dic_normal, list(isel_normal_list), min_fraction=0.75)
@@ -1757,6 +1757,7 @@ class GDC(object):
                 dfa = dfa.rename(columns={"gene_type": "biotype"})
 
             dfa = dfa[cols]
+
             dfa = (
                 dfa.dropna(subset=['geneid', 'symbol'])
                 .drop_duplicates(['geneid', 'symbol'])
@@ -3628,8 +3629,8 @@ class GDC(object):
 
         cols = list(df_gtex_ctrl.columns)[2:]
 
-        df_gtex_ctrl["biotype"] = "protein_coding"
-        df_gtex_ctrl = df_gtex_ctrl[self.GENE_COLS + cols]
+        # df_gtex_ctrl["biotype"] = "protein_coding"
+        # _gtex_ctrl = df_gtex_ctrl[self.GENE_COLS + cols]
 
         _ = [
             df_gtex_ctrl.rename(columns={cols[i]: f"normal_{i + 1}"}, inplace=True)
@@ -3641,6 +3642,12 @@ class GDC(object):
 
     def get_tumor_normal_tables(self, imax_tumor: int = 200, imax_normal: int = 100, force: bool = False,
                                 verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+        '''
+            df_tumor, df_normal, df_gtex_ctrl = calc_file_expression_tumor_normal_gtex()
+
+                dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
+                df_tumor, df_normal = self.prepare_normal_tumor_tables()
+        '''
         
         df_tumor, df_normal, df_gtex_ctrl = \
             self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, force=force, verbose=verbose)
@@ -3728,16 +3735,17 @@ class GDC(object):
         cols = df_lfc.columns.to_list()
 
         commons =  ["geneid"]
-        tum_cols = ["geneid", "symbol"]
-
-        self.df_lfc5 = df_lfc.copy()
-        self.df_tumor = df_tumor
+        tum_cols = ["geneid", "symbol", "biotype"]
 
         # biotype can be loose: biotypes come from df_tumor
         df_lfc = pd.merge(df_lfc, df_tumor[tum_cols], on=commons, how="inner")
 
-        cols2 = ["geneid", "symbol"] + cols[1:]
+        cols2 = ["geneid", "symbol", "biotype"] + cols[1:]
         df_lfc = df_lfc[cols2]
+
+        # print("\n-------------------------")
+        # print(df_lfc.head(3))
+        # print("------------------------\n\n")
 
         df_lfc = df_lfc.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "pvalue": "pval", "padj": "fdr"})
 
@@ -3757,6 +3765,9 @@ class GDC(object):
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
+
+        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
+        self.cdegs = cdegs
 
         self.set_primary_site(psi_id=psi_id)
 
@@ -3800,8 +3811,6 @@ class GDC(object):
             msg = "Error: Normal samples and GTEx control do not have enough samples."
             return pd.DataFrame(), pd.DataFrame(), "", msg
 
-        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
-
         df_normal = cdegs.deduplicate_by_max_reads(df_normal)
 
         if df_normal.empty or df_normal.shape[1] < min_N_cols:
@@ -3842,7 +3851,6 @@ class GDC(object):
         print(">>> columns:", df_lfc.columns.tolist())
 
         df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
-
 
         df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
         df_degs.reset_index(drop=True, inplace=True)

@@ -17,11 +17,14 @@ from typing import Literal
 from numpy.testing import verbose
 import pandas as pd
 
+from libs.Basic import pdwritecsv
+
 
 class CALC_DEGS(object):
     def __init__(self, root_src: Path, run_conda: bool = False):
 
-        self.COMMONS = ["geneid", "symbol"]
+        self.COMMONS = ["geneid", "symbol", "biotype"]
+        self.COMMONS_NORMAL = ["geneid", "symbol"]
 
         self.root_src = Path(root_src)
         self.libs_dir = root_src / "libs"
@@ -70,8 +73,8 @@ class CALC_DEGS(object):
     def _find_count_columns(self, df: pd.DataFrame) -> list[str]:
         return [c for c in df.columns if c not in self.COMMONS]
 
-    def _validate_expression_df(self, df: pd.DataFrame, name: str) -> None:
-        missing = [c for c in self.COMMONS if c not in df.columns]
+    def _validate_expression_df(self, df: pd.DataFrame, name: str, required_columns: list[str]) -> None:
+        missing = [c for c in required_columns if c not in df.columns]
         if missing:
             raise ValueError(f"{name} is missing required columns: {missing}")
 
@@ -104,8 +107,8 @@ class CALC_DEGS(object):
         how : "inner" or "outer"
             Merge strategy on genes. Usually "inner" is safer.
         """
-        self._validate_expression_df(df_tumor, "df_tumor")
-        self._validate_expression_df(df_normal, "df_normal")
+        self._validate_expression_df(df_tumor, "df_tumor", self.COMMONS)
+        self._validate_expression_df(df_normal, "df_normal", self.COMMONS_NORMAL)
 
         df_turmor_rev = self._rename_count_columns(df_tumor, "tumor")
         df_normal_rev = self._rename_count_columns(df_normal, "normal")
@@ -195,6 +198,9 @@ class CALC_DEGS(object):
             df_normal=df_normal,
             how=merge_how
         )
+
+        _ = pdwritecsv(df_counts, "counts.tsv")
+        _ = pdwritecsv(df_meta, "meta.tsv")
 
         tmpdir_obj = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_obj.name)

@@ -35,11 +35,11 @@ from markdown_pdf import Section
 from markdown_pdf import MarkdownPdf
 
 
-from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt, dumpdic, loaddic
-from libs.gene_lib import *
-from libs.config_lib import *
+from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt, dumpdic, loaddic, title_replace
+from libs.gene_lib import Gene
+from libs.config_lib import Config
 from libs.stat_lib import *
-from libs.reactome_lib import *
+from libs.reactome_lib import Reactome
 from libs.biomart_lib import *
 
 from libs.graphic_lib import plotly_colors_proteins
@@ -676,7 +676,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print(f"There is no fix duplication method to {self.s_omics}")
 
 		if not filename.exists():
-			_ = self.import_from_GDC(prog_id="TCGA", force=False, verbose=verbose)
+			_ = self.import_from_GDC(force=False, verbose=verbose)
 
 			if not filename.exists():
 				print(f"Error: could not find {filename}")
@@ -8830,8 +8830,16 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		return text
 	
 
-	def import_from_GDC(self, prog_id:str = "TCGA", 
-					    force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+	def import_from_GDC(self, force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+		gdc = GDC(root0=self.root0, root0_data=self.root0_data)
+		self.gdc = gdc
+
+		_ = gdc.get_primary_sites(prog_id=self.prog_id, force=False, verbose=verbose)
+
+		print(">>> psi_id or disease:", self.disease)
+
+		gdc.set_primary_site(psi_id=self.psi_id, verbose=False)
 
 		fname_lfc, _, _ = self.set_lfc_names()
 		fname_lfc_all = fname_lfc.replace('.tsv', '_all_transcripts.tsv')
@@ -8843,15 +8851,6 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			df_lfc     = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
 			df_lfc_all = pdreadcsv(fname_lfc_all, self.root_lfc, verbose=verbose)
 			return df_lfc, df_lfc_all
-
-		gdc = GDC(root0=self.root0, root0_data=self.root0_data)
-		self.gdc = gdc
-
-		_ = gdc.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
-
-		print(">>> psi_id or disease:", self.disease)
-
-		gdc.set_primary_site(psi_id=self.psi_id, verbose=False)
 
 		df_lfc_all, msg = gdc.calc_lfc_table(
 			psi_id=self.psi_id,
