@@ -35,7 +35,7 @@ from markdown_pdf import Section
 from markdown_pdf import MarkdownPdf
 
 
-from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt, dumpdic, loaddic, title_replace
+from libs.Basic import pdwritecsv, pdreadcsv, create_dir, all_equal_list, echo_print, read_txt, write_txt, dumpdic, loaddic, title_replace, break_line_per_length
 from libs.gene_lib import Gene
 from libs.config_lib import Config
 from libs.stat_lib import *
@@ -676,7 +676,7 @@ th {background-color: #f2f2f2; font-weight: bold;}
 				print(f"There is no fix duplication method to {self.s_omics}")
 
 		if not filename.exists():
-			_ = self.import_from_GDC(force=False, verbose=verbose)
+			_, _ = self.import_from_GDC(force=False, verbose=verbose)
 
 			if not filename.exists():
 				print(f"Error: could not find {filename}")
