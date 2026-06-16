@@ -96,7 +96,7 @@ ctx = load_project_context(
 
 colors = ctx.colors
 
-gdc = GDC(root0=ROOT0, root0_data=ROOT_DATA)
+gdc = GDC(root0=ROOT0, root0_data=ROOT_DATA, memory_restriction=True)
 
 ROOT_OWL = ROOT_COLAB / 'owl'
 ROOT_REACTOME = ROOT_COLAB / 'reactome'

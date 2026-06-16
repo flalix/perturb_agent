@@ -8835,7 +8835,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		gdc = GDC(root0=self.root0, root0_data=self.root0_data)
 		self.gdc = gdc
 
-		_ = gdc.get_primary_sites(prog_id=self.prog_id, force=False, verbose=verbose)
+		_ = gdc.get_primary_sites(prog_id=self.prog_id, verbose=verbose)
 
 		print(">>> psi_id or disease:", self.disease)
 

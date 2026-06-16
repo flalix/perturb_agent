@@ -50,7 +50,7 @@ from project_context_GDC import load_project_context
 
 
 class GDC(object):
-    def __init__(self, root0: Path, root0_data: Path, memory_restriction: bool=True):
+    def __init__(self, root0: Path, root0_data: Path, memory_restriction: bool=False):
 
         self.memory_restriction = memory_restriction
 
@@ -250,9 +250,22 @@ class GDC(object):
 
         self.clean_gdc_files()
 
-    def get_primary_sites(
-        self, prog_id: str, force: bool = False, verbose: bool = False
-    ) -> pd.DataFrame:
+    def open_primary_sites_cbio(self, verbose: bool = False) -> pd.DataFrame:
+
+        fname = self.fname_prim_site_cbio
+        filename = self.root0_data / fname
+
+        if not filename.exists():
+            df_psi = pd.DataFrame()
+            print("Could not find cbio primary site table")
+        else:
+            df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
+
+        self.df_psi = df_psi
+        return df_psi
+
+
+    def get_primary_sites(self, prog_id: str, verbose: bool = False) -> pd.DataFrame:
         '''
         A primary site (like TCGA-BRCA) is a 'disease'
         root_disease = root0_data / psi_id
@@ -270,7 +283,7 @@ class GDC(object):
 
         filename = self.root0_data / fname
 
-        if filename.exists() and not force:
+        if filename.exists():
             df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
 
             if self.is_tcga:
@@ -378,17 +391,27 @@ class GDC(object):
         self.fname_subt, self.filename_subt = '', Path()
 
         if isinstance(psi_id, str) and psi_id != "":
-            dfa = self.df_psi[self.df_psi.psi_id == psi_id]
+            if self.is_tcga:
+                dfa = self.df_psi[(self.df_psi.psi_id == psi_id)]
+            else:
+                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
             if dfa.empty:
                 print("No primary site information found for:", psi_id)
                 return False
         elif isinstance(primary_site, str) and primary_site != "":
-            dfa = self.df_psi[self.df_psi.primary_site == primary_site]
+            if self.is_tcga:
+                dfa = self.df_psi[(self.df_psi.primary_site == primary_site)]
+            else:
+                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.primary_site == primary_site)]
+
             if dfa.empty:
                 print("No primary site information found for:", primary_site)
                 return False
         elif isinstance(disease_id, str) and disease_id != "":
-            dfa = self.df_psi[self.df_psi.disease_id == disease_id]
+            if self.is_tcga:
+                dfa = self.df_psi[(self.df_psi.disease_id == disease_id)]
+            else:
+                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == disease_id)]
             if dfa.empty:
                 print("No primary site information found for:", disease_id)
                 return False
@@ -434,40 +457,19 @@ class GDC(object):
         
             primary_site = ''
             if len(df2) == 1:
-                row = df2.iloc[0]
-                self.psi_id = row.psi_id
-                self.primary_site = row.primary_site
-                self.disease_id = row.disease_id
-
-                self.disease_type = row.disease_context
-                self.disease_name = row.primary_site
-                self.disease_context = row.disease_context
-                self.cbioportal_study_id = row.cbioportal_study_id
-
                 if verbose:
                     print("Only one entry found for {self.psi_disease_id}.")
                     print(f"\tpsi_id={self.psi_disease_id}, primary_site={self.primary_site}")
             else:
-                print("Multiple entries found for the specified parameters.")
+                if verbose:
+                    print("Multiple entries found for the specified parameters.")
 
                 for _, row in df2.iterrows():
-                    self.psi_id = row.psi_id
-                    self.primary_site = row.primary_site
-                    
-                    self.disease_id = row.disease_id
-                    self.disease_type = row.disease_context
-                    self.disease_name = row.primary_site
-                    self.disease_context = row.disease_context
-                    self.cbioportal_study_id = row.cbioportal_study_id
-
                     if verbose:
-                        print(f"\tpsi_id={self.psi_disease_id}, disease_id={self.disease_id}, primary_site={self.primary_site}")
+                        print(f"\tpsi_id={row.psi_disease_id}, disease_id={row.disease_id}, primary_site={row.primary_site}")
 
         #------------- create dirs ------------------
-        if self.is_tcga:
-            self.root_disease = create_dir(self.root_project, self.psi_id)
-        else:
-            self.root_disease = create_dir(self.root_project, self.disease_id)
+        self.root_disease = create_dir(self.root_project, self.psi_id)
 
         self.root_samples   = create_dir(self.root_disease, 'samples')
         self.root_lfc       = create_dir(self.root_disease, 'lfc')
@@ -1424,6 +1426,8 @@ class GDC(object):
         filename_gtex = self.root_lfc / fname_exp_gtex
 
         if filename_tumor.exists() and filename_normal.exists() and filename_gtex.exists() and not force:
+            print(">>> calc_file_expression_tumor_normal_gtex - found existing files")
+            
             df_tumor = pdreadcsv(fname_exp_tumor, self.root_lfc, verbose=verbose)
             df_normal = pdreadcsv(fname_exp_normal, self.root_lfc, verbose=verbose)
             df_gtex_ctrl = pdreadcsv(fname_exp_gtex, self.root_lfc, verbose=verbose)
@@ -1433,6 +1437,9 @@ class GDC(object):
             self.df_gtex_ctrl = df_gtex_ctrl
 
             return df_tumor, df_normal, df_gtex_ctrl
+
+
+        print(">>> calc_file_expression_tumor_normal_gtex - calculating expression data")
 
         dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
         print(f"Retrieved expression data for {self.psi_id} dic_tumor {len(dic_tumor)}, dic_normal {len(dic_normal)}")
@@ -1719,6 +1726,8 @@ class GDC(object):
         output:
                 df_tumor and df_normal tables
         """
+
+        print(">> prepare_normal_tumor_tables()")
 
         df_tumor = pd.DataFrame()
         df_normal = pd.DataFrame()
@@ -2545,7 +2554,7 @@ class GDC(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
         df_cases, df_all_samples, df_all_mut, all_barcode_list = self.get_filtered_tables_subtypes(
-            sample_type_term=sample_type_term, do_filter=True, verbose=verbose
+            sample_type_term=sample_type_term, do_filter=False, verbose=verbose
         )
 
         if verbose:
