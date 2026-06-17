@@ -64,7 +64,7 @@ class GDC(object):
         self.prog_id, self.psi_id = "", ""
         self.s_case = ''
         self.primary_site = ''
-        self.disease_id, self.psi_disease_id = '', ''
+        self.disease_id, self.psi_or_gdc_project_id = '', ''
         self.disease_type = ''
         self.disease_name = ''
 
@@ -276,34 +276,22 @@ class GDC(object):
 
         self.set_program(prog_id)
 
-        if self.is_tcga:
-            fname = self.fname_prim_site_tcga
-        else:
-            fname = self.fname_prim_site_cbio
-
+        fname = self.fname_prim_site_cbio
         filename = self.root0_data / fname
 
         if filename.exists():
             df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
 
-            if self.is_tcga:
-                required_cols = ["primary_site", "psi_id"]
-            else:
-                required_cols = ["prog_id", "gdc_project_id", "disease_id", "psi_id"]
-                
+            required_cols = ["prog_id", "gdc_project_id", "disease_id", "psi_id"]
+
             df_psi = df_psi.dropna(subset=required_cols).copy()
 
             for col in required_cols:
                 df_psi[col] = df_psi[col].astype(str).str.strip()
 
             df_psi = df_psi[ (df_psi[required_cols] != "").all(axis=1) ].copy()
-
+            df_psi = df_psi[df_psi.prog_id == prog_id].copy()
             df_psi.reset_index(drop=True, inplace=True)
-            self.df_psi = df_psi
-
-            if prog_id != 'TCGA':
-                df_psi = df_psi[df_psi.prog_id == prog_id].copy()
-                df_psi.reset_index(drop=True, inplace=True)
 
             self.df_psi = df_psi
 
@@ -391,27 +379,17 @@ class GDC(object):
         self.fname_subt, self.filename_subt = '', Path()
 
         if isinstance(psi_id, str) and psi_id != "":
-            if self.is_tcga:
-                dfa = self.df_psi[(self.df_psi.psi_id == psi_id)]
-            else:
-                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
+            dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
             if dfa.empty:
                 print("No primary site information found for:", psi_id)
                 return False
         elif isinstance(primary_site, str) and primary_site != "":
-            if self.is_tcga:
-                dfa = self.df_psi[(self.df_psi.primary_site == primary_site)]
-            else:
-                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.primary_site == primary_site)]
-
+            dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.primary_site == primary_site)]
             if dfa.empty:
                 print("No primary site information found for:", primary_site)
                 return False
         elif isinstance(disease_id, str) and disease_id != "":
-            if self.is_tcga:
-                dfa = self.df_psi[(self.df_psi.disease_id == disease_id)]
-            else:
-                dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == disease_id)]
+            dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == disease_id)]
             if dfa.empty:
                 print("No primary site information found for:", disease_id)
                 return False
@@ -422,51 +400,28 @@ class GDC(object):
         row = dfa.iloc[0]
         self.psi_id = row.psi_id
         self.primary_site = row.primary_site
+        self.psi_or_gdc_project_id = row.psi_id if self.is_tcga else row.gdc_project_id + ' - ' + row.disease_id
+        self.disease_id = row.disease_id
+        self.gdc_project_id = row.gdc_project_id
+        self.cbioportal_study_id = row.cbioportal_study_id
 
-        #---------------------
-        if self.is_tcga:
-            s_name = 'name'
-            self.psi_disease_id = row.psi_id
-            
-            self.disease_id = row.psi_id
-            self.gdc_project_id = row.psi_id
-            self.disease_type = row.disease_type
-            self.disease_name = row['name']
-            self.disease_context = row['name']
-
-            study_id = row.psi_id
-            mat = study_id.lower().split("-")
-            # cBioPortal disease - tcga
-            study_id = mat[1] + "_" + mat[0]
-
-            self.study_id = self.change_cbioportal_studyid(study_id)
-            self.cbioportal_study_id = None
+        df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
+        if df2.empty:
+            print("Error: No data found for the specified parameters.")
+            return False
+    
+        primary_site = ''
+        if len(df2) == 1:
+            if verbose:
+                print("Only one entry found for {self.psi_or_gdc_project_id}.")
+                print(f"\tpsi_id={self.psi_or_gdc_project_id}, primary_site={self.primary_site}")
         else:
-            s_name = 'context'   
-            self.psi_disease_id = row.disease_id
+            if verbose:
+                print("Multiple entries found for the specified parameters.")
 
-            self.disease_id = row.disease_id
-            self.gdc_project_id = row.gdc_project_id
-
-            # disease_id example: 'PAAD'
-            df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
-
-            if df2.empty:
-                print("Error: No data found for the specified parameters.")
-                return False
-        
-            primary_site = ''
-            if len(df2) == 1:
+            for _, row in df2.iterrows():
                 if verbose:
-                    print("Only one entry found for {self.psi_disease_id}.")
-                    print(f"\tpsi_id={self.psi_disease_id}, primary_site={self.primary_site}")
-            else:
-                if verbose:
-                    print("Multiple entries found for the specified parameters.")
-
-                for _, row in df2.iterrows():
-                    if verbose:
-                        print(f"\tpsi_id={row.psi_disease_id}, disease_id={row.disease_id}, primary_site={row.primary_site}")
+                    print(f"\tpsi_id={row.psi_or_gdc_project_id}, disease_id={row.disease_id}, primary_site={row.primary_site}")
 
         #------------- create dirs ------------------
         self.root_disease = create_dir(self.root_project, self.psi_id)
@@ -780,7 +735,7 @@ class GDC(object):
                 response = res.json()
 
                 if "data" not in response.keys():
-                    print(f"No data found while searching for '{self.psi_disease_id}'")
+                    print(f"No data found while searching for '{self.psi_or_gdc_project_id}'")
                     print(">>> response", response)
                     return self.df_cases, self.df_subt, self.df_prof
 
@@ -798,7 +753,7 @@ class GDC(object):
             print("\n")
 
             if all_hits == []:
-                print(f"No subtypes found for {self.psi_disease_id} ")
+                print(f"No subtypes found for {self.psi_or_gdc_project_id} - filter value: {self.gdc_project_id}")
                 return self.df_cases, self.df_subt, self.df_prof
 
             # ------------ lost data? ------------------
@@ -852,7 +807,7 @@ class GDC(object):
             _ = pdwritecsv(df_subt, self.fname_subt, self.root_disease, verbose=verbose)
 
         except Exception as e:
-            print(f"Error for searching diags for '{self.psi_disease_id}'. error: {e}")
+            print(f"Error for searching diags for '{self.psi_or_gdc_project_id}'. error: {e}")
             self.df_cases = df_cases
             self.df_subt = pd.DataFrame()
             self.df_prof = pd.DataFrame()
@@ -986,11 +941,19 @@ class GDC(object):
 
     def set_s_case(self, subtype_global: str, tumor_class: str, subtype_tissue: str):
 
-        self.s_case = f"{self.psi_id}_{self.primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_subtype_tissue_{subtype_tissue}"
+        primary_site = self.primary_site[:40].strip()
+        primary_site = primary_site.replace("_","-")
 
-        if len(self.s_case) > 180:
-            self.s_case = f"{self.psi_id}_{self.primary_site[:40]}_subtype_{subtype_global[:40]}_tumor_{tumor_class[:40]}_tissue_{subtype_tissue[:40]}"
+        subtype_global = subtype_global[:40].strip()
+        subtype_global = subtype_global.replace("_","-")
 
+        tumor_class = tumor_class[:40].strip()
+        tumor_class = tumor_class.replace("_","-")
+
+        subtype_tissue = subtype_tissue[:40].strip()
+        subtype_tissue = subtype_tissue.replace("_","-")
+
+        self.s_case = f"{self.psi_or_gdc_project_id}_{primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_tissue_{subtype_tissue}"
         self.s_case = title_replace(self.s_case)
 
     def get_samples_for_subtypes(
@@ -1134,7 +1097,7 @@ class GDC(object):
                     response = res.json()
 
                     if "data" not in response.keys():
-                        print(f"No data found while searching for '{self.psi_disease_id}' cases {case_id_list}")
+                        print(f"No data found while searching for '{self.psi_or_gdc_project_id}' cases {case_id_list}")
                         print(">>> response", response)
                         self.df_samples = pd.DataFrame()
                         return self.df_samples
@@ -1153,7 +1116,7 @@ class GDC(object):
                 # print("\n")
 
                 if all_hits == []:
-                    print(f"No files were found for {self.psi_disease_id} cases {case_id_list}")
+                    print(f"No files were found for {self.psi_or_gdc_project_id} cases {case_id_list}")
                     self.df_samples = pd.DataFrame()
                     return self.df_samples
 
@@ -1334,7 +1297,7 @@ class GDC(object):
                
 
         except Exception as e:
-            s_error = f"Download error for '{self.psi_disease_id}', '{file_type}', case {case_id} and {file_id}: {e}"
+            s_error = f"Download error for '{self.psi_or_gdc_project_id}', '{file_type}', case {case_id} and {file_id}: {e}"
             if verbose:
                 print(s_error)
 
@@ -1447,7 +1410,7 @@ class GDC(object):
         self.dic_normal = dic_normal
 
         if len(dic_tumor) == 0 and len(dic_normal) == 0:
-            print(f"Insufficient expression data for {self.psi_disease_id}.")
+            print(f"Insufficient expression data for {self.psi_or_gdc_project_id}.")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         df_tumor, df_normal = self.prepare_normal_tumor_tables(
@@ -1490,12 +1453,12 @@ class GDC(object):
 
         if df_tumor_samples.empty:
             if verbose:
-                print(f"No tumor expression data found for {self.psi_disease_id}.")
+                print(f"No tumor expression data found for {self.psi_or_gdc_project_id}.")
             return {}, {}
 
         if df_normal_samples.empty:
             if verbose:
-                print(f"No normal expression data found for {self.psi_disease_id}.")
+                print(f"No normal expression data found for {self.psi_or_gdc_project_id}.")
             return {}, {}
 
         self.file_type_list = np.unique(df_tumor_samples.data_type)
@@ -1516,7 +1479,7 @@ class GDC(object):
             )
 
         if len(dff_tumor) == 0 and len(dff_normal) == 0:
-            print(f"No valid expression data found for {self.psi_disease_id}.")
+            print(f"No valid expression data found for {self.psi_or_gdc_project_id}.")
             return {}, {}
 
         print("Downloading normal files:", end=" ")
@@ -1863,7 +1826,8 @@ class GDC(object):
             if requests.get(url, timeout=timeout).ok:
                 return mp
 
-        raise ValueError(f"\n\n------------ No mutation profile found for {study_id} ------------- \n\n")
+        print(f"\n\n------------ No mutation profile found for {study_id} ------------- \n")
+        return ''
 
     def get_cBioportal_mutations_from_samples(
         self,
@@ -1903,6 +1867,9 @@ class GDC(object):
 
         # molecular_profile_id = f"{study_id}_mutations"
         molecular_profile_id = self.resolve_mutation_profile(study_id)
+
+        if molecular_profile_id == '':
+            return pd.DataFrame()
 
         http = session or requests.Session()
 
@@ -2037,64 +2004,14 @@ class GDC(object):
         ]
 
         df = df[order_cols]
-        # self.df = df
 
         return df
 
-    def change_cbioportal_studyid(self, study_id: str) -> str:
-        """
-        Normalize TCGA study IDs to cBioPortal PanCancer Atlas studies.
-
-        In cBioPortal:
-                COAD = colon adenocarcinoma
-                READ = rectum adenocarcinoma
-
-                👉 In PanCancer Atlas they are merged into one cohort:
-        """
-
-        dic = {
-            "acc_tcga": "acc_tcga_pan_can_atlas_2018",
-            "luad_tcga": "luad_tcga_pan_can_atlas_2018",
-            "lusc_tcga": "lusc_tcga_pan_can_atlas_2018",
-            "coad_tcga": "coadread_tcga_pan_can_atlas_2018",
-            "read_tcga": "coadread_tcga_pan_can_atlas_2018",
-            "brca_tcga": "brca_tcga_pan_can_atlas_2018",
-            "gbm_tcga": "gbm_tcga_pan_can_atlas_2018",
-            "ov_tcga": "ov_tcga_pan_can_atlas_2018",
-            "skcm_tcga": "skcm_tcga_pan_can_atlas_2018",
-            "ucec_tcga": "ucec_tcga_pan_can_atlas_2018",
-            "stad_tcga": "stad_tcga_pan_can_atlas_2018",
-            "blca_tcga": "blca_tcga_pan_can_atlas_2018",
-            "hnsc_tcga": "hnsc_tcga_pan_can_atlas_2018",
-            "kirc_tcga": "kirc_tcga_pan_can_atlas_2018",
-            "kirp_tcga": "kirp_tcga_pan_can_atlas_2018",
-            "lihc_tcga": "lihc_tcga_pan_can_atlas_2018",
-            "prad_tcga": "prad_tcga_pan_can_atlas_2018",
-            "thca_tcga": "thca_tcga_pan_can_atlas_2018",
-            "esca_tcga": "esca_tcga_pan_can_atlas_2018",
-            "paad_tcga": "paad_tcga_pan_can_atlas_2018",
-            "kich_tcga": "kich_tcga_pan_can_atlas_2018",  # kidney chromophobe
-            "sarc_tcga": "sarc_tcga_pan_can_atlas_2018",
-            "pcpg_tcga": "pcpg_tcga_pan_can_atlas_2018",
-            "tgct_tcga": "tgct_tcga_pan_can_atlas_2018",
-            "thym_tcga": "thym_tcga_pan_can_atlas_2018",
-            "meso_tcga": "meso_tcga_pan_can_atlas_2018",
-            "ucs_tcga": "ucs_tcga_pan_can_atlas_2018",
-            "uvm_tcga": "uvm_tcga_pan_can_atlas_2018",
-            "chol_tcga": "chol_tcga_pan_can_atlas_2018",
-            "dlbc_tcga": "dlbc_tcga_pan_can_atlas_2018",
-        }
-
-        return dic.get(study_id, study_id)
 
     def set_mutation_filenames(self):
 
-        if self.is_tcga:
-            self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
-            self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
-        else:
-            self.fname_mut_anal = self.fname_mut_anal0 % (self.disease_id + '_' + self.s_case)
-            self.fname_mut_summ = self.fname_mut_summ0 % (self.disease_id + '_' + self.s_case)
+        self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
+        self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
 
         self.fname_mut_anal = title_replace(self.fname_mut_anal)
         self.filename_mutanal = self.root_mutations / self.fname_mut_anal
@@ -2133,7 +2050,6 @@ class GDC(object):
 
         if self.is_tcga:
             # see set_primary_site()
-            study_id = self.study_id
             df2 = pd.DataFrame()
         else:
             df2 = self.df_psi[ (self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
@@ -2141,10 +2057,7 @@ class GDC(object):
             if df2.empty:
                 print(f"Error: No data found for {self.prog_id} an d{self.disease_id}.")
                 return pd.DataFrame(), pd.DataFrame()
-            
-            #-------- study_id to be defined --------------
-            study_id = ''
-            
+                       
         self.set_mutation_filenames()
 
         if self.filename_mutanal.exists() and self.filename_mutsumm.exists() and not force:
@@ -2163,7 +2076,7 @@ class GDC(object):
 
         if self.is_tcga:
             dff, df_mut = self.get_dff_mutation(
-                study_id=study_id,
+                study_id= self.cbioportal_study_id,
                 barcode_sample_list=barcode_sample_list,
                 session=session,
                 timeout=timeout
@@ -2187,6 +2100,12 @@ class GDC(object):
 
             df_mut = pd.concat(df_list_mut, ignore_index=True)
             dff    = pd.concat(df_list, ignore_index=True)
+
+        dff = dff.drop_duplicates()
+        dff.reset_index(drop=True, inplace=True)
+
+        df_mut = df_mut.drop_duplicates()
+        df_mut.reset_index(drop=True, inplace=True)
 
         self.dff = dff
         self.df_mut = df_mut
@@ -2409,7 +2328,7 @@ class GDC(object):
             output: df_all_cases, df_all_samples, df_all_mutations
         """
 
-        df_psi = self.get_primary_sites(prog_id=prog_id, force=False, verbose=verbose)
+        df_psi = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
 
         df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
@@ -3016,7 +2935,7 @@ class GDC(object):
         )
 
         stri = "Clustering using HDBSCAN mutation profiles"
-        stri += f"\nPrimary Site: {self.psi_disease_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
+        stri += f"\nPrimary Site: {self.psi_or_gdc_project_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
         stri += f"\nmin_cluster_size={min_cluster_size} and min_samples={min_samples}"
         ax.set_title(stri)
         ax.set_xlabel("embedding1")
@@ -3374,7 +3293,7 @@ class GDC(object):
         dic = self.SUBTYPE_GENES.get(self.psi_id, {})
 
         if dic == {}:
-            print(f"No subtype genes found for PSI ID: {self.psi_disease_id}")
+            print(f"No subtype genes found for PSI ID: {self.psi_or_gdc_project_id}")
             return dfempty, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
 
         lista = []
@@ -3665,7 +3584,7 @@ class GDC(object):
             self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, force=force, verbose=verbose)
 
         if df_tumor.empty:
-            msg = f"No tumor expression data found for {self.psi_disease_id}"
+            msg = f"No tumor expression data found for {self.psi_or_gdc_project_id}"
             if verbose:
                 print(msg)
             return pd.DataFrame(),pd.DataFrame(), msg
@@ -3787,7 +3706,7 @@ class GDC(object):
 
         if df_tumor.empty:
             if verbose:
-                print(f"No tumor expression data found for {self.psi_disease_id}")
+                print(f"No tumor expression data found for {self.psi_or_gdc_project_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
         fname_degs = self.fname_degs % self.psi_id
@@ -4282,7 +4201,7 @@ class GDC(object):
             dic2['ngenes'] = len(df2)
             dic2['genes'] = df2.symbol.to_list()
 
-            fname = f"cluster_{ncluster}_{self.psi_disease_id}_signature_genes.txt"
+            fname = f"cluster_{ncluster}_{self.psi_or_gdc_project_id}_signature_genes.txt"
             write_txt(s_genes, fname, self.root_lfc)
 
             if verbose:
@@ -4290,7 +4209,7 @@ class GDC(object):
 
         df = pd.DataFrame(dic).T
 
-        fname = f"clusters_signatures_for_{self.psi_disease_id}.txt"
+        fname = f"clusters_signatures_for_{self.psi_or_gdc_project_id}.txt"
         _ = pdwritecsv(df, fname, self.root_lfc, verbose=verbose)
 
         return df
@@ -4492,7 +4411,7 @@ class GDC(object):
         self.gtex_id = gtex_id
 
         if gtex_id == "":
-            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.psi_disease_id}'")
+            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.psi_or_gdc_project_id}'")
             return pd.DataFrame(), pd.DataFrame()
 
         # prepare metadata
