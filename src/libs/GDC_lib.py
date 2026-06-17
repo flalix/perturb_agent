@@ -2347,9 +2347,9 @@ class GDC(object):
             and os.path.exists(filename_mutations)
             and not force
         ):
-            df_all_cases = pdreadcsv(fname_all_cases, self.root_summary)
-            df_all_samples = pdreadcsv(fname_all_samples, self.root_summary)
-            df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary)
+            df_all_cases = pdreadcsv(fname_all_cases, self.root_summary, verbose=verbose)
+            df_all_samples = pdreadcsv(fname_all_samples, self.root_summary, verbose=verbose)
+            df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary, verbose=verbose)
 
             self.df_all_cases = df_all_cases
             self.df_all_samples = df_all_samples
@@ -2369,16 +2369,14 @@ class GDC(object):
 
             print(f"{ipsi}) {psi_id} -{primary_site}", end=" - ")
 
-            df_cases, df_subt, _ = self.get_cases_and_subtypes(
-                batch_size=200, do_filter=True, force=False, verbose=verbose
-            )
+            df_cases, df_subt, _ = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
 
             if df_cases.empty:
-                print("No cases found for PSI_ID:", psi_id)
+                if verbose: print("No cases found for PSI_ID:", psi_id)
                 continue
 
             if df_subt.empty:
-                print("No df_subt found for PSI_ID:", psi_id)
+                if verbose: print("No df_subt found for PSI_ID:", psi_id)
                 continue
 
             df_list_cases.append(df_cases)
@@ -2399,18 +2397,16 @@ class GDC(object):
                 print(f"{isubt}) {self.s_case}")
 
                 if df_samples.empty:
-                    if verbose:
-                        print(
-                            f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}"
-                        )
+                    if verbose: print(f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
+                    continue
+
+                if not isinstance(df_samples, pd.DataFrame):
+                    if verbose: print(f"df_samples is not a DataFrame for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
                     continue
 
                 df_list_samples.append(df_samples)
 
-                df2 = df_samples[
-                    ~df_samples.sample_type.str.contains("Blood", case=False, na=False)
-                ]
-
+                df2 = df_samples[~df_samples.sample_type.str.contains("Blood", case=False, na=False)]
                 if df2.empty:
                     print("No samples having non-blood types for PSI_ID:", psi_id)
                     continue
@@ -2426,14 +2422,14 @@ class GDC(object):
                 )
 
                 if dff.empty:
-                    if verbose:
-                        print("Could not find mutations for :", self.s_case)
+                    if verbose: print("Could not find mutations for :", self.s_case)
                     continue
 
                 df_list_mutations.append(dff)
 
         if len(df_list_cases) > 0:
             df_all_cases = pd.concat(df_list_cases, ignore_index=True)
+            self.df_all_cases = df_all_cases
             df_all_cases = df_all_cases.drop_duplicates()
             df_all_cases = df_all_cases.reset_index(drop=True)
         else:
@@ -2441,6 +2437,7 @@ class GDC(object):
 
         if len(df_list_samples) > 0:
             df_all_samples = pd.concat(df_list_samples, ignore_index=True)
+            self.df_all_samples = df_all_samples
             df_all_samples = df_all_samples.drop_duplicates()
             df_all_samples = df_all_samples.reset_index(drop=True)
         else:
@@ -2448,17 +2445,18 @@ class GDC(object):
 
         if len(df_list_mutations) > 0:
             df_all_mutations = pd.concat(df_list_mutations, ignore_index=True)
+            self.df_all_mutations = df_all_mutations
             df_all_mutations = df_all_mutations.drop_duplicates()
             df_all_mutations = df_all_mutations.reset_index(drop=True)
         else:
             df_all_mutations = pd.DataFrame()
 
         if not df_all_cases.empty:
-            _ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary)
+            _ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary, verbose=verbose)
         if not df_all_samples.empty:
-            _ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary)
+            _ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary, verbose=verbose)
         if not df_all_mutations.empty:
-                _ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary)
+                _ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary, verbose=verbose)
 
         self.df_all_cases = df_all_cases
         self.df_all_samples = df_all_samples
@@ -2546,7 +2544,8 @@ class GDC(object):
             filename = self.root_samples / fname
 
             if not filename.exists():
-                print("Error: could not find samples file:", filename)
+                if verbose:
+                    print("Error: could not find samples file:", filename)
                 continue
 
             df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
@@ -2574,8 +2573,7 @@ class GDC(object):
             if os.path.exists(self.filename_mutsumm):
                 df_mut = pdreadcsv(self.fname_mut_anal, self.root_mutations, verbose=verbose)
             else:
-                if verbose:
-                    print("No mutation analysis file found for:", self.s_case)
+                if verbose: print("No mutation analysis file found for:", self.s_case)
                 df_mut = pd.DataFrame()
 
             df_list_samples.append(df_samples)
