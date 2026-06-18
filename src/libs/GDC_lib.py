@@ -119,10 +119,10 @@ class GDC(object):
         self.fname_all_samples = "%s_summ_samples.tsv"
         self.fname_all_mutations = "%s_summ_mutations.tsv"
 
+        self.fname_lfc_ori = "lfc_ori_%s.tsv"
         self.fname_lfc = "lfc_%s.tsv"
-        self.fname_degs = "degs_%s.tsv"
         self.fname_degs_txt = "degs_%s.txt"
-        self.fname_sample_txt = "samples_msg_%s.txt"
+        self.fname_msg = "message_%s.txt"
 
         
         ctx = load_project_context( )
@@ -1389,7 +1389,6 @@ class GDC(object):
         filename_gtex = self.root_lfc / fname_exp_gtex
 
         if filename_tumor.exists() and filename_normal.exists() and filename_gtex.exists() and not force:
-            print(">>> calc_file_expression_tumor_normal_gtex - found existing files")
             
             df_tumor = pdreadcsv(fname_exp_tumor, self.root_lfc, verbose=verbose)
             df_normal = pdreadcsv(fname_exp_normal, self.root_lfc, verbose=verbose)
@@ -1402,10 +1401,9 @@ class GDC(object):
             return df_tumor, df_normal, df_gtex_ctrl
 
 
-        print(">>> calc_file_expression_tumor_normal_gtex - calculating expression data")
-
         dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
-        print(f"Retrieved expression data for {self.psi_id} dic_tumor {len(dic_tumor)}, dic_normal {len(dic_normal)}")
+        if verbose:
+            print(f"Retrieved expression data for {self.psi_id} dic_tumor {len(dic_tumor)}, dic_normal {len(dic_normal)}")
         self.dic_tumor = dic_tumor
         self.dic_normal = dic_normal
 
@@ -3651,7 +3649,7 @@ class GDC(object):
         if df_normal.empty:
             return pd.DataFrame(), msg
 
-        df_lfc = cdegs.run_deg_rscript(
+        df_lfc0 = cdegs.run_deg_rscript(
             df_tumor=df_tumor,
             df_normal=df_normal,
             method=method,
@@ -3661,28 +3659,29 @@ class GDC(object):
             keep_temp=False,
         )
 
-        cols = df_lfc.columns.to_list()
+        cols = df_lfc0.columns.to_list()
 
         commons =  ["geneid"]
         tum_cols = ["geneid", "symbol", "biotype"]
 
         # biotype can be loose: biotypes come from df_tumor
-        df_lfc = pd.merge(df_lfc, df_tumor[tum_cols], on=commons, how="inner")
+        df_lfc0 = pd.merge(df_lfc0, df_tumor[tum_cols], on=commons, how="inner")
 
         cols2 = ["geneid", "symbol", "biotype"] + cols[1:]
-        df_lfc = df_lfc[cols2]
+        df_lfc0 = df_lfc0[cols2]
 
         # print("\n-------------------------")
-        # print(df_lfc.head(3))
+        # print(df_lfc0.head(3))
         # print("------------------------\n\n")
 
-        df_lfc = df_lfc.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "pvalue": "pval", "padj": "fdr"})
+        df_lfc0 = df_lfc0.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "pvalue": "pval", "padj": "fdr"})
 
-        return df_lfc, msg
+        return df_lfc0, msg
 
 
     def calc_degs(
         self,
+        prog_id: str,
         psi_id: str,
         root_src: Path = Path('.'),
         run_conda: bool = False,
@@ -3698,7 +3697,9 @@ class GDC(object):
         cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
         self.cdegs = cdegs
 
-        self.set_primary_site(psi_id=psi_id)
+        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+        ret = self.set_primary_site(psi_id=psi_id)
+
 
         df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose)
 
@@ -3707,18 +3708,18 @@ class GDC(object):
                 print(f"No tumor expression data found for {self.psi_or_gdc_project_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        fname_degs = self.fname_degs % self.psi_id
         fname_lfc = self.fname_lfc % self.psi_id
+        fname_lfc_ori = self.fname_lfc_ori % self.psi_id
         fname_degs_txt = self.fname_degs_txt % self.psi_id
-        fname_sample_txt = self.fname_sample_txt % self.psi_id
+        fname_msg = self.fname_msg % self.psi_id
 
-        filename_degs = self.root_lfc / fname_degs
         filename_lfc = self.root_lfc / fname_lfc
+        filename_lfc_ori = self.root_lfc / fname_lfc_ori
         # filename_degs_txt = self.root_lfc / fname_degs_txt
-        # filename_sample_txt = self.root_lfc / fname_sample_txt
+        # filename_sample_txt = self.root_lfc / fname_msg
 
-        if filename_degs.exists() and filename_lfc.exists() and not force:
-            df_degs = pdreadcsv(fname_degs, self.root_lfc, verbose=verbose)
+        if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_lfc, verbose=verbose)
             df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
             
             try:
@@ -3727,11 +3728,11 @@ class GDC(object):
                 degs_txt = ''
 
             try:
-                sample_txt = read_txt(fname_sample_txt, self.root_lfc, verbose=verbose)
+                sample_txt = read_txt(fname_msg, self.root_lfc, verbose=verbose)
             except ValueError:
                 sample_txt = ''
 
-            return df_degs, df_lfc, degs_txt, sample_txt
+            return df_lfc, df_lfc_ori, degs_txt, sample_txt
 
 
         # geneid, symbol, biotype, samples
@@ -3766,7 +3767,7 @@ class GDC(object):
             print("Error: Normal expression data has fewer than 3 samples.")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        df_lfc = cdegs.run_deg_rscript(
+        df_lfc_ori = cdegs.run_deg_rscript(
             df_tumor=df_tumor,
             df_normal=df_normal2,
             method=method,
@@ -3775,24 +3776,34 @@ class GDC(object):
             merge_how="inner",
             keep_temp=False,
         )
-        self.df_lfc2 = df_lfc.copy()
 
-        print(">>> columns:", df_lfc.columns.tolist())
+        # print(">>> columns:", df_lfc_ori.columns.tolist())
+ 
+        df_lfc_ori = df_lfc_ori.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
 
-        df_lfc = df_lfc.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+        gene_cols = ['geneid', 'symbol', 'biotype']
+        df_gene = df_tumor[ gene_cols].copy()
 
-        df_degs = df_lfc[(df_lfc.lfc >= lfc_cutoff) & (df_lfc.fdr < fdr_cutoff)].copy()
-        df_degs.reset_index(drop=True, inplace=True)
+        cols = list(df_lfc_ori.columns)
+        df_lfc_ori = pd.merge(df_lfc_ori, df_gene, how="inner", on='geneid')
 
+        cols = gene_cols + cols[1:]
+        df_lfc_ori = df_lfc_ori[cols]
+        self.df_lfc_ori = df_lfc_ori
+
+        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc.reset_index(drop=True, inplace=True)
+        self.df_lfc = df_lfc
+
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_lfc)
         _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
-        _ = pdwritecsv(df_degs, fname_degs, self.root_lfc)
 
-        degs_txt = "\n".join(df_degs.symbol)
+        degs_txt = "\n".join(df_lfc.symbol)
         _ = write_txt(degs_txt, fname_degs_txt, self.root_lfc)
 
-        _ = write_txt(msg, fname_sample_txt, self.root_lfc)
+        _ = write_txt(msg, fname_msg, self.root_lfc)
 
-        return df_degs, df_lfc, degs_txt, msg
+        return df_lfc, df_lfc_ori, degs_txt, msg
 
 
     def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
@@ -4074,6 +4085,7 @@ class GDC(object):
         self.df_cpm = df_cpm
 
         dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
 
         # Select most variable genes
         gene_var = dfc_log.var(axis=1)
@@ -4113,7 +4125,7 @@ class GDC(object):
             optional dataframe with geneid, symbol
         """
 
-        results = []
+        df_list = []
 
         for cluster_id in sorted(df_samp_clusters[cluster_col].unique()):
 
@@ -4131,7 +4143,7 @@ class GDC(object):
             df_mean_in = df_logcpm[in_samples].mean(axis=1)
             df_mean_out = df_logcpm[out_samples].mean(axis=1)
 
-            df_lfc = df_mean_in - df_mean_out
+            df_lfc_ori = df_mean_in - df_mean_out
 
             pvals = []
 
@@ -4146,29 +4158,29 @@ class GDC(object):
 
             fdr = multipletests(pvals, method="fdr_bh")[1]
 
-            res = pd.DataFrame({
+            df_res = pd.DataFrame({
                 "geneid": df_logcpm.index,
                 "cluster": cluster_id,
                 "n_in": len(in_samples),
                 "n_out": len(out_samples),
                 "mean_in": df_mean_in.values,
                 "mean_out": df_mean_out.values,
-                "lfc": df_lfc.values,
+                "lfc": df_lfc_ori.values,
                 "pvalue": pvals,
                 "fdr": fdr,
             })
 
             if gene_annot is not None:
-                res = res.merge(gene_annot, on="geneid", how="left")
+                df_res = df_res.merge(gene_annot, on="geneid", how="left")
 
-            res = res.sort_values(
+            df_res = df_res.sort_values(
                 ["lfc", "fdr"],
                 ascending=[False, True]
             )
 
-            results.append(res)
+            df_list.append(df_res)
 
-        dfall = pd.concat(results, ignore_index=True)
+        dfall = pd.concat(df_list, ignore_index=True)
 
         dfsig = (
             dfall
@@ -4197,9 +4209,9 @@ class GDC(object):
             dic2 = dic[icount]
             dic2['ncluster'] = ncluster
             dic2['ngenes'] = len(df2)
-            dic2['genes'] = df2.symbol.to_list()
+            dic2['genes'] = np.unique(df2.symbol)
 
-            fname = f"cluster_{ncluster}_{self.psi_or_gdc_project_id}_signature_genes.txt"
+            fname = f"cluster_{ncluster}_{self.psi_or_gdc_project_id}_signature_genes_using_LFC_{LFC_cutoff}_FDR_{FDR_cutoff}.txt"
             write_txt(s_genes, fname, self.root_lfc)
 
             if verbose:
@@ -4207,7 +4219,7 @@ class GDC(object):
 
         df = pd.DataFrame(dic).T
 
-        fname = f"clusters_signatures_for_{self.psi_or_gdc_project_id}.txt"
+        fname = f"clusters_{len(df)}_signatures_for_{self.psi_or_gdc_project_id}.txt"
         _ = pdwritecsv(df, fname, self.root_lfc, verbose=verbose)
 
         return df
@@ -4559,7 +4571,7 @@ class GDC(object):
     def build_df_exp_and_filter(self,
         df_counts: pd.DataFrame,
         df_gtex_meta: pd.DataFrame,
-        gene_col: str = "geneid",
+        # gene_col: str = "geneid",
         condition_col: str = "condition",
         sample_col: str = "sample",
         tumor_label: str = "tumor",
