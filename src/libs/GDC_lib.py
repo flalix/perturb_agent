@@ -3096,13 +3096,13 @@ class GDC(object):
                     dfpiv=dfpiv, labels=labels, cluster=cluster, min_barcodes=min_barcodes
                 )
 
-                n_cluster = dfc.shape[0]
+                n_clusters = dfc.shape[0]
 
-                if n_cluster < 3 or dfc.shape[1] < 3:
+                if n_clusters < 3 or dfc.shape[1] < 3:
                     continue
 
                 gene_degree = dfc.sum(axis=0).sort_values(ascending=False)
-                gene_freq = (gene_degree / n_cluster).sort_values(ascending=False)
+                gene_freq = (gene_degree / n_clusters).sort_values(ascending=False)
 
                 df_cluster_stat = pd.DataFrame(
                     {
@@ -3110,7 +3110,7 @@ class GDC(object):
                         "cluster": cluster,
                         "gene": gene_degree.index,
                         "degree": gene_degree.values,
-                        "cluster_size": n_cluster,
+                        "cluster_size": n_clusters,
                         "freq": gene_freq.values,
                     }
                 )
@@ -3864,10 +3864,10 @@ class GDC(object):
 
         return self.gtex_id, self.gtex_tissue_ids
 
-    def cluster_data(self, df_tumor: pd.DataFrame, perc_min_samples: float = 0.25, 
+    def cluster_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
                      top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray]:
         
-        df_sel, df_cpm,  dfg_filt = self.calc_cpm_and_filter_data(df_tumor, perc_min_samples, top_n)
+        df_sel, df_cpm,  dfg_filt = self.calc_cpm_and_filter_data(df, perc_min_samples, top_n)
         
         # Scale genes
         df_scaled = StandardScaler().fit_transform(df_sel)
@@ -3922,7 +3922,7 @@ class GDC(object):
         return df_eval, df_samp_clusters
 
 
-    def plot_PCA(self, df_pca: pd.DataFrame, figsize : tuple = (6, 5)):
+    def plot_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', figsize : tuple = (6, 5)):
         plt.figure(figsize=figsize)
         plt.scatter(df_pca["PC1"], df_pca["PC2"], s=80)
 
@@ -3931,7 +3931,7 @@ class GDC(object):
 
         plt.xlabel("PC1")
         plt.ylabel("PC2")
-        plt.title("PCA of tumor samples")
+        plt.title(f"PCA of {group} samples")
         plt.tight_layout()
         plt.show()
 
@@ -3963,7 +3963,7 @@ class GDC(object):
 
         return df_umap
 
-    def plot_PCA_UMAP(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, figsize : tuple = (6, 5)):
+    def plot_PCA_UMAP(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, group: str = 'Tumor', figsize : tuple = (6, 5)):
         plt.figure(figsize=figsize)
         plt.scatter(df_umap["UMAP1"], df_umap["UMAP2"], s=80)
 
@@ -3972,16 +3972,16 @@ class GDC(object):
 
         plt.xlabel("UMAP1")
         plt.ylabel("UMAP2")
-        plt.title(f"UMAP of tumor samples (n_neighbors={n_neighbors}, min_dist={min_dist})")
+        plt.title(f"UMAP of {group} samples (n_neighbors={n_neighbors}, min_dist={min_dist})")
         plt.tight_layout()
         plt.show()
 
-    def plot_HCA_PCA(self, df_pca: pd.DataFrame,  method: str = "ward", figsize : tuple = (6, 5)):
+    def plot_HCA_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', method: str = "ward", figsize : tuple = (6, 5)):
         Z = linkage(df_pca, method=method)
 
         plt.figure(figsize=figsize)
         dendrogram(Z, labels=self.df_sel.index.tolist(), leaf_rotation=90)
-        plt.title("PCA Hierarchical clustering of tumor samples")
+        plt.title(f"PCA Hierarchical clustering of {group} samples")
         plt.tight_layout()
         plt.show()
 
@@ -4002,7 +4002,7 @@ class GDC(object):
         return df_samp_clust_hc
 
 
-    def plot_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, method: str = "ward", figsize : tuple = (6, 5)):
+    def plot_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, method: str = "ward", group: str = 'Tumor', figsize : tuple = (6, 5)):
         df2 = df_umap[ ['sample', 'UMAP1', 'UMAP2'] ]
         df2.set_index('sample', inplace=True)
 
@@ -4010,7 +4010,7 @@ class GDC(object):
 
         plt.figure(figsize=figsize)
         dendrogram(Z, labels=df2.index.tolist(), leaf_rotation=90)
-        plt.title("PCA-UMAP Hierarchical clustering of tumor samples")
+        plt.title(f"PCA-UMAP Hierarchical clustering of {group} samples")
         plt.tight_layout()
         plt.show()
 
@@ -4036,9 +4036,7 @@ class GDC(object):
         return df_samp_clust_hc
     
 
-
-
-    def calc_cpm_and_filter_data(self, df_tumor: pd.DataFrame, perc_min_samples: float = 0.25, 
+    def calc_cpm_and_filter_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
                                  top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         ### Data treatment
@@ -4058,17 +4056,17 @@ class GDC(object):
         """
 
         gene_cols = ["geneid", "symbol"]
-        sample_cols = [c for c in df_tumor.columns if c not in gene_cols]
+        sample_cols = [c for c in df.columns if c not in gene_cols]
 
         dfc = (
-            df_tumor[sample_cols]
+            df[sample_cols]
             .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
             .fillna(0)                              # NaN -> 0
         ).copy()
 
-        dfg = df_tumor[gene_cols].copy()
+        dfg = df[gene_cols].copy()
 
-        dfc.index = df_tumor["geneid"]
+        dfc.index = df["geneid"]
 
         # filter low-count genes
         min_samples = int(perc_min_samples * len(sample_cols))
@@ -4107,7 +4105,7 @@ class GDC(object):
 
 
     def find_cluster_signature_genes(self, 
-        df_logcpm: pd.DataFrame,
+        df_logcpm: np.ndarray,
         df_samp_clusters: pd.DataFrame,
         gene_annot: pd.DataFrame,
         sample_col: str = "sample",
@@ -4786,12 +4784,30 @@ class GDC(object):
     
 
     def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
-                                  verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+                                  force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
         df_psi = self.open_primary_sites_cbio(verbose=False)
 
         df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
         dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
+
+
+        fname_tumor = f"expression_tumor_counts_all_samples.tsv"
+        filename_tumor = self.root_mprog_lfc / fname_tumor  
+
+        fname_normal = f"expression_normal_counts_all_samples.tsv"
+        filename_normal = self.root_mprog_lfc / fname_normal  
+
+        fname_ana = f"expression_analytical.tsv"
+        filename_ana = self.root_mprog_lfc / fname_ana  
+
+        if filename_tumor.exists() and filename_normal.exists() and filename_ana.exists() and not force:
+            dfn_tumor = pdreadcsv(fname_tumor, self.root_mprog_lfc, verbose=verbose)
+            dfn_normal = pdreadcsv(fname_normal, self.root_mprog_lfc, verbose=verbose)
+            df_ana = pdreadcsv(fname_ana, self.root_mprog_lfc, verbose=verbose)
+
+            return dfn_tumor, dfn_normal, df_ana
+
 
         dic = {}
         dfn_tumor, dfn_normal = pd.DataFrame(), pd.DataFrame()
@@ -4841,9 +4857,6 @@ class GDC(object):
                 dic[ipsi]['psi_id'] = [psi_id]
                 dic[ipsi]['disease_id'] = [disease_id]
                 dic[ipsi]['primary_site'] = [primary_site]
-                dic[ipsi]['df_tumor'] = df_tumor
-                dic[ipsi]['df_normal'] = df_normal
-                dic[ipsi]['df_gtex'] = df_gtex_ctrl
 
                 # print(f"{prog_id} {psi_id} : Tumor samples: {df_tumor.shape[1]}, Normal samples: {df_normal.shape[1]}, GTEx controls: {df_gtex_ctrl.shape[1]}\n")
 
@@ -4887,7 +4900,11 @@ class GDC(object):
         fname = f"expression_normal_counts_all_samples.tsv"
         pdwritecsv(dfn_normal, fname, self.root_mprog_lfc, verbose=True)
 
-        return dfn_tumor, dfn_normal, dic
+        df_ana = pd.DataFrame(dic).T
+        fname = f"expression_analytical.tsv"
+        pdwritecsv(df_ana, fname, self.root_mprog_lfc, verbose=True)
+
+        return dfn_tumor, dfn_normal, df_ana
 
 
 
@@ -4931,3 +4948,144 @@ class GDC(object):
                 df = df.drop(columns=bad_cols)
 
         return df
+
+    def cluster_expression_data(self, disease_id: str, n_cluster_tumor: int = 10, n_cluster_normal: int = 3,
+                                imax_tumor:int=250, imax_normal:int=50, exclude_prog_list: list = [],
+                                verbose: bool = False):
+        
+        dfn_tumor, dfn_normal, dic = self.get_all_data_from_disease(disease_id=disease_id, 
+                                                           imax_tumor=imax_tumor, imax_normal=imax_normal,
+                                                           exclude_prog_list=exclude_prog_list, verbose=verbose)
+        
+        for group in ['tumor', 'normal']:
+            if group == 'tumor':
+                df = dfn_tumor
+                n_clusters = n_cluster_tumor
+            else:
+                df = dfn_normal
+                n_clusters = n_cluster_normal
+
+
+            df_sel, df_pca_df_umap = self.cluster_expression_data_group(df, group, n_clusters)
+
+
+
+    def cluster_expression_data_group(self, df: pd.DataFrame, group: str, n_clusters:int, 
+                                      n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
+                                      n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
+                                      method_hca:str = "ward", hca_criterion:str = "maxclust",
+                                      LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
+                                      perc_min_samples: float = 0.25, top_n: int = 10_000, 
+                                      verbose: bool = False):
+        
+        df_sel, df_cpm,  dfg_filt, df_scaled = self.cluster_data(df.drop(columns='biotype'), perc_min_samples, top_n)
+
+        self.df_sel = df_sel
+        self.df_cpm = df_cpm
+        self.dfg_filt = dfg_filt
+        self.df_scaled = df_scaled
+
+        fname = f"{group}_expression_log_CPM_top_{top_n}_genes_all_samples_transposed.tsv"
+        pdwritecsv(df_sel, fname, self.root_mprog_lfc, verbose=verbose)
+
+
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        gene_annot = (
+            dfg_filt[["geneid", "symbol"]]
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+        self.gene_annot = gene_annot
+
+
+        df_pca = self.calc_PCA(df_scaled, n_components=n_components, verbose=verbose)
+        self.df_pca = df_pca
+
+        df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
+        self.df_eval = df_eval
+        self.df_samp_clusters = df_samp_clusters
+
+        df_umap = self.calc_PCA_UMAP(df_pca=df_pca, df_samp_clusters=df_samp_clusters, n_neighbors=n_umap_neighbors, min_dist=min_umap_dist, metric=umap_metric)
+        self.gene_annot = gene_annot
+
+        df_hca = self.cut_HCA_PCA(df_pca=df_pca, method=method_hca, n_clusters=n_clusters, criterion=hca_criterion, verbose=verbose)
+        self.df_hca = df_hca
+
+        fname = f"clusters_{n_clusters}_for_{group}_samples.tsv"
+        pdwritecsv(df_hca, fname, self.root_mprog_lfc, verbose=verbose)
+
+        # lfc per group (cluster)
+        dfall, dfsig = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, gene_annot=gene_annot)
+        self.dfall = dfall
+        self.dfsig = dfsig
+
+        fname = f"{group}_clusters_{n_clusters}_signatures_up_down_DEGs.tsv"
+        pdwritecsv(dfall, fname, self.root_mprog_lfc)
+
+        df_cluster = self.write_clusters(dfall, dfsig, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+
+
+        #-------------------- genes and  unique genes ------------------------
+        cluster_list = np.unique(dfall.cluster)
+
+        dic = {}
+
+        for ncluster in cluster_list:
+            df2 = dfsig[dfsig.cluster == ncluster]
+            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+
+            symbols = np.unique(df2.symbol)
+
+            dic[ncluster] = set(symbols)
+
+            print(f"Cluster {ncluster}: {len(symbols)} signature genes")
+
+            fname = f"cluster_{ncluster}-{n_clusters}_{group}_signature_genes.txt"
+            filename = self.root_mprog_lfc / fname
+
+            write_txt('\n'.join(symbols), filename)
+
+
+        df_cluster['n_unique_genes']  = 0
+        df_cluster['unique_genes'] = []
+
+        for nclu in df_cluster['ncluster']:
+            set0 = dic[nclu]
+
+            for key, setx in dic.items():
+                if key != nclu:
+                    set0 = set0 - dic[key]
+
+            uniq_list = list(set0)
+            s_lista = "; ".join(self.merge_lfc(uniq_list))
+
+            df_cluster.loc[df_cluster['ncluster'] == nclu, 'n_unique_genes'] = len(uniq_list)
+            df_cluster.loc[df_cluster['ncluster'] == nclu, 'unique_genes'] = s_lista
+
+
+        self.df_cluster = df_cluster
+
+
+    def merge_lfc(self, symb_list:list) -> List:
+        
+
+        for symb in list:
+
+    def plot_histogram(self, data:List, title:str="Distribution of DEG log2 Fold Changes", bins:int=50,
+                       xlabel:str = "log2 Fold Change", ylabel:str = "Number of genes",
+                       figsize: tuple = (9, 5)):
+        plt.figure(figsize=figsize)
+        plt.hist(data, bins=bins, edgecolor="black", alpha=0.8)
+        plt.axvline(0, linestyle="--", linewidth=1)
+        plt.axvline(-1, linestyle=":", linewidth=1)
+        plt.axvline(1, linestyle=":", linewidth=1)
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.tight_layout()
+        plt.show()
+
+
