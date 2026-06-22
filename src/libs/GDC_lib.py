@@ -4853,10 +4853,10 @@ class GDC(object):
             if not df_tumor.empty:
                 dic[ipsi] ={}
 
-                dic[ipsi]['prog_id'] = [prog_id]
-                dic[ipsi]['psi_id'] = [psi_id]
-                dic[ipsi]['disease_id'] = [disease_id]
-                dic[ipsi]['primary_site'] = [primary_site]
+                dic[ipsi]['prog_id'] = prog_id
+                dic[ipsi]['psi_id'] = psi_id
+                dic[ipsi]['disease_id'] = disease_id
+                dic[ipsi]['primary_site'] = primary_site
 
                 # print(f"{prog_id} {psi_id} : Tumor samples: {df_tumor.shape[1]}, Normal samples: {df_normal.shape[1]}, GTEx controls: {df_gtex_ctrl.shape[1]}\n")
 
@@ -4951,12 +4951,18 @@ class GDC(object):
 
     def cluster_expression_data(self, disease_id: str, n_cluster_tumor: int = 10, n_cluster_normal: int = 3,
                                 imax_tumor:int=250, imax_normal:int=50, exclude_prog_list: list = [],
-                                verbose: bool = False):
+                                n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
+                                n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
+                                method_hca:str = "ward", hca_criterion:str = "maxclust",
+                                LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
+                                perc_min_samples: float = 0.25, top_n: int = 10_000, 
+                                verbose: bool = False) -> dict:
         
         dfn_tumor, dfn_normal, dic = self.get_all_data_from_disease(disease_id=disease_id, 
-                                                           imax_tumor=imax_tumor, imax_normal=imax_normal,
-                                                           exclude_prog_list=exclude_prog_list, verbose=verbose)
-        
+                                    imax_tumor=imax_tumor, imax_normal=imax_normal,
+                                    exclude_prog_list=exclude_prog_list, verbose=verbose)
+
+        dic = {}
         for group in ['tumor', 'normal']:
             if group == 'tumor':
                 df = dfn_tumor
@@ -4966,9 +4972,23 @@ class GDC(object):
                 n_clusters = n_cluster_normal
 
 
-            df_sel, df_pca_df_umap = self.cluster_expression_data_group(df, group, n_clusters)
+            df_cluster, df_sel, df_cpm, df_pca, df_umap = self.cluster_expression_data_group(df, group=group, n_clusters=n_clusters, 
+                                                                                             n_components=n_components, min_clusters=min_clusters, max_clusters=max_clusters,
+                                                                                             n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
+                                                                                             method_hca=method_hca, hca_criterion=hca_criterion,
+                                                                                             LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
+                                                                                             perc_min_samples=perc_min_samples, top_n=top_n, verbose=verbose
+                                                                                             )
+            
+            dic[group] = {}
+            dic[group]['df'] = df
+            dic[group]['df_cluster'] = df_cluster
+            dic[group]['df_sel'] = df_sel
+            dic[group]['df_cpm'] = df_cpm
+            dic[group]['df_pca'] = df_pca
+            dic[group]['df_umap'] = df_umap
 
-
+        return dic
 
     def cluster_expression_data_group(self, df: pd.DataFrame, group: str, n_clusters:int, 
                                       n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
@@ -4976,8 +4996,9 @@ class GDC(object):
                                       method_hca:str = "ward", hca_criterion:str = "maxclust",
                                       LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
                                       perc_min_samples: float = 0.25, top_n: int = 10_000, 
-                                      verbose: bool = False):
+                                      verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
+        print(f"Clustering expression data for group: {group} ...")
         df_sel, df_cpm,  dfg_filt, df_scaled = self.cluster_data(df.drop(columns='biotype'), perc_min_samples, top_n)
 
         self.df_sel = df_sel
@@ -4989,6 +5010,7 @@ class GDC(object):
         pdwritecsv(df_sel, fname, self.root_mprog_lfc, verbose=verbose)
 
 
+        print(f"Calc CPM ...")
         dfc_log = np.log2(df_cpm + 1)
         self.dfc_log = dfc_log
 
@@ -4999,14 +5021,16 @@ class GDC(object):
         )
         self.gene_annot = gene_annot
 
-
+        print(f"Calc PCA ...")
         df_pca = self.calc_PCA(df_scaled, n_components=n_components, verbose=verbose)
         self.df_pca = df_pca
 
+        print(f"Calc best cluster ...")
         df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
         self.df_eval = df_eval
         self.df_samp_clusters = df_samp_clusters
 
+        print(f"Calc PCA-UMAP ...")
         df_umap = self.calc_PCA_UMAP(df_pca=df_pca, df_samp_clusters=df_samp_clusters, n_neighbors=n_umap_neighbors, min_dist=min_umap_dist, metric=umap_metric)
         self.gene_annot = gene_annot
 
@@ -5016,7 +5040,7 @@ class GDC(object):
         fname = f"clusters_{n_clusters}_for_{group}_samples.tsv"
         pdwritecsv(df_hca, fname, self.root_mprog_lfc, verbose=verbose)
 
-        # lfc per group (cluster)
+        print(f"Find clusters' signature genes ...")
         dfall, dfsig = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, gene_annot=gene_annot)
         self.dfall = dfall
         self.dfsig = dfsig
@@ -5025,9 +5049,11 @@ class GDC(object):
         pdwritecsv(dfall, fname, self.root_mprog_lfc)
 
         df_cluster = self.write_clusters(dfall, dfsig, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+        self.df_cluster = df_cluster
 
 
         #-------------------- genes and  unique genes ------------------------
+        print(f"Unique signature genes ...")
         cluster_list = np.unique(dfall.cluster)
 
         dic = {}
@@ -5045,37 +5071,36 @@ class GDC(object):
             fname = f"cluster_{ncluster}-{n_clusters}_{group}_signature_genes.txt"
             filename = self.root_mprog_lfc / fname
 
-            write_txt('\n'.join(symbols), filename)
+            write_txt('\n'.join(symbols), filename, verbose=verbose)
 
 
         df_cluster['n_unique_genes']  = 0
-        df_cluster['unique_genes'] = []
+        df_cluster['unique_genes'] = None
 
-        for nclu in df_cluster['ncluster']:
+        for nclu in cluster_list:
             set0 = dic[nclu]
 
             for key, setx in dic.items():
                 if key != nclu:
                     set0 = set0 - dic[key]
 
-            uniq_list = list(set0)
-            s_lista = "; ".join(self.merge_lfc(uniq_list))
+            uniq_list = np.unique(list(set0))
 
+            # LFC and DEGs only after clusterization
             df_cluster.loc[df_cluster['ncluster'] == nclu, 'n_unique_genes'] = len(uniq_list)
-            df_cluster.loc[df_cluster['ncluster'] == nclu, 'unique_genes'] = s_lista
-
+            df_cluster.loc[df_cluster['ncluster'] == nclu, 'unique_genes'] = "; ".join(uniq_list)
 
         self.df_cluster = df_cluster
+        print(f"\n-------------- end ------------------\n")
+
+        return df_cluster, df_sel, df_cpm, df_pca, df_umap
 
 
-    def merge_lfc(self, symb_list:list) -> List:
-        
-
-        for symb in list:
 
     def plot_histogram(self, data:List, title:str="Distribution of DEG log2 Fold Changes", bins:int=50,
                        xlabel:str = "log2 Fold Change", ylabel:str = "Number of genes",
                        figsize: tuple = (9, 5)):
+        
         plt.figure(figsize=figsize)
         plt.hist(data, bins=bins, edgecolor="black", alpha=0.8)
         plt.axvline(0, linestyle="--", linewidth=1)
