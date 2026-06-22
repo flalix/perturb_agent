@@ -76,6 +76,9 @@ class GDC(object):
         self.root_colab = create_dir(self.root0_data, 'colab')
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
+        self.root_mprog = create_dir(self.root0_data, "multi_progs")
+        self.root_mprog_lfc = create_dir(self.root_mprog, "lfc")
+
         self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
         self.df_gdc_to_gtex = pd.DataFrame()
         self.gtex_id = ""
@@ -4780,3 +4783,151 @@ class GDC(object):
         fig_umap.tight_layout()
 
         return fig_umap, ax_umap, df_umap
+    
+
+    def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
+                                  verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+
+        df_psi = self.open_primary_sites_cbio(verbose=False)
+
+        df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
+        dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
+
+        dic = {}
+        dfn_tumor, dfn_normal = pd.DataFrame(), pd.DataFrame()
+        cols = ['symbol', 'biotype']
+
+        for ipsi, row in dfa.iterrows():
+            prog_id = row.prog_id
+
+            if prog_id in exclude_prog_list:
+                continue
+
+            psi_id = row.psi_id
+            disease_id = row.disease_id
+            primary_site = row.primary_site
+
+            print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id}", end=" ")
+
+            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+            ret = self.set_primary_site(psi_id = psi_id)
+
+            if not ret:
+                print(f"Error: failed to set primary site for {prog_id} {psi_id}")
+                continue
+
+            df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose)
+            print(f"df_tumor {df_tumor.shape}")
+
+            if dfn_tumor.empty:
+                if not df_tumor.empty:
+                    dfn_tumor = df_tumor
+            else:
+                if not df_tumor.empty:
+                    dfn_tumor = pd.merge(dfn_tumor, df_tumor.drop(columns=cols), on='geneid', how='inner')
+
+            if dfn_normal.empty:
+                if not df_normal.empty:
+                    dfn_normal = df_normal
+            else:
+                if not df_normal.empty:
+                    dfn_normal = pd.merge(dfn_normal, df_normal.drop(columns=cols), on='geneid', how='inner')
+
+            if not df_tumor.empty:
+                dic[ipsi] ={}
+
+                dic[ipsi]['prog_id'] = [prog_id]
+                dic[ipsi]['psi_id'] = [psi_id]
+                dic[ipsi]['disease_id'] = [disease_id]
+                dic[ipsi]['primary_site'] = [primary_site]
+                dic[ipsi]['df_tumor'] = df_tumor
+                dic[ipsi]['df_normal'] = df_normal
+                dic[ipsi]['df_gtex'] = df_gtex_ctrl
+
+                # print(f"{prog_id} {psi_id} : Tumor samples: {df_tumor.shape[1]}, Normal samples: {df_normal.shape[1]}, GTEx controls: {df_gtex_ctrl.shape[1]}\n")
+
+
+        stri = f"There are {dfn_tumor.shape[1]-3} tumor samples and {dfn_normal.shape[1]-3} control samples merging studies"
+        print(stri)
+
+        #-------------- tumor ------------------
+        cols = dfn_tumor.columns.tolist()
+        nsamp = len(cols)-3
+
+        cols = cols[:3] + list(np.arange(1, nsamp + 1))
+        dfn_tumor.columns = cols
+
+        #-------------- normal ------------------
+        cols = dfn_normal.columns.tolist()
+        nsamp = len(cols)-3
+
+        cols = cols[:3] + list(np.arange(1, nsamp + 1))
+        dfn_normal.columns = cols
+
+        # fname = f"expression_tumor_counts_all_samples_before.tsv"
+        # pdwritecsv(dfn_tumor, fname, self.root_mprog_lfc, verbose=True)
+
+        # fname = f"expression_normal_counts_all_samples_before.tsv"
+        # pdwritecsv(dfn_normal, fname, self.root_mprog_lfc, verbose=True)
+
+        #------------ remove bad columns --------------------------------
+
+        #-- tumors may be hetherogeneous, many subtypes
+        # dfn_tumor = self.remove_to_big_bad_cols_expression(dfn_tumor, nstd=3, msg='Tumor')
+        # dfn_tumor = self.remove_to_little_bad_cols_expression(dfn_tumor, nstd=3, msg='Tumor')
+
+        #-- controls must be homogeneous
+        dfn_normal = self.remove_to_big_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
+        dfn_normal = self.remove_to_little_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
+
+        fname = f"expression_tumor_counts_all_samples.tsv"
+        pdwritecsv(dfn_tumor, fname, self.root_mprog_lfc, verbose=True)
+
+        fname = f"expression_normal_counts_all_samples.tsv"
+        pdwritecsv(dfn_normal, fname, self.root_mprog_lfc, verbose=True)
+
+        return dfn_tumor, dfn_normal, dic
+
+
+
+    def remove_to_big_bad_cols_expression(self, df: pd.DataFrame, nstd: int=2, msg: str=""):
+        cols = list(df.columns)
+        cols = cols[3: ]
+
+        mus_all = df[cols].mean(axis=0)
+
+        mu = np.mean(mus_all)
+        std = np.std(mus_all)
+
+        lista = np.array(mus_all > mu+nstd*std)
+        # columns start on 1
+        bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+
+        if bad_cols:
+            print(f"{msg}: Removing {len(bad_cols)} columns with values > {mu+nstd*std} -> {bad_cols}")
+            df = df.drop(columns=bad_cols)
+
+        return df
+
+    def remove_to_little_bad_cols_expression(self, df: pd.DataFrame, nstd: int=2, msg: str=""):
+        cols = list(df.columns)
+        cols = cols[3: ]
+
+        mus_all = df[cols].mean(axis=0)
+
+        mu = np.mean(mus_all)
+        std = np.std(mus_all)
+
+        inf_lim = mu-nstd*std
+
+        if inf_lim > 0:
+            lista = np.array(mus_all < inf_lim)
+            # columns start on 1
+            bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+
+            if bad_cols:
+                print(f"{msg}: Removing {len(bad_cols)} columns with values < {mu-nstd*std} -> {bad_cols}")
+                df = df.drop(columns=bad_cols)
+
+        return df
