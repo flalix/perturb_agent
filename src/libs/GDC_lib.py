@@ -79,6 +79,11 @@ class GDC(object):
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
         self.root_mprog_lfc = create_dir(self.root_mprog, "lfc")
 
+        self.fname_tumor = f"expression_tumor_counts_all_samples.tsv"
+        self.fname_normal = f"expression_normal_counts_all_samples.tsv"
+        self.fname_gtex = f"expression_gtex_controls_counts.tsv"
+        self.fname_summ = f"expression_summary.tsv"
+
         self.fname_sel_log = f"%s_expression_sel_log_CPM_top_%d_genes_all_samples_transposed.tsv"
         self.fname_log_cpm = f"%s_expression_log_CPM_top_%d_genes_all_samples_transposed.tsv"
         self.fname_log_filt = f"%s_expression_filt_log_CPM_top_%d_genes_all_samples_transposed.tsv"
@@ -134,10 +139,10 @@ class GDC(object):
         self.fname_all_samples = "%s_summ_samples.tsv"
         self.fname_all_mutations = "%s_summ_mutations.tsv"
 
-        self.fname_lfc_ori = "lfc_ori_%s.tsv"
-        self.fname_lfc = "lfc_%s.tsv"
-        self.fname_degs_txt = "degs_%s.txt"
-        self.fname_msg = "message_%s.txt"
+        self.fname_lfc_ori = "lfc_ori_%s_for_cluster_%d.tsv"
+        self.fname_lfc = "lfc_%s_for_cluster_%d.tsv"
+        self.fname_degs_txt = "degs_%s_for_cluster_%d.txt"
+        self.fname_msg = "message_%s_for_cluster_%d.txt"
 
         
         ctx = load_project_context( )
@@ -3698,35 +3703,38 @@ class GDC(object):
         self,
         prog_id: str,
         psi_id: str,
+        ncluster: int,
+        df_tumor: pd.DataFrame,
+        df_normal: pd.DataFrame,
+        df_gtex_ctrl: pd.DataFrame,
         root_src: Path = Path('.'),
         run_conda: bool = False,
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
         method: str = "deseq2",
-        imax_tumor: int = 200,
-        imax_normal: int = 100, 
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
 
+        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+        ret = self.set_primary_site(psi_id = psi_id)
+
+        if not ret:
+            print(f"Error: failed to set primary site for {prog_id} {psi_id}")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
+
         cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
         self.cdegs = cdegs
 
-        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
-        ret = self.set_primary_site(psi_id=psi_id)
-
-
-        df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose)
-
         if df_tumor.empty:
-            if verbose:
-                print(f"No tumor expression data found for {self.psi_or_gdc_project_id}")
+            print(f"No tumor expression data found for {self.psi_or_gdc_project_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        fname_lfc = self.fname_lfc % self.psi_id
-        fname_lfc_ori = self.fname_lfc_ori % self.psi_id
-        fname_degs_txt = self.fname_degs_txt % self.psi_id
-        fname_msg = self.fname_msg % self.psi_id
+        fname_lfc = self.fname_lfc % (self.psi_id, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.psi_id, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (self.psi_id, ncluster)
+        fname_msg = self.fname_msg % (self.psi_id, ncluster)
 
         filename_lfc = self.root_lfc / fname_lfc
         filename_lfc_ori = self.root_lfc / fname_lfc_ori
@@ -3770,9 +3778,6 @@ class GDC(object):
 
         df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
         self.df_tumor = df_tumor
-
-        # if method == "deseq2":
-        # at least 3 columns
 
         if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
             print("Error: Tumor expression data has fewer than 3 samples.")
@@ -4796,34 +4801,34 @@ class GDC(object):
     
 
     def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
-                                  force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+                                  force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
         df_psi = self.open_primary_sites_cbio(verbose=False)
 
         df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
         dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
 
+        filename_tumor = self.root_mprog_lfc / self.fname_tumor  
+        filename_normal = self.root_mprog_lfc / self.fname_normal
+        filename_gtex = self.root_mprog_lfc / self.fname_gtex
+        filename_summ = self.root_mprog_lfc / self.fname_summ  
 
-        fname_tumor = f"expression_tumor_counts_all_samples.tsv"
-        filename_tumor = self.root_mprog_lfc / fname_tumor  
+        if filename_tumor.exists() and filename_normal.exists() and \
+        filename_gtex.exists() and filename_summ.exists() and not force:
+            
+            dfn_tumor = pdreadcsv(self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
+            dfn_normal = pdreadcsv(self.fname_normal, self.root_mprog_lfc, verbose=verbose)
+            df_gtex_ctrl = pdreadcsv(self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
+            df_ana = pdreadcsv(self.fname_summ, self.root_mprog_lfc, verbose=verbose)
 
-        fname_normal = f"expression_normal_counts_all_samples.tsv"
-        filename_normal = self.root_mprog_lfc / fname_normal  
-
-        fname_ana = f"expression_analytical.tsv"
-        filename_ana = self.root_mprog_lfc / fname_ana  
-
-        if filename_tumor.exists() and filename_normal.exists() and filename_ana.exists() and not force:
-            dfn_tumor = pdreadcsv(fname_tumor, self.root_mprog_lfc, verbose=verbose)
-            dfn_normal = pdreadcsv(fname_normal, self.root_mprog_lfc, verbose=verbose)
-            df_ana = pdreadcsv(fname_ana, self.root_mprog_lfc, verbose=verbose)
-
-            return dfn_tumor, dfn_normal, df_ana
+            return dfn_tumor, dfn_normal, df_gtex_ctrl, df_ana
 
 
         dic = {}
         dfn_tumor, dfn_normal = pd.DataFrame(), pd.DataFrame()
         cols = ['symbol', 'biotype']
+
+        df_gtex_ctrl = pd.DataFrame()
 
         for ipsi, row in dfa.iterrows():
             prog_id = row.prog_id
@@ -4890,33 +4895,18 @@ class GDC(object):
         cols = cols[:3] + list(np.arange(1, nsamp + 1))
         dfn_normal.columns = cols
 
-        # fname = f"expression_tumor_counts_all_samples_before.tsv"
-        # pdwritecsv(dfn_tumor, fname, self.root_mprog_lfc, verbose=True)
-
-        # fname = f"expression_normal_counts_all_samples_before.tsv"
-        # pdwritecsv(dfn_normal, fname, self.root_mprog_lfc, verbose=True)
-
-        #------------ remove bad columns --------------------------------
-
-        #-- tumors may be hetherogeneous, many subtypes
-        # dfn_tumor = self.remove_to_big_bad_cols_expression(dfn_tumor, nstd=3, msg='Tumor')
-        # dfn_tumor = self.remove_to_little_bad_cols_expression(dfn_tumor, nstd=3, msg='Tumor')
-
         #-- controls must be homogeneous
         dfn_normal = self.remove_to_big_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
         dfn_normal = self.remove_to_little_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
 
-        fname = f"expression_tumor_counts_all_samples.tsv"
-        pdwritecsv(dfn_tumor, fname, self.root_mprog_lfc, verbose=True)
-
-        fname = f"expression_normal_counts_all_samples.tsv"
-        pdwritecsv(dfn_normal, fname, self.root_mprog_lfc, verbose=True)
+        pdwritecsv(dfn_tumor, self.fname_tumor, self.root_mprog_lfc, verbose=True)
+        pdwritecsv(dfn_normal, self.fname_normal, self.root_mprog_lfc, verbose=True)
+        pdwritecsv(df_gtex_ctrl, self.fname_gtex, self.root_mprog_lfc, verbose=True)
 
         df_ana = pd.DataFrame(dic).T
-        fname = f"expression_analytical.tsv"
-        pdwritecsv(df_ana, fname, self.root_mprog_lfc, verbose=True)
+        pdwritecsv(df_ana, self.fname_summ, self.root_mprog_lfc, verbose=True)
 
-        return dfn_tumor, dfn_normal, df_ana
+        return dfn_tumor, dfn_normal, df_gtex_ctrl, df_ana
 
 
 
@@ -5060,6 +5050,10 @@ class GDC(object):
             self.df_all_sign = df_all_sign
             self.df_sig_sign = df_sig_sign
 
+            df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
+            self.df_eval = df_eval
+            self.df_samp_clusters = df_samp_clusters
+
             df_cluster = pdreadcsv(fname_cluster, self.root_mprog_lfc, verbose=verbose)
             self.df_cluster = df_cluster
 
@@ -5109,24 +5103,24 @@ class GDC(object):
         _ = pdwritecsv(df_hca, fname_hca, self.root_mprog_lfc, verbose=verbose)
 
         print(f"Find clusters' signature genes ...")
-        dfall, dfsig = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, df_gene_annot=df_gene_annot)
-        self.dfall = dfall
-        self.dfsig = dfsig
+        df_all_sign, df_sig_sign = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, df_gene_annot=df_gene_annot)
+        self.df_all_sign = df_all_sign
+        self.df_sig_sign = df_sig_sign
 
-        pdwritecsv(dfall, fname_all_sign, self.root_mprog_lfc)
-        pdwritecsv(dfsig, fname_sig_sign, self.root_mprog_lfc)
+        pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc)
+        pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc)
 
-        df_cluster = self.write_clusters(dfall, dfsig, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
         self.df_cluster = df_cluster
 
         #-------------------- genes and  unique genes ------------------------
         print(f"Unique signature genes ...")
-        cluster_list = np.unique(dfall.cluster)
+        cluster_list = np.unique(df_all_sign.cluster)
 
         dic = {}
 
         for ncluster in cluster_list:
-            df2 = dfsig[dfsig.cluster == ncluster]
+            df2 = df_sig_sign[df_sig_sign.cluster == ncluster]
             df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
 
             symbols = np.unique(df2.symbol)
