@@ -164,6 +164,7 @@ class CALC_DEGS(object):
         merge_how: Literal["inner", "outer"] = "inner",
         keep_temp: bool = False,
         conda_env: str = "renv",
+        verbose: bool = False,
     ) -> pd.DataFrame:
         
         """
@@ -231,7 +232,7 @@ class CALC_DEGS(object):
             ]
 
             if self.run_conda and self.has_conda():
-                print(f">>> LFC calc with {method} - running inside conda environment.")
+                if verbose: print(f">>> LFC calc with {method} - running inside conda environment.")
                 cmd = [
                     "conda",
                     "run",

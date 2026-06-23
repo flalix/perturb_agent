@@ -3708,6 +3708,7 @@ class GDC(object):
         df_normal: pd.DataFrame,
         df_gtex_ctrl: pd.DataFrame,
         root_src: Path = Path('.'),
+        root_lfc: Path = Path('.'),
         run_conda: bool = False,
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
@@ -3715,7 +3716,11 @@ class GDC(object):
         force: bool = False,
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
-
+        
+        if root_lfc is None or root_lfc == '.':
+            print(f"Please define a root_lfc")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
+        
         _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
 
         ret = self.set_primary_site(psi_id = psi_id)
@@ -3736,22 +3741,22 @@ class GDC(object):
         fname_degs_txt = self.fname_degs_txt % (self.psi_id, ncluster)
         fname_msg = self.fname_msg % (self.psi_id, ncluster)
 
-        filename_lfc = self.root_lfc / fname_lfc
-        filename_lfc_ori = self.root_lfc / fname_lfc_ori
-        # filename_degs_txt = self.root_lfc / fname_degs_txt
-        # filename_sample_txt = self.root_lfc / fname_msg
+        filename_lfc = root_lfc / fname_lfc
+        filename_lfc_ori = root_lfc / fname_lfc_ori
+        # filename_degs_txt = root_lfc / fname_degs_txt
+        # filename_sample_txt = root_lfc / fname_msg
 
         if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
-            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_lfc, verbose=verbose)
-            df_lfc = pdreadcsv(fname_lfc, self.root_lfc, verbose=verbose)
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, root_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, root_lfc, verbose=verbose)
             
             try:
-                degs_txt = read_txt(fname_degs_txt, self.root_lfc, verbose=verbose)
+                degs_txt = read_txt(fname_degs_txt, root_lfc, verbose=verbose)
             except ValueError:
                 degs_txt = ''
 
             try:
-                sample_txt = read_txt(fname_msg, self.root_lfc, verbose=verbose)
+                sample_txt = read_txt(fname_msg, root_lfc, verbose=verbose)
             except ValueError:
                 sample_txt = ''
 
@@ -3815,13 +3820,13 @@ class GDC(object):
         df_lfc.reset_index(drop=True, inplace=True)
         self.df_lfc = df_lfc
 
-        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_lfc)
-        _ = pdwritecsv(df_lfc, fname_lfc, self.root_lfc)
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, root_lfc)
+        _ = pdwritecsv(df_lfc, fname_lfc, root_lfc)
 
         degs_txt = "\n".join(df_lfc.symbol)
-        _ = write_txt(degs_txt, fname_degs_txt, self.root_lfc)
+        _ = write_txt(degs_txt, fname_degs_txt, root_lfc)
 
-        _ = write_txt(msg, fname_msg, self.root_lfc)
+        _ = write_txt(msg, fname_msg, root_lfc)
 
         return df_lfc, df_lfc_ori, degs_txt, msg
 
@@ -4230,7 +4235,7 @@ class GDC(object):
             dic2['genes'] = np.unique(df2.symbol)
 
             fname = f"cluster_{ncluster}_{self.psi_or_gdc_project_id}_signature_genes_using_LFC_{LFC_cutoff}_FDR_{FDR_cutoff}.txt"
-            write_txt(s_genes, fname, self.root_lfc)
+            write_txt(s_genes, fname, self.root_mprog_lfc)
 
             if verbose:
                 print(f"Cluster {ncluster} -> {len(df2)} signatures: {s_genes}")
@@ -4238,7 +4243,7 @@ class GDC(object):
         df = pd.DataFrame(dic).T
 
         fname = f"clusters_{len(df)}_signatures_for_{self.psi_or_gdc_project_id}.txt"
-        _ = pdwritecsv(df, fname, self.root_lfc, verbose=verbose)
+        _ = pdwritecsv(df, fname, self.root_mprog_lfc, verbose=verbose)
 
         return df
 
