@@ -79,6 +79,18 @@ class GDC(object):
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
         self.root_mprog_lfc = create_dir(self.root_mprog, "lfc")
 
+        self.fname_sel_log = f"%s_expression_sel_log_CPM_top_%d_genes_all_samples_transposed.tsv"
+        self.fname_log_cpm = f"%s_expression_log_CPM_top_%d_genes_all_samples_transposed.tsv"
+        self.fname_log_filt = f"%s_expression_filt_log_CPM_top_%d_genes_all_samples_transposed.tsv"
+
+        self.fname_pca = f"pca_%d_clusters_for_%s_samples.tsv"
+        self.fname_umap = f"umap_%d_clusters_for_%s_samples.tsv"
+        self.fname_hca = f"hca_%d_clusters_for_%s_samples.tsv"
+        self.fname_all_sign = f"all_sign_%d_clusters_%s_signatures_up_down_DEGs.tsv"
+        self.fname_sig_sign = f"sig_sign_%d_clusters_%s_signatures_up_down_DEGs.tsv"
+
+        self.fname_cluster = f"cluster_%d_clusters_for_%s_samples_LFC_%f_FDR_%f.tsv"
+
         self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
         self.df_gdc_to_gtex = pd.DataFrame()
         self.gtex_id = ""
@@ -4107,7 +4119,7 @@ class GDC(object):
     def find_cluster_signature_genes(self, 
         df_logcpm: np.ndarray,
         df_samp_clusters: pd.DataFrame,
-        gene_annot: pd.DataFrame,
+        df_gene_annot: pd.DataFrame,
         sample_col: str = "sample",
         cluster_col: str = "cluster",
         lfc_cutoff: float = 1.0,
@@ -4122,7 +4134,7 @@ class GDC(object):
         df_samp_clusters:
             dataframe with columns: sample, cluster
 
-        gene_annot:
+        df_gene_annot:
             optional dataframe with geneid, symbol
         """
 
@@ -4171,8 +4183,8 @@ class GDC(object):
                 "fdr": fdr,
             })
 
-            if gene_annot is not None:
-                df_res = df_res.merge(gene_annot, on="geneid", how="left")
+            if df_gene_annot is not None:
+                df_res = df_res.merge(df_gene_annot, on="geneid", how="left")
 
             df_res = df_res.sort_values(
                 ["lfc", "fdr"],
@@ -4996,8 +5008,64 @@ class GDC(object):
                                       method_hca:str = "ward", hca_criterion:str = "maxclust",
                                       LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
                                       perc_min_samples: float = 0.25, top_n: int = 10_000, 
-                                      verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+                                      force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
+        fname_sel_log = self.fname_sel_log % (group, top_n)
+        fname_log_cpm = self.fname_log_cpm % (group, top_n)
+        fname_log_filt = self.fname_log_filt % (group, top_n)
+
+        fname_pca = self.fname_pca % (n_clusters, group)
+        fname_umap = self.fname_umap % (n_clusters, group)
+        fname_hca = self.fname_hca % (n_clusters, group)
+        fname_all_sign = self.fname_all_sign % (n_clusters, group)
+        fname_sig_sign = self.fname_sig_sign % (n_clusters, group)
+
+        fname_cluster = self.fname_cluster % (n_clusters, group, LFC_cutoff, FDR_cutoff)
+
+        filename_sel_log = self.root_mprog_lfc /fname_sel_log
+        filename_log_cpm = self.root_mprog_lfc /fname_log_cpm
+        filename_log_filt = self.root_mprog_lfc /fname_log_filt
+
+        filename_pca = self.root_mprog_lfc /fname_pca
+        filename_umap = self.root_mprog_lfc /fname_umap
+        filename_hca = self.root_mprog_lfc /fname_hca
+        filename_all_sign = self.root_mprog_lfc / fname_all_sign
+        filename_sig_sign = self.root_mprog_lfc / fname_sig_sign
+
+        filename_cluster = self.root_mprog_lfc / fname_cluster
+
+
+        if filename_sel_log.exists() and filename_log_cpm.exists() and filename_log_filt.exists() and \
+        filename_pca.exists() and filename_umap.exists() and filename_hca.exists() and \
+        filename_all_sign.exists() and filename_sig_sign.exists() and \
+        filename_cluster.exists() and not force:
+
+            df_sel = pdreadcsv(fname_sel_log, self.root_mprog_lfc, verbose=verbose)
+            df_cpm = pdreadcsv(fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
+            dfg_filt  = pdreadcsv(fname_log_filt, self.root_mprog_lfc, verbose=verbose)
+
+            self.df_sel = df_sel
+            self.df_cpm = df_cpm
+            self.dfg_filt = dfg_filt
+
+            df_pca = pdreadcsv(fname_pca, self.root_mprog_lfc, verbose=verbose)  
+            df_umap = pdreadcsv(fname_umap, self.root_mprog_lfc, verbose=verbose)  
+            df_hca = pdreadcsv(fname_hca, self.root_mprog_lfc, verbose=verbose)
+            df_all_sign = pdreadcsv(fname_all_sign, self.root_mprog_lfc, verbose=verbose)
+            df_sig_sign = pdreadcsv(fname_sig_sign, self.root_mprog_lfc, verbose=verbose)
+
+            self.df_pca = df_pca
+            self.df_umap = df_umap
+            self.df_hca = df_hca
+            self.df_all_sign = df_all_sign
+            self.df_sig_sign = df_sig_sign
+
+            df_cluster = pdreadcsv(fname_cluster, self.root_mprog_lfc, verbose=verbose)
+            self.df_cluster = df_cluster
+
+            return df_cluster, df_sel, df_cpm, df_pca, df_umap
+           
+
         print(f"Clustering expression data for group: {group} ...")
         df_sel, df_cpm,  dfg_filt, df_scaled = self.cluster_data(df.drop(columns='biotype'), perc_min_samples, top_n)
 
@@ -5005,25 +5073,26 @@ class GDC(object):
         self.df_cpm = df_cpm
         self.dfg_filt = dfg_filt
         self.df_scaled = df_scaled
-
-        fname = f"{group}_expression_log_CPM_top_{top_n}_genes_all_samples_transposed.tsv"
-        pdwritecsv(df_sel, fname, self.root_mprog_lfc, verbose=verbose)
-
+        
+        _ = pdwritecsv(df_sel, fname_sel_log, self.root_mprog_lfc, verbose=verbose)
+        _ = pdwritecsv(df_cpm, fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
+        _ = pdwritecsv(dfg_filt, fname_log_filt, self.root_mprog_lfc, verbose=verbose)
 
         print(f"Calc CPM ...")
         dfc_log = np.log2(df_cpm + 1)
         self.dfc_log = dfc_log
 
-        gene_annot = (
+        df_gene_annot = (
             dfg_filt[["geneid", "symbol"]]
             .drop_duplicates()
             .reset_index(drop=True)
         )
-        self.gene_annot = gene_annot
+        self.df_gene_annot = df_gene_annot
 
         print(f"Calc PCA ...")
         df_pca = self.calc_PCA(df_scaled, n_components=n_components, verbose=verbose)
         self.df_pca = df_pca
+        _ = pdwritecsv(df_pca, fname_pca, self.root_mprog_lfc, verbose=verbose)
 
         print(f"Calc best cluster ...")
         df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
@@ -5032,25 +5101,23 @@ class GDC(object):
 
         print(f"Calc PCA-UMAP ...")
         df_umap = self.calc_PCA_UMAP(df_pca=df_pca, df_samp_clusters=df_samp_clusters, n_neighbors=n_umap_neighbors, min_dist=min_umap_dist, metric=umap_metric)
-        self.gene_annot = gene_annot
+        self.df_umap = df_umap
+        _ = pdwritecsv(df_umap, fname_umap, self.root_mprog_lfc, verbose=verbose)        
 
         df_hca = self.cut_HCA_PCA(df_pca=df_pca, method=method_hca, n_clusters=n_clusters, criterion=hca_criterion, verbose=verbose)
         self.df_hca = df_hca
-
-        fname = f"clusters_{n_clusters}_for_{group}_samples.tsv"
-        pdwritecsv(df_hca, fname, self.root_mprog_lfc, verbose=verbose)
+        _ = pdwritecsv(df_hca, fname_hca, self.root_mprog_lfc, verbose=verbose)
 
         print(f"Find clusters' signature genes ...")
-        dfall, dfsig = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, gene_annot=gene_annot)
+        dfall, dfsig = self.find_cluster_signature_genes(df_logcpm=dfc_log, df_samp_clusters=df_hca, df_gene_annot=df_gene_annot)
         self.dfall = dfall
         self.dfsig = dfsig
 
-        fname = f"{group}_clusters_{n_clusters}_signatures_up_down_DEGs.tsv"
-        pdwritecsv(dfall, fname, self.root_mprog_lfc)
+        pdwritecsv(dfall, fname_all_sign, self.root_mprog_lfc)
+        pdwritecsv(dfsig, fname_sig_sign, self.root_mprog_lfc)
 
         df_cluster = self.write_clusters(dfall, dfsig, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
         self.df_cluster = df_cluster
-
 
         #-------------------- genes and  unique genes ------------------------
         print(f"Unique signature genes ...")
@@ -5091,6 +5158,8 @@ class GDC(object):
             df_cluster.loc[df_cluster['ncluster'] == nclu, 'unique_genes'] = "; ".join(uniq_list)
 
         self.df_cluster = df_cluster
+        _ = pdwritecsv(df_cluster, fname_cluster, self.root_mprog_lfc, verbose=verbose)
+
         print(f"\n-------------- end ------------------\n")
 
         return df_cluster, df_sel, df_cpm, df_pca, df_umap
