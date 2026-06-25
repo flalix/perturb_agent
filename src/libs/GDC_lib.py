@@ -5043,6 +5043,17 @@ class GDC(object):
             self.df_cpm = df_cpm
             self.dfg_filt = dfg_filt
 
+            #------------- calc CPM ------------------
+            dfc_log = np.log2(df_cpm + 1)
+            self.dfc_log = dfc_log
+
+            df_gene_annot = (
+                dfg_filt[["geneid", "symbol"]]
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
+            self.df_gene_annot = df_gene_annot
+
             df_pca = pdreadcsv(fname_pca, self.root_mprog_lfc, verbose=verbose)  
             df_umap = pdreadcsv(fname_umap, self.root_mprog_lfc, verbose=verbose)  
             df_hca = pdreadcsv(fname_hca, self.root_mprog_lfc, verbose=verbose)

@@ -50,6 +50,9 @@ dependencies = [
     "mygene>=3.2",
     "duckdb",
     "pybiopax",
+    "combat",
+    "scanpy",
+    "anndata",
 
     # Plotting
     "matplotlib>=3.8,<3.10",
