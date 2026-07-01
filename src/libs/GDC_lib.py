@@ -25,6 +25,7 @@ from typing import Any, Iterable, List, Optional, Tuple
 
 import scanpy as sc
 from anndata import AnnData
+from inmoose.limma import lmFit, eBayes, topTable, makeContrasts, contrasts_fit
 
 from scipy.stats import hypergeom, ttest_ind, zscore
 from sklearn.cluster import KMeans
@@ -46,7 +47,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-from libs.Basic import create_dir, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
+from libs.Basic import create_dir, isint, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
 from libs.calc_degs_lib import CALC_DEGS
 from libs.stat_lib import fdr
 from project_context_GDC import load_project_context
@@ -70,7 +71,6 @@ class GDC(object):
         self.disease_id, self.psi_or_gdc_project_id = '', ''
         self.disease_type = ''
         self.disease_name = ''
-
         
         self.root0 = Path(root0)
         self.root_src   =  create_dir(self.root0, 'src')
@@ -137,7 +137,7 @@ class GDC(object):
         self.root_lfc = Path()
         self.root_mutations = Path()
 
-        self.GENE_COLS = ["geneid", "symbol", "biotype"]
+        self.ANNOT_COLS = ["geneid", "symbol", "biotype"]
 
         self.clean_gdc_files()
 
@@ -145,10 +145,10 @@ class GDC(object):
         self.fname_all_samples = "%s_summ_samples.tsv"
         self.fname_all_mutations = "%s_summ_mutations.tsv"
 
-        self.fname_lfc_ori = "lfc_ori_%s_for_cluster_%d.tsv"
-        self.fname_lfc = "lfc_%s_for_cluster_%d.tsv"
-        self.fname_degs_txt = "degs_%s_for_cluster_%d.txt"
-        self.fname_msg = "message_%s_for_cluster_%d.txt"
+        self.fname_lfc_ori = "lfc_ori_%s_method_%s_cluster_%d.tsv"
+        self.fname_lfc = "lfc_%s_method_%s_cluster_%d.tsv"
+        self.fname_degs_txt = "degs_%s_method_%s_cluster_%d.txt"
+        self.fname_msg = "message_%s_method_%s_cluster_%d.txt"
 
         
         ctx = load_project_context( )
@@ -1669,7 +1669,7 @@ class GDC(object):
     def get_common_gene_list(self, dic_tum_norm: dict, isel_list: List[int], min_fraction: float = 0.75) -> np.ndarray:
         df_list = []
 
-        cols = ["geneid", "symbol", "biotype", "counts"]
+        cols = self.ANNOT_COLS + ["counts"]
 
         keys = list(dic_tum_norm.keys())
 
@@ -1719,8 +1719,8 @@ class GDC(object):
         df_tumor = pd.DataFrame()
         df_normal = pd.DataFrame()
 
-        cols = ["geneid", "symbol", "biotype", "counts"]
-        common_cols = ["geneid", "symbol", "biotype"]        
+        cols = self.ANNOT_COLS + ["counts"]
+        common_cols = self.ANNOT_COLS    
         
         # ----------- Normal tissue ----------------
         if len(dic_normal) == 0:
@@ -3583,7 +3583,7 @@ class GDC(object):
         cols = list(df_gtex_ctrl.columns)[2:]
 
         # df_gtex_ctrl["biotype"] = "protein_coding"
-        # _gtex_ctrl = df_gtex_ctrl[self.GENE_COLS + cols]
+        # _gtex_ctrl = df_gtex_ctrl[self.ANNOT_COLS + cols]
 
         _ = [
             df_gtex_ctrl.rename(columns={cols[i]: f"normal_{i + 1}"}, inplace=True)
@@ -3688,12 +3688,12 @@ class GDC(object):
         cols = df_lfc0.columns.to_list()
 
         commons =  ["geneid"]
-        tum_cols = ["geneid", "symbol", "biotype"]
+        tum_cols = self.ANNOT_COLS
 
         # biotype can be loose: biotypes come from df_tumor
         df_lfc0 = pd.merge(df_lfc0, df_tumor[tum_cols], on=commons, how="inner")
 
-        cols2 = ["geneid", "symbol", "biotype"] + cols[1:]
+        cols2 = self.ANNOT_COLS + cols[1:]
         df_lfc0 = df_lfc0[cols2]
 
         # print("\n-------------------------")
@@ -3742,10 +3742,10 @@ class GDC(object):
             print(f"No tumor expression data found for {self.psi_or_gdc_project_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        fname_lfc = self.fname_lfc % (self.psi_id, ncluster)
-        fname_lfc_ori = self.fname_lfc_ori % (self.psi_id, ncluster)
-        fname_degs_txt = self.fname_degs_txt % (self.psi_id, ncluster)
-        fname_msg = self.fname_msg % (self.psi_id, ncluster)
+        fname_lfc = self.fname_lfc % (self.psi_id, method, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.psi_id, method, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (self.psi_id, method, ncluster)
+        fname_msg = self.fname_msg % (self.psi_id, method, ncluster)
 
         filename_lfc = root_lfc / fname_lfc
         filename_lfc_ori = root_lfc / fname_lfc_ori
@@ -3771,43 +3771,56 @@ class GDC(object):
 
         # geneid, symbol, biotype, samples
         min_N_cols = 3 + 3
-        if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
-            msg = "Error: Normal samples and GTEx control do not have enough samples."
-            return pd.DataFrame(), pd.DataFrame(), "", msg
 
-        df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+        if df_gtex_ctrl.empty:
+            if df_normal.shape[1] < min_N_cols:
+                msg = "Error: Normal samples do not have enough samples."
+                return pd.DataFrame(), pd.DataFrame(), "", msg
 
-        if df_normal.empty or df_normal.shape[1] < min_N_cols:
-            df_normal2 = self.prepare_gtex(df_gtex_ctrl)
-            df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
-            msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
-        else:
+            df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+
             msg = f"enough normal samples {df_normal.shape[1] - 3}."
             df_normal2 = df_normal
+        else:
+            
+            if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
+                msg = "Error: Normal samples and GTEx control do not have enough samples."
+                return pd.DataFrame(), pd.DataFrame(), "", msg
+
+            df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+
+            if df_normal.empty or df_normal.shape[1] < min_N_cols:
+                df_normal2 = self.prepare_gtex(df_gtex_ctrl)
+                df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+                msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
+            else:
+                msg = f"enough normal samples {df_normal.shape[1] - 3}."
+                df_normal2 = df_normal
 
         msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
 
         df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
         self.df_tumor = df_tumor
 
+        has_error = False
+
         if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
-            print("Error: Tumor expression data has fewer than 3 samples.")
-            return pd.DataFrame(), pd.DataFrame(), "", ""
+            msg += "\nError: Tumor expression data has fewer than 3 samples."
+            has_error = True
 
         if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
-            print("Error: Normal expression data has fewer than 3 samples.")
-            return pd.DataFrame(), pd.DataFrame(), "", ""
+            msg += "\nError: Normal expression data has fewer than 3 samples."
+            has_error = True
+
+        if has_error:
+            print(msg)
+            return pd.DataFrame(), pd.DataFrame(), "", msg
 
 
         if method == 'limma':
             df_lfc_ori = self.calc_limma_inmoose(
                 df_tumor=df_tumor,
                 df_normal=df_normal2,
-                method=method,
-                manual_dispersion=0.1,
-                min_total_count=10,
-                merge_how="inner",
-                keep_temp=False,
             )
         else:
             df_lfc_ori = cdegs.run_deg_rscript(
@@ -3883,8 +3896,7 @@ class GDC(object):
         #---- normal or control -----------
         dfn_normal = dfn_normal[dfn_normal.geneid.isin(dfc_log.index.to_list())]
 
-        gene_cols = ["geneid", "symbol", "biotype"]
-        sample_cols = [c for c in dfn_normal.columns if c not in gene_cols]
+        sample_cols = [c for c in dfn_normal.columns if c not in self.ANNOT_COLS]
 
         dfn_normal_vals = (
             dfn_normal[sample_cols]
@@ -3913,6 +3925,85 @@ class GDC(object):
 
         return dfn
 
+
+    def prepare_log_expression(self, df_cpm: pd.DataFrame, df_sel:pd.DataFrame, 
+                               dfn_normal: pd.DataFrame, top_n: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+        dfc_log = np.log2(df_cpm + 1)  
+
+        gene_var = dfc_log.var(axis=1)
+
+        top_genes = (
+            gene_var
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index
+        )
+
+        dfc_log = dfc_log.loc[top_genes].copy()
+        print(len(dfc_log))
+        dfc_log.set_index(df_sel.T.index, inplace=True)
+
+        #--------------- Normal -------------------------------
+        dfn_normal2 = dfn_normal[dfn_normal.geneid.isin(dfc_log.index.to_list())]
+
+        sample_cols = [c for c in dfn_normal2.columns if c not in self.ANNOT_COLS]
+
+        dfn_normal3 = (
+            dfn_normal2[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        library_sizes = dfn_normal3.sum(axis=0)
+
+        df_cpm_nor = dfn_normal3.div(library_sizes, axis=1) * 1_000_000
+
+        dfc_log_nor = np.log2(df_cpm_nor + 1)
+        dfc_log_nor.set_index(dfn_normal2.geneid, inplace=True)
+
+        # dfc_log_nor = gdc.remove_to_big_bad_cols_expression(dfc_log_nor, nstd=2, msg='Normal')
+        # dfc_log_nor = gdc.remove_to_little_bad_cols_expression(dfc_log_nor, nstd=3, msg='Normal')
+
+        n_col_tumor = dfc_log.shape[1]
+        n_col_normal = dfc_log_nor.shape[1]
+
+        new_cols = np.arange(n_col_tumor+1, n_col_tumor+1+n_col_normal)
+        dfc_log_nor.columns = new_cols
+
+        return dfc_log, dfc_log_nor
+
+
+    def open_metadata(self, verbose: bool=False, ) -> pd.DataFrame:
+
+        filename = self.root_mprog_lfc / self.fname_metadata
+
+        if filename.exists():
+            df_metadata = pdreadcsv(self.fname_metadata, self.root_mprog_lfc, verbose=verbose)
+        else:
+            print("Warning: could not find file: {filename}")
+            df_metadata = pd.DataFrame()
+
+        return df_metadata
+        
+
+    def open_combat_input_log_cpm(self, verbose: bool=False, ) -> pd.DataFrame:
+
+        filename = self.root_mprog_lfc / self.fname_combat
+
+        if filename.exists():
+            df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+        else:
+            print("Warning: could not find file: {filename}")
+            df_combat = pd.DataFrame()
+
+
+        cols = df_combat.columns
+        cols = [int(x) if isint(x) else x for x in cols]
+
+        df_combat.columns = cols
+
+        return df_combat
+        
 
     def calc_combat_input_log_cpm(self, 
         df_log_cpm: pd.DataFrame,
@@ -3993,6 +4084,7 @@ class GDC(object):
             columns=original_columns,
         )
 
+        df_combat.columns = [int(x) for x in df_combat.columns]
         df_combat.reset_index(inplace=True, names=['geneid'])
         df_combat = pd.merge(df_gene_annot, df_combat, on='geneid', how='inner')
 
@@ -4056,10 +4148,150 @@ class GDC(object):
         plt.show()
 
 
+
+    
+    def prepare_expression_matrix(self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame,) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Combine tumor and normal expression matrices.
+
+        Returns
+        -------
+        expression:
+            Genes × samples numeric expression matrix.
+        genes:
+            Gene annotation table aligned to expression rows.
+        """
+
+        for name, frame in {
+            "df_tumor": df_tumor,
+            "df_normal": df_normal,
+        }.items():
+            missing = set(self.ANNOT_COLS) - set(frame.columns)
+
+            if missing:
+                raise ValueError(
+                    f"{name} is missing annotation columns: {sorted(missing)}"
+                )
+
+        tumor_sample_columns = [
+            col for col in df_tumor.columns
+            if col not in self.ANNOT_COLS
+        ]
+
+        normal_sample_columns = [
+            col for col in df_normal.columns
+            if col not in self.ANNOT_COLS
+        ]
+
+
+        # Align the two frames by gene ID rather than assuming row order
+        tumor  = df_tumor.set_index("geneid")
+        normal = df_normal.set_index("geneid")
+
+        df_exp = pd.concat(
+            [
+                tumor[tumor_sample_columns],
+                normal[normal_sample_columns],
+            ],
+            axis=1,
+        )
+
+        df_exp = df_exp.apply(
+            pd.to_numeric,
+            errors="coerce",
+        )
+
+        if df_exp.isna().any().any():
+            bad = int(df_exp.isna().sum().sum())
+            print( f"The expression matrix contains {bad:,} missing or non-numeric values.")
+            return pd.DataFrame(), pd.DataFrame()
+        
+        if not np.isfinite(df_exp.to_numpy()).all():
+            print("The df_exp contains infinite values.")
+            return pd.DataFrame(), pd.DataFrame()
+
+        annotations = (
+            tumor[["symbol", "biotype"]]
+            .copy()
+            .reset_index()
+        )
+
+        df_exp.index = df_tumor.geneid
+
+        return df_exp, annotations
+
+
     def calc_limma_inmoose(self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame) -> pd.DataFrame:
 
-        log_exp_combat_tumor
-    
+        df_exp, df_annotation = self.prepare_expression_matrix(
+                        df_tumor=df_tumor,
+                        df_normal=df_normal,
+                    )
+        
+        tumor_samples = [
+            col for col in df_tumor.columns
+            if col not in self.ANNOT_COLS
+        ]
+
+        normal_samples = [
+            col for col in df_normal.columns
+            if col not in self.ANNOT_COLS
+        ]
+
+        metadata = pd.DataFrame(
+            {
+                "group": (
+                    ["Tumor"] * len(tumor_samples)
+                    + ["Normal"] * len(normal_samples)
+                )
+            },
+            index=tumor_samples + normal_samples,
+        )
+
+        metadata = metadata.loc[df_exp.columns]
+
+        design = pd.DataFrame(
+                    {
+                        "Normal": metadata["group"].eq("Normal").astype(float),
+                        "Tumor": metadata["group"].eq("Tumor").astype(float),
+                    },
+                    index=metadata.index,
+                )
+        
+        fit = lmFit( df_exp, design)
+
+        contrast_matrix = makeContrasts(
+            contrasts=["Tumor-Normal"],
+            levels=design,
+        )
+
+        fit_contrasted = contrasts_fit(
+            fit,
+            contrasts=contrast_matrix,
+        )
+
+        # InMoose supports trend=True for logCPM-like data and calculates moderated statistics through empirical-Bayes variance shrinkage.
+        fit_bayes = eBayes(
+            fit_contrasted,
+            trend=True,
+            robust=True,
+        )
+
+
+        gene_annotations = df_annotation.copy()
+        gene_annotations.index = df_annotation.index
+
+        results = topTable(
+            fit_bayes,
+            coef=0,
+            number=np.inf,
+            genelist=gene_annotations,
+            adjust_method="fdr_bh",
+            sort_by="P",
+        )
+
+        df_lfc_ori = results.reset_index(drop=True)
+
         return df_lfc_ori
 
 
