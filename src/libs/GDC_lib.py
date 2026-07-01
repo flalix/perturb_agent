@@ -6,6 +6,7 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
+from importlib_metadata import metadata
 import numpy as np
 import pandas as pd
 import requests
@@ -22,6 +23,8 @@ from pathlib import Path
 from tabnanny import verbose
 from typing import Any, Iterable, List, Optional, Tuple
 
+import scanpy as sc
+from anndata import AnnData
 
 from scipy.stats import hypergeom, ttest_ind, zscore
 from sklearn.cluster import KMeans
@@ -95,6 +98,8 @@ class GDC(object):
         self.fname_sig_sign = f"sig_sign_%d_clusters_%s_signatures_up_down_DEGs.tsv"
 
         self.fname_cluster = f"cluster_%d_clusters_for_%s_samples_LFC_%f_FDR_%f.tsv"
+
+        self.fname_combat = 'combat_log_exp_tumor_and_normal.tsv'
 
         self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
         self.df_gdc_to_gtex = pd.DataFrame()
@@ -3792,15 +3797,27 @@ class GDC(object):
             print("Error: Normal expression data has fewer than 3 samples.")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        df_lfc_ori = cdegs.run_deg_rscript(
-            df_tumor=df_tumor,
-            df_normal=df_normal2,
-            method=method,
-            manual_dispersion=0.1,
-            min_total_count=10,
-            merge_how="inner",
-            keep_temp=False,
-        )
+
+        if method == 'limma':
+            df_lfc_ori = self.calc_limma_inmoose(
+                df_tumor=df_tumor,
+                df_normal=df_normal2,
+                method=method,
+                manual_dispersion=0.1,
+                min_total_count=10,
+                merge_how="inner",
+                keep_temp=False,
+            )
+        else:
+            df_lfc_ori = cdegs.run_deg_rscript(
+                df_tumor=df_tumor,
+                df_normal=df_normal2,
+                method=method,
+                manual_dispersion=0.1,
+                min_total_count=10,
+                merge_how="inner",
+                keep_temp=False,
+            )
 
         # print(">>> columns:", df_lfc_ori.columns.tolist())
  
@@ -3829,6 +3846,220 @@ class GDC(object):
         _ = write_txt(msg, fname_msg, root_lfc)
 
         return df_lfc, df_lfc_ori, degs_txt, msg
+
+
+    def calc_cpm_merge_turmor_and_normal(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
+                                         n_tumor_clusters:int=10, n_components:int = 10,
+                                         n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
+                                         min_clusters:int = 6, max_clusters:int = 12,
+                                         method_hca:str="ward", hca_criterion:str="maxclust",
+                                         LFC_cutoff:int=1, FDR_cutoff:float = 0.05,
+                                         perc_min_samples:float=0.25, top_n:int=10_000,
+                                         force: bool = False, verbose: bool = False) -> pd.DataFrame:
+
+        df_cluster, df_sel, df_cpm, df_pca, df_umap = self.cluster_expression_data_group(dfn_tumor, 
+                                                        group='Tumor', n_clusters=n_tumor_clusters, 
+                                                        n_components=n_components, min_clusters=min_clusters, max_clusters=max_clusters,
+                                                        n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
+                                                        method_hca=method_hca, hca_criterion=hca_criterion,
+                                                        LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
+                                                        perc_min_samples=perc_min_samples, top_n=top_n,
+                                                        force=force, verbose=verbose)
+
+        dfc_log = np.log2(df_cpm + 1)  
+        gene_var = dfc_log.var(axis=1)
+
+        top_genes = (
+            gene_var
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index
+        )
+
+        dfc_log = dfc_log.loc[top_genes].copy()
+        dfc_log.set_index(df_sel.T.index, inplace=True)
+
+        #---- normal or control -----------
+        dfn_normal = dfn_normal[dfn_normal.geneid.isin(dfc_log.index.to_list())]
+
+        gene_cols = ["geneid", "symbol", "biotype"]
+        sample_cols = [c for c in dfn_normal.columns if c not in gene_cols]
+
+        dfn_normal_vals = (
+            dfn_normal[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        library_sizes = dfn_normal_vals.sum(axis=0)
+
+        df_cpm_nor = dfn_normal_vals.div(library_sizes, axis=1) * 1_000_000
+
+        dfc_log_nor = np.log2(df_cpm_nor + 1)
+
+        dfc_log_nor.set_index(dfn_normal.geneid, inplace=True)
+
+        # dfc_log_nor = gdc.remove_to_big_bad_cols_expression(dfc_log_nor, nstd=2, msg='Normal')
+        # dfc_log_nor = gdc.remove_to_little_bad_cols_expression(dfc_log_nor, nstd=3, msg='Normal')
+
+        n_col_tumor = dfc_log.shape[1]
+        n_col_normal = dfc_log_nor.shape[1]
+
+        new_cols_normal = np.arange(n_col_tumor+1, n_col_tumor+1+n_col_normal)
+        dfc_log_nor.columns = new_cols_normal
+
+        dfn = pd.merge(dfc_log, dfc_log_nor, left_index=True, right_index=True, how='inner')
+
+        return dfn
+
+
+    def calc_combat_input_log_cpm(self, 
+        df_log_cpm: pd.DataFrame,
+        df_metadata: pd.DataFrame,
+        df_gene_annot: pd.DataFrame,
+        batch_col="dataset",
+        covariates=None,
+        force: bool=False, verbose: bool=False,
+    ) -> pd.DataFrame:
+
+        filename = self.root_mprog / self.fname_combat
+
+        if filename.exists() and not force:
+            df_combat = pdreadcsv(self.fname_combat, self.root_mprog, verbose=verbose)
+            return df_combat
+
+        df_log_cpm = df_log_cpm.copy()
+        df_metadata = df_metadata.copy()
+        covariates = covariates or []
+
+        original_columns = df_log_cpm.columns.copy()
+
+        missing_samples = df_log_cpm.columns.difference(df_metadata.index)
+
+        if len(missing_samples) > 0:
+            print(
+                f"Samples missing from df_metadata: "
+                f"{missing_samples[:10].tolist()}"
+            )
+            return pd.DataFrame()
+
+        df_metadata = df_metadata.loc[df_log_cpm.columns].copy()
+
+        df_log_cpm = df_log_cpm.apply(pd.to_numeric, errors="coerce")
+
+        if df_log_cpm.isna().any().any():
+            print( "Expression contains missing or non-numeric values." )
+            return pd.DataFrame()
+
+        keep_genes = df_log_cpm.var(axis=1) > 0
+        expression_filtered = df_log_cpm.loc[keep_genes]
+
+        print(
+            f"ComBat input: {expression_filtered.shape[0]:,} genes × {expression_filtered.shape[1]:,} samples"
+        )
+        print(
+            f"Removed {(~keep_genes).sum():,} zero-variance genes."
+        )
+
+        adata = AnnData(
+            X=expression_filtered.T.to_numpy(dtype=np.float64),
+            obs=df_metadata.copy(),
+            var=pd.DataFrame(index=expression_filtered.index),
+        )
+
+        adata.obs[batch_col] = (
+            adata.obs[batch_col].astype("category")
+        )
+
+        for covariate in covariates:
+            if pd.api.types.is_numeric_dtype(
+                adata.obs[covariate]
+            ):
+                adata.obs[covariate] = (
+                    adata.obs[covariate].astype(float)
+                )
+
+        corrected_array = sc.pp.combat(
+            adata,
+            key=batch_col,
+            covariates=covariates or None,
+            inplace=False,
+        )
+
+        df_combat = pd.DataFrame(
+            corrected_array.T,
+            index=expression_filtered.index,
+            columns=original_columns,
+        )
+
+        df_combat.reset_index(inplace=True, names=['geneid'])
+        df_combat = pd.merge(df_gene_annot, df_combat, on='geneid', how='inner')
+
+        _ = pdwritecsv(df_combat, self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+
+        return df_combat
+    
+    def plot_boxplot_combat(self, df_combat: pd.DataFrame, 
+                            title: str = "ComBat Corrected Expression across samples", figsize=(16, 6)):
+        
+        fig, ax = plt.subplots(figsize=figsize)
+
+        df_combat.boxplot(
+            ax=ax,
+            grid=False,
+            showfliers=False,
+        )
+
+        ax.set_title(title)
+        ax.set_xlabel("Samples")
+        ax.set_ylabel("log2(expression + 1)")
+        ax.tick_params(axis="x", labelbottom=False)
+
+        plt.tight_layout()
+        plt.show()        
+
+
+
+
+    def plot_pca_expression(self, 
+        df_logexp: pd.DataFrame,
+        df_metadata: pd.DataFrame,
+        color_col:str,
+        title:str,
+        figsize:tuple=(12,8)
+    ):
+        metadata_aligned = df_metadata.loc[df_logexp.columns]
+
+        X = df_logexp.T.to_numpy()
+
+        coordinates = PCA(n_components=2).fit_transform(X)
+
+        _, ax = plt.subplots(figsize=figsize)
+
+        for group in metadata_aligned[color_col].unique():
+            mask = metadata_aligned[color_col].eq(group).to_numpy()
+
+            ax.scatter(
+                coordinates[mask, 0],
+                coordinates[mask, 1],
+                label=str(group),
+                alpha=0.7,
+                s=35,
+            )
+
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
+        ax.set_title(title)
+        ax.legend(title=color_col, bbox_to_anchor=(1.02, 1))
+        plt.tight_layout()
+        plt.show()
+
+
+    def calc_limma_inmoose(self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame) -> pd.DataFrame:
+
+        log_exp_combat_tumor
+    
+        return df_lfc_ori
 
 
     def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
