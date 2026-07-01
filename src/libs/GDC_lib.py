@@ -100,6 +100,7 @@ class GDC(object):
         self.fname_cluster = f"cluster_%d_clusters_for_%s_samples_LFC_%f_FDR_%f.tsv"
 
         self.fname_combat = 'combat_log_exp_tumor_and_normal.tsv'
+        self.fname_metadata = 'metadata_tumor_and_normal.tsv'
 
         self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
         self.df_gdc_to_gtex = pd.DataFrame()
@@ -3922,10 +3923,10 @@ class GDC(object):
         force: bool=False, verbose: bool=False,
     ) -> pd.DataFrame:
 
-        filename = self.root_mprog / self.fname_combat
+        filename = self.root_mprog / self.root_mprog_lfc
 
         if filename.exists() and not force:
-            df_combat = pdreadcsv(self.fname_combat, self.root_mprog, verbose=verbose)
+            df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
             return df_combat
 
         df_log_cpm = df_log_cpm.copy()
