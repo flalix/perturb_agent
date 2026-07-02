@@ -6,11 +6,9 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-from importlib_metadata import metadata
 import numpy as np
 import pandas as pd
 import requests
-# from fileinput import filename
 import json
 import os
 import re
@@ -80,7 +78,9 @@ class GDC(object):
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
-        self.root_mprog_lfc = create_dir(self.root_mprog, "lfc")
+        self.root_mprog_disease = Path()
+        self.root_mprog_lfc = Path()
+
 
         self.fname_tumor = f"expression_tumor_counts_all_samples.tsv"
         self.fname_normal = f"expression_normal_counts_all_samples.tsv"
@@ -430,6 +430,10 @@ class GDC(object):
         self.disease_id = row.disease_id
         self.gdc_project_id = row.gdc_project_id
         self.cbioportal_study_id = row.cbioportal_study_id
+
+        self.root_mprog_disease = create_dir(self.root_mprog, self.disease_id)
+        self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
+
 
         df2 = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
         if df2.empty:
@@ -3861,37 +3865,45 @@ class GDC(object):
 
         return df_lfc, df_lfc_ori, degs_txt, msg
 
-
-    def calc_cpm_merge_turmor_and_normal(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
-                                         n_tumor_clusters:int=10, n_components:int = 10,
-                                         n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
-                                         min_clusters:int = 6, max_clusters:int = 12,
-                                         method_hca:str="ward", hca_criterion:str="maxclust",
-                                         LFC_cutoff:int=1, FDR_cutoff:float = 0.05,
-                                         perc_min_samples:float=0.25, top_n:int=10_000,
-                                         force: bool = False, verbose: bool = False) -> pd.DataFrame:
-
-        df_cluster, df_sel, df_cpm, df_pca, df_umap = self.cluster_expression_data_group(dfn_tumor, 
-                                                        group='Tumor', n_clusters=n_tumor_clusters, 
-                                                        n_components=n_components, min_clusters=min_clusters, max_clusters=max_clusters,
-                                                        n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
-                                                        method_hca=method_hca, hca_criterion=hca_criterion,
-                                                        LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
-                                                        perc_min_samples=perc_min_samples, top_n=top_n,
-                                                        force=force, verbose=verbose)
-
-        dfc_log = np.log2(df_cpm + 1)  
-        gene_var = dfc_log.var(axis=1)
-
-        top_genes = (
-            gene_var
-            .sort_values(ascending=False)
-            .head(top_n)
-            .index
+    def calc_cpm_merge_turmor_and_normal_batch_correction(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
+                                                          perc_min_samples:float=0.25, top_n:int=10_000,
+                                                          force: bool = False, verbose: bool = False) -> pd.DataFrame:
+        
+        dfn, df_gene_annot = self.calc_cpm_merge_turmor_and_normal(dfn_tumor=dfn_tumor, dfn_normal=dfn_normal, 
+                                                                   perc_min_samples=perc_min_samples, top_n=top_n,
+                                                                   force=force, verbose=verbose)
+        
+        df_gene_annot = dfn[self.ANNOT_COLS]
+        
+        df_combat = self.calc_combat_input_log_cpm(
+            df_log_cpm=dfn,
+            df_gene_annot=df_gene_annot,
+            batch_col="dataset",
+            covariates=["condition_numeric"],
+            force=force,
+            verbose=verbose,
         )
 
-        dfc_log = dfc_log.loc[top_genes].copy()
-        dfc_log.set_index(df_sel.T.index, inplace=True)
+        self.df_combat = df_combat
+
+        return df_combat
+        
+
+    def calc_cpm_merge_turmor_and_normal(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
+                                         perc_min_samples:float=0.25, top_n:int=10_000,
+                                         force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+        '''
+            calc_cpm_merge_turmor_and_normal()
+                calc_expression_and_batch()
+                    transform_data
+                        calc_cpm_and_filter_data
+        '''
+
+        df_sel, df_cpm, df_gene_annot = self.calc_expression_and_batch(df=dfn_tumor, group='Tumor', 
+                                                           perc_min_samples=perc_min_samples, top_n=top_n,
+                                                           force=force, verbose=verbose)
+
+        dfc_log = np.log2(df_cpm + 1)
 
         #---- normal or control -----------
         dfn_normal = dfn_normal[dfn_normal.geneid.isin(dfc_log.index.to_list())]
@@ -3912,9 +3924,6 @@ class GDC(object):
 
         dfc_log_nor.set_index(dfn_normal.geneid, inplace=True)
 
-        # dfc_log_nor = gdc.remove_to_big_bad_cols_expression(dfc_log_nor, nstd=2, msg='Normal')
-        # dfc_log_nor = gdc.remove_to_little_bad_cols_expression(dfc_log_nor, nstd=3, msg='Normal')
-
         n_col_tumor = dfc_log.shape[1]
         n_col_normal = dfc_log_nor.shape[1]
 
@@ -3923,7 +3932,7 @@ class GDC(object):
 
         dfn = pd.merge(dfc_log, dfc_log_nor, left_index=True, right_index=True, how='inner')
 
-        return dfn
+        return dfn, df_gene_annot
 
 
     def prepare_log_expression(self, df_cpm: pd.DataFrame, df_sel:pd.DataFrame, 
@@ -3961,9 +3970,6 @@ class GDC(object):
         dfc_log_nor = np.log2(df_cpm_nor + 1)
         dfc_log_nor.set_index(dfn_normal2.geneid, inplace=True)
 
-        # dfc_log_nor = gdc.remove_to_big_bad_cols_expression(dfc_log_nor, nstd=2, msg='Normal')
-        # dfc_log_nor = gdc.remove_to_little_bad_cols_expression(dfc_log_nor, nstd=3, msg='Normal')
-
         n_col_tumor = dfc_log.shape[1]
         n_col_normal = dfc_log_nor.shape[1]
 
@@ -3982,6 +3988,8 @@ class GDC(object):
         else:
             print("Warning: could not find file: {filename}")
             df_metadata = pd.DataFrame()
+
+        self.df_metadata = df_metadata
 
         return df_metadata
         
@@ -4007,7 +4015,6 @@ class GDC(object):
 
     def calc_combat_input_log_cpm(self, 
         df_log_cpm: pd.DataFrame,
-        df_metadata: pd.DataFrame,
         df_gene_annot: pd.DataFrame,
         batch_col="dataset",
         covariates=None,
@@ -4021,7 +4028,7 @@ class GDC(object):
             return df_combat
 
         df_log_cpm = df_log_cpm.copy()
-        df_metadata = df_metadata.copy()
+        df_metadata = self.df_metadata
         covariates = covariates or []
 
         original_columns = df_log_cpm.columns.copy()
@@ -4112,16 +4119,13 @@ class GDC(object):
         plt.show()        
 
 
-
-
     def plot_pca_expression(self, 
         df_logexp: pd.DataFrame,
-        df_metadata: pd.DataFrame,
         color_col:str,
         title:str,
         figsize:tuple=(12,8)
     ):
-        metadata_aligned = df_metadata.loc[df_logexp.columns]
+        metadata_aligned = self.df_metadata.loc[df_logexp.columns].copy()
 
         X = df_logexp.T.to_numpy()
 
@@ -4350,7 +4354,78 @@ class GDC(object):
 
         return self.gtex_id, self.gtex_tissue_ids
 
-    def cluster_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
+
+    def calc_cpm_and_filter_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
+                                 top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        ### Data treatment
+
+        1. get raw dfc
+        2. filter low-expression genes
+        3. normalize for library size
+        4. variance-stabilizing transformation
+        5. select most variable genes
+        6. cluster samples into k = 3..8 groups
+        7. evaluate clusters
+        8. find gene dfsig for each cluster
+
+        A low-expression gene can be biologically important and even differentially expressed, especially if it is a transcription factor, cytokine, receptor, lncRNA, or rare-cell marker.
+
+        But for unsupervised tumor clustering, we usually do not want thousands of genes with mostly zero/very low counts because they add noise and unstable distances.        
+        """
+
+        sample_cols = [c for c in df.columns if c not in self.ANNOT_COLS]
+
+        dfc = (
+            df[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        dfg = df[self.ANNOT_COLS].copy()
+
+        dfc.index = df["geneid"]
+
+        # filter low-count genes
+        min_samples = int(perc_min_samples * len(sample_cols))
+
+        print(f"sample_cols {len(sample_cols)} and min_samples")
+
+        keep = list ((dfc >= 10).sum(axis=1) >= min_samples)
+
+        dfc_filt = dfc.loc[keep]
+        dfg_filt = dfg.loc[keep]
+
+        # normalize by library size
+
+        library_sizes = dfc_filt.sum(axis=0)
+
+        df_cpm = dfc_filt.div(library_sizes, axis=1) * 1_000_000
+        self.df_cpm = df_cpm
+
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        # Select most variable genes
+        gene_var = dfc_log.var(axis=1)
+
+        top_genes = (
+            gene_var
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index
+        )
+
+        df_sel = dfc_log.loc[top_genes].T.copy()
+        self.df_sel = df_sel
+
+        return df_sel, df_cpm,  dfg_filt
+    
+    def xxxxx(self,):
+        return
+
+
+    def transform_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
                      top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray]:
         
         df_sel, df_cpm,  dfg_filt = self.calc_cpm_and_filter_data(df, perc_min_samples, top_n)
@@ -4521,74 +4596,6 @@ class GDC(object):
 
         return df_samp_clust_hc
     
-
-    def calc_cpm_and_filter_data(self, df: pd.DataFrame, perc_min_samples: float = 0.25, 
-                                 top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        ### Data treatment
-
-        1. get raw dfc
-        2. filter low-expression genes
-        3. normalize for library size
-        4. variance-stabilizing transformation
-        5. select most variable genes
-        6. cluster samples into k = 3..8 groups
-        7. evaluate clusters
-        8. find gene dfsig for each cluster
-
-        A low-expression gene can be biologically important and even differentially expressed, especially if it is a transcription factor, cytokine, receptor, lncRNA, or rare-cell marker.
-
-        But for unsupervised tumor clustering, we usually do not want thousands of genes with mostly zero/very low counts because they add noise and unstable distances.        
-        """
-
-        gene_cols = ["geneid", "symbol"]
-        sample_cols = [c for c in df.columns if c not in gene_cols]
-
-        dfc = (
-            df[sample_cols]
-            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
-            .fillna(0)                              # NaN -> 0
-        ).copy()
-
-        dfg = df[gene_cols].copy()
-
-        dfc.index = df["geneid"]
-
-        # filter low-count genes
-        min_samples = int(perc_min_samples * len(sample_cols))
-
-        print(f"sample_cols {len(sample_cols)} and min_samples")
-
-        keep = list ((dfc >= 10).sum(axis=1) >= min_samples)
-
-        dfc_filt = dfc.loc[keep]
-        dfg_filt = dfg.loc[keep]
-
-        # normalize by library size
-
-        library_sizes = dfc_filt.sum(axis=0)
-
-        df_cpm = dfc_filt.div(library_sizes, axis=1) * 1_000_000
-        self.df_cpm = df_cpm
-
-        dfc_log = np.log2(df_cpm + 1)
-        self.dfc_log = dfc_log
-
-        # Select most variable genes
-        gene_var = dfc_log.var(axis=1)
-
-        top_genes = (
-            gene_var
-            .sort_values(ascending=False)
-            .head(top_n)
-            .index
-        )
-
-        df_sel = dfc_log.loc[top_genes].T.copy()
-        self.df_sel = df_sel
-
-        return df_sel, df_cpm,  dfg_filt
-
 
     def find_cluster_signature_genes(self, 
         df_logcpm: np.ndarray,
@@ -5277,21 +5284,34 @@ class GDC(object):
         df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
         dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
 
+        for ipsi, row in dfa.iterrows():
+            prog_id = row.prog_id
+
+            if prog_id in exclude_prog_list:
+                continue
+
+            psi_id = row.psi_id
+            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+            ret = self.set_primary_site(psi_id = psi_id)
+            break
+
         filename_tumor = self.root_mprog_lfc / self.fname_tumor  
         filename_normal = self.root_mprog_lfc / self.fname_normal
         filename_gtex = self.root_mprog_lfc / self.fname_gtex
-        filename_summ = self.root_mprog_lfc / self.fname_summ  
+        filename_summ = self.root_mprog_lfc / self.fname_summ
+        filename_meta = self.root_mprog_lfc / self.fname_metadata
 
         if filename_tumor.exists() and filename_normal.exists() and \
-        filename_gtex.exists() and filename_summ.exists() and not force:
+           filename_gtex.exists() and filename_summ.exists() and filename_meta.exists() and not force:
             
             dfn_tumor = pdreadcsv(self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
             dfn_normal = pdreadcsv(self.fname_normal, self.root_mprog_lfc, verbose=verbose)
             df_gtex_ctrl = pdreadcsv(self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
-            df_ana = pdreadcsv(self.fname_summ, self.root_mprog_lfc, verbose=verbose)
+            df_summ = pdreadcsv(self.fname_summ, self.root_mprog_lfc, verbose=verbose)
 
-            return dfn_tumor, dfn_normal, df_gtex_ctrl, df_ana
+            _ = self.open_metadata()
 
+            return dfn_tumor, dfn_normal, df_gtex_ctrl, df_summ
 
         dic = {}
         dfn_tumor, dfn_normal = pd.DataFrame(), pd.DataFrame()
@@ -5309,11 +5329,11 @@ class GDC(object):
             disease_id = row.disease_id
             primary_site = row.primary_site
 
-            print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id}", end=" ")
-
             _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
 
             ret = self.set_primary_site(psi_id = psi_id)
+
+            print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id} - {self.root_lfc}", end=" ")
 
             if not ret:
                 print(f"Error: failed to set primary site for {prog_id} {psi_id}")
@@ -5343,9 +5363,10 @@ class GDC(object):
                 dic[ipsi]['psi_id'] = psi_id
                 dic[ipsi]['disease_id'] = disease_id
                 dic[ipsi]['primary_site'] = primary_site
+                dic[ipsi]['n_tumors'] = df_tumor.shape[1] - 3
+                dic[ipsi]['n_normals'] = df_normal.shape[1] - 3
 
-                # print(f"{prog_id} {psi_id} : Tumor samples: {df_tumor.shape[1]}, Normal samples: {df_normal.shape[1]}, GTEx controls: {df_gtex_ctrl.shape[1]}\n")
-
+                print(">>>", psi_id, df_tumor.shape, df_normal.shape)
 
         stri = f"There are {dfn_tumor.shape[1]-3} tumor samples and {dfn_normal.shape[1]-3} control samples merging studies"
         print(stri)
@@ -5365,19 +5386,86 @@ class GDC(object):
         dfn_normal.columns = cols
 
         #-- controls must be homogeneous
-        dfn_normal = self.remove_to_big_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
-        dfn_normal = self.remove_to_little_bad_cols_expression(dfn_normal, nstd=3, msg='Normal')
+        dfn_normal2 = self.remove_to_big_bad_cols_expression(dfn_normal.copy(), nstd=3, msg='Normal')
+        dfn_normal2 = self.remove_to_little_bad_cols_expression(dfn_normal2, nstd=3, msg='Normal')
 
-        pdwritecsv(dfn_tumor, self.fname_tumor, self.root_mprog_lfc, verbose=True)
-        pdwritecsv(dfn_normal, self.fname_normal, self.root_mprog_lfc, verbose=True)
-        pdwritecsv(df_gtex_ctrl, self.fname_gtex, self.root_mprog_lfc, verbose=True)
+        cols_normal_ini  = set(dfn_normal.columns.tolist()[3:])
+        cols_normal2_ini = set(dfn_normal2.columns.tolist()[3:])
 
-        df_ana = pd.DataFrame(dic).T
-        pdwritecsv(df_ana, self.fname_summ, self.root_mprog_lfc, verbose=True)
+        del_normal_list = list(cols_normal_ini-cols_normal2_ini)
 
-        return dfn_tumor, dfn_normal, df_gtex_ctrl, df_ana
+        dfn_normal2.columns = dfn_normal2.columns.tolist()[:3] + list(np.arange(1, dfn_normal2.shape[1]-2))
+
+        pdwritecsv(dfn_tumor, self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
+        pdwritecsv(dfn_normal2, self.fname_normal, self.root_mprog_lfc, verbose=verbose)
+        pdwritecsv(df_gtex_ctrl, self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
+
+        df_summ = pd.DataFrame(dic).T
+        pdwritecsv(df_summ, self.fname_summ, self.root_mprog_lfc, verbose=verbose)
+
+        #----------- build metadata -------------------
+        _ = self.build_metadata(dic, del_normal_list, verbose=verbose)        
+
+        return dfn_tumor, dfn_normal, df_gtex_ctrl, df_summ
 
 
+    def build_metadata(self, dic: dict, del_normal_list: list=[], verbose: bool=False) -> pd.DataFrame:
+        total_tumor_count = 0
+        total_normal_count = 0
+        psi_tumor_list = []
+        psi_normal_list = []
+
+        ini = 1
+        for _, dic2 in dic.items():
+            tumor_count = dic2['n_tumors']
+            normal_count = dic2['n_normals']
+
+            end = ini + normal_count
+
+            psi_id = dic2['psi_id']
+
+            if tumor_count > 0:
+                total_tumor_count += tumor_count
+                psi_tumor_list += [psi_id] * tumor_count
+
+            if normal_count > 0:
+                lista = np.arange(ini, end)
+
+                how_many_in = [x for x in del_normal_list if x in lista]
+
+                if how_many_in != []:
+                    normal_count -= len(how_many_in)
+
+                if normal_count > 0:
+                    total_normal_count += normal_count
+                    psi_normal_list += [psi_id] * normal_count
+
+            
+            ini = end
+
+        # print(">>> total", total_tumor_count, len(psi_tumor_list), total_normal_count, len(psi_normal_list))
+        df_metadata = pd.DataFrame(
+            {
+                "condition": (
+                    ["tumor"] * total_tumor_count +
+                    ["normal"] * total_normal_count
+                ),
+                "dataset": (
+                    psi_tumor_list +
+                    psi_normal_list
+                ),
+            },
+            index=[int(x) for x in np.arange(1, total_tumor_count + total_normal_count + 1)],
+        )
+
+        df_metadata["condition_numeric"] = (
+            df_metadata["condition"].eq("tumor").astype(float)
+        )
+    
+        _ = pdwritecsv(df_metadata, self.fname_metadata, self.root_mprog_lfc, verbose=verbose)   
+        self.df_metadata = df_metadata
+
+        return df_metadata
 
     def remove_to_big_bad_cols_expression(self, df: pd.DataFrame, nstd: int=2, msg: str=""):
         cols = list(df.columns)
@@ -5429,9 +5517,9 @@ class GDC(object):
                                 perc_min_samples: float = 0.25, top_n: int = 10_000, 
                                 verbose: bool = False) -> dict:
         
-        dfn_tumor, dfn_normal, dic = self.get_all_data_from_disease(disease_id=disease_id, 
-                                    imax_tumor=imax_tumor, imax_normal=imax_normal,
-                                    exclude_prog_list=exclude_prog_list, verbose=verbose)
+        dfn_tumor, dfn_normal, df_gtex_ctrl, df_summ = self.get_all_data_from_disease(disease_id=disease_id, 
+                                                                imax_tumor=imax_tumor, imax_normal=imax_normal,
+                                                                exclude_prog_list=exclude_prog_list, verbose=verbose)
 
         dic = {}
         for group in ['tumor', 'normal']:
@@ -5443,14 +5531,10 @@ class GDC(object):
                 n_clusters = n_cluster_normal
 
 
-            df_cluster, df_sel, df_cpm, df_pca, df_umap = self.cluster_expression_data_group(df, group=group, n_clusters=n_clusters, 
-                                                                                             n_components=n_components, min_clusters=min_clusters, max_clusters=max_clusters,
-                                                                                             n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
-                                                                                             method_hca=method_hca, hca_criterion=hca_criterion,
-                                                                                             LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
-                                                                                             perc_min_samples=perc_min_samples, top_n=top_n, verbose=verbose
-                                                                                             )
-            
+            df_sel, df_cpm, df_gene_annot = self.calc_expression_and_batch(df=dfn_tumor, group='Tumor', 
+                                                            perc_min_samples=perc_min_samples, top_n=top_n,
+                                                            force=False, verbose=verbose)
+          
             dic[group] = {}
             dic[group]['df'] = df
             dic[group]['df_cluster'] = df_cluster
@@ -5461,13 +5545,77 @@ class GDC(object):
 
         return dic
 
-    def cluster_expression_data_group(self, df: pd.DataFrame, group: str, n_clusters:int, 
-                                      n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
-                                      n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
-                                      method_hca:str = "ward", hca_criterion:str = "maxclust",
-                                      LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
-                                      perc_min_samples: float = 0.25, top_n: int = 10_000, 
-                                      force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def calc_expression_and_batch(self, df: pd.DataFrame, group: str, 
+                                      perc_min_samples: float = 0.25, 
+                                      top_n: int = 10_000, force: bool = False, 
+                                      verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        
+        fname_sel_log = self.fname_sel_log % (group, top_n)
+        fname_log_cpm = self.fname_log_cpm % (group, top_n)
+        fname_log_filt = self.fname_log_filt % (group, top_n)
+
+        filename_sel_log = self.root_mprog_lfc /fname_sel_log
+        filename_log_cpm = self.root_mprog_lfc /fname_log_cpm
+        filename_log_filt = self.root_mprog_lfc /fname_log_filt
+
+        if filename_sel_log.exists() and filename_log_cpm.exists() and \
+           filename_log_filt.exists() and  not force:
+
+            df_sel = pdreadcsv(fname_sel_log, self.root_mprog_lfc, verbose=verbose)
+            df_cpm = pdreadcsv(fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
+            dfg_filt  = pdreadcsv(fname_log_filt, self.root_mprog_lfc, verbose=verbose)
+
+            self.df_sel = df_sel
+            self.df_cpm = df_cpm
+            self.dfg_filt = dfg_filt
+
+            #------------- calc CPM ------------------
+            dfc_log = np.log2(df_cpm + 1)
+            self.dfc_log = dfc_log
+
+            df_gene_annot = (
+                dfg_filt[self.ANNOT_COLS]
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
+            self.df_gene_annot = df_gene_annot
+
+            return df_sel, df_cpm, df_gene_annot
+           
+
+        print(f"Transforming expression data for group: {group} ...")
+        df_sel, df_cpm, dfg_filt, df_scaled = self.transform_data(df, perc_min_samples, top_n)
+
+        #------------- calc CPM ------------------
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        df_gene_annot = (
+            dfg_filt[self.ANNOT_COLS]
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+        self.df_gene_annot = df_gene_annot
+        
+        self.df_sel = df_sel
+        self.df_cpm = df_cpm
+        self.dfg_filt = dfg_filt
+        self.df_scaled = df_scaled
+        
+        _ = pdwritecsv(df_sel, fname_sel_log, self.root_mprog_lfc, verbose=verbose)
+        _ = pdwritecsv(df_cpm, fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
+        _ = pdwritecsv(dfg_filt, fname_log_filt, self.root_mprog_lfc, verbose=verbose)
+
+        return df_sel, df_cpm, df_gene_annot
+
+
+    def cluster_PCA_HCA_UMAP(self, df: pd.DataFrame, group: str, n_clusters:int, 
+                            n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
+                            n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
+                            method_hca:str = "ward", hca_criterion:str = "maxclust",
+                            LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
+                            perc_min_samples: float = 0.25, top_n: int = 10_000, 
+                            force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
         fname_sel_log = self.fname_sel_log % (group, top_n)
         fname_log_cpm = self.fname_log_cpm % (group, top_n)
@@ -5541,7 +5689,7 @@ class GDC(object):
            
 
         print(f"Clustering expression data for group: {group} ...")
-        df_sel, df_cpm,  dfg_filt, df_scaled = self.cluster_data(df.drop(columns='biotype'), perc_min_samples, top_n)
+        df_sel, df_cpm,  dfg_filt, df_scaled = self.transform_data(df.drop(columns='biotype'), perc_min_samples, top_n)
 
         self.df_sel = df_sel
         self.df_cpm = df_cpm
@@ -5637,7 +5785,6 @@ class GDC(object):
         print(f"\n-------------- end ------------------\n")
 
         return df_cluster, df_sel, df_cpm, df_pca, df_umap
-
 
 
     def plot_histogram(self, data:List, title:str="Distribution of DEG log2 Fold Changes", bins:int=50,
