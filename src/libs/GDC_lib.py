@@ -3990,6 +3990,8 @@ class GDC(object):
 
         if filename.exists() and not force:
             df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+
+            df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
             return df_combat
 
         df_metadata = self.df_metadata
@@ -4060,6 +4062,8 @@ class GDC(object):
         df_combat.reset_index(inplace=True, names=['geneid'])
         df_combat = pd.merge(df_gene_annot, df_combat, on='geneid', how='inner')
 
+        df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
+
         _ = pdwritecsv(df_combat, self.fname_combat, self.root_mprog_lfc, verbose=verbose)
 
         return df_combat
@@ -4085,38 +4089,61 @@ class GDC(object):
 
 
     def plot_pca_expression(self, 
-        df_logexp: pd.DataFrame,
-        color_col:str,
+        dfn: pd.DataFrame,
+        conditions: Any,
         title:str,
         figsize:tuple=(12,8)
     ):
-        metadata_aligned = self.df_metadata.loc[df_logexp.columns].copy()
 
-        X = df_logexp.T.to_numpy()
+        sample_cols = [c for c in dfn.columns if c not in self.ANNOT_COLS]
+        dfn = dfn[sample_cols].copy()
 
+        metadata_aligned = self.df_metadata.loc[dfn.columns].copy()
+
+        X = dfn.T.to_numpy()
         coordinates = PCA(n_components=2).fit_transform(X)
 
         _, ax = plt.subplots(figsize=figsize)
 
-        for group in metadata_aligned[color_col].unique():
-            mask = metadata_aligned[color_col].eq(group).to_numpy()
+        if isinstance(conditions, list) and len(conditions) > 1:
+            for group0 in metadata_aligned[conditions[0]].unique():
+                for group1 in metadata_aligned[conditions[1]].unique():
 
-            ax.scatter(
-                coordinates[mask, 0],
-                coordinates[mask, 1],
-                label=str(group),
-                alpha=0.7,
-                s=35,
-            )
+                    mask = metadata_aligned[conditions[0]].eq(group0) & metadata_aligned[conditions[1]].eq(group1)
+
+                    if np.sum(mask==True) == 0: continue
+
+                    ax.scatter(
+                        coordinates[mask, 0],
+                        coordinates[mask, 1],
+                        label=str(group0 + " - " + group1),
+                        alpha=0.7,
+                        s=35,
+                    )
+        else:
+            if isinstance(conditions, list):
+                col = conditions[0]
+            else:
+                col = conditions
+
+            for group in metadata_aligned[col].unique():
+
+                mask = metadata_aligned[col].eq(group)
+
+                ax.scatter(
+                    coordinates[mask, 0],
+                    coordinates[mask, 1],
+                    label=str(group),
+                    alpha=0.7,
+                    s=35,
+                )
 
         ax.set_xlabel("PC1")
         ax.set_ylabel("PC2")
         ax.set_title(title)
-        ax.legend(title=color_col, bbox_to_anchor=(1.02, 1))
+        ax.legend(title=f"Conditions {conditions}", bbox_to_anchor=(1.02, 1))
         plt.tight_layout()
         plt.show()
-
-
 
     
     def prepare_expression_matrix(self, df_tumor: pd.DataFrame, df_normal: pd.DataFrame,) -> tuple[pd.DataFrame, pd.DataFrame]:
