@@ -4522,7 +4522,7 @@ class GDC(object):
         Z = linkage(df_pca, method=method)
 
         plt.figure(figsize=figsize)
-        dendrogram(Z, labels=self.dfn.columns.to_list().tolist(), leaf_rotation=90)
+        dendrogram(Z, labels=self.dfn.columns.to_list(), leaf_rotation=90)
         plt.title(f"PCA Hierarchical clustering of {group} samples")
         plt.tight_layout()
         plt.show()
@@ -4585,7 +4585,7 @@ class GDC(object):
         sample_col: str = "sample",
         cluster_col: str = "cluster",
         lfc_cutoff: float = 1.0,
-        fdr_cutoff=0.05,
+        fdr_cutoff: float = 0.05,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Find marker/signature genes for each cluster.
@@ -4602,30 +4602,31 @@ class GDC(object):
 
         df_list = []
 
-        for cluster_id in sorted(df_samp_clusters[cluster_col].unique()):
+        lista = np.unique(df_samp_clusters[cluster_col])
+        for cluster_id in lista:
 
-            in_samples  = df_samp_clusters.loc[df_samp_clusters[cluster_col] == cluster_id, sample_col].tolist()
-            out_samples = df_samp_clusters.loc[df_samp_clusters[cluster_col] != cluster_id, sample_col].tolist()
+            in_samples  = np.array(df_samp_clusters.loc[df_samp_clusters[cluster_col] == cluster_id, sample_col])
+            out_samples = np.array(df_samp_clusters.loc[df_samp_clusters[cluster_col] != cluster_id, sample_col])
 
             # keep only samples present in expression matrix
-            in_samples  = [s for s in in_samples  if s in df_mat.columns]
-            out_samples = [s for s in out_samples if s in df_mat.columns]
+            in_samples  = [s for s in in_samples  if s in df_mat.index.to_list()]
+            out_samples = [s for s in out_samples if s in df_mat.index.to_list()]
 
             if len(in_samples) < 2 or len(out_samples) < 2:
                 print(f"Skipping cluster {cluster_id}: too few samples")
                 continue
 
-            df_mean_in = df_mat[in_samples].mean(axis=1)
-            df_mean_out = df_mat[out_samples].mean(axis=1)
+            df_mean_in = df_mat.loc[in_samples].mean(axis=0)
+            df_mean_out = df_mat.loc[out_samples].mean(axis=0)
 
             df_lfc_ori = df_mean_in - df_mean_out
 
             pvals = []
 
-            for geneid in df_mat.index:
-                stat, p = ttest_ind(
-                    df_mat.loc[geneid, in_samples],
-                    df_mat.loc[geneid, out_samples],
+            for geneid in df_mat.columns.tolist():
+                _, p = ttest_ind(
+                    df_mat.loc[in_samples, geneid],
+                    df_mat.loc[out_samples, geneid],
                     equal_var=False,
                     nan_policy="omit",
                 )
@@ -4634,7 +4635,7 @@ class GDC(object):
             fdr = multipletests(pvals, method="fdr_bh")[1]
 
             df_res = pd.DataFrame({
-                "geneid": df_mat.index,
+                "geneid": df_mat.columns.tolist(),
                 "cluster": cluster_id,
                 "n_in": len(in_samples),
                 "n_out": len(out_samples),
@@ -4645,8 +4646,8 @@ class GDC(object):
                 "fdr": fdr,
             })
 
-            if df_gene_annot is not None:
-                df_res = df_res.merge(df_gene_annot, on="geneid", how="left")
+            if self.df_gene_annot is not None:
+                df_res = df_res.merge(self.df_gene_annot, on="geneid", how="left")
 
             df_res = df_res.sort_values(
                 ["lfc", "fdr"],
@@ -4927,7 +4928,7 @@ class GDC(object):
             print(gtex_id)
             term = " - ".join(gtex_id.split('_')[:2])
             print("term", term)
-            df_gtex_meta = mtd.gdc.df_gtex_meta
+            df_gtex_meta = mtd.self.df_gtex_meta
 
             df2 = df_gtex_meta[df_gtex_meta["SMTSD"].str.startswith(term)]
             print(len(df2))
