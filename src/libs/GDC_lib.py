@@ -96,6 +96,7 @@ class GDC(object):
         self.fname_hca = f"hca_%d_clusters_for_%s_samples.tsv"
         self.fname_all_sign = f"all_sign_%d_clusters_%s_signatures_up_down_DEGs.tsv"
         self.fname_sig_sign = f"sig_sign_%d_clusters_%s_signatures_up_down_DEGs.tsv"
+        self.fname_best_eval = f"best_eval_%d_clusters_%s.tsv"
 
         self.fname_cluster = f"cluster_%d_clusters_for_%s_samples_LFC_%f_FDR_%f.tsv"
 
@@ -4669,7 +4670,7 @@ class GDC(object):
 
 
     def write_clusters(self, dfall: pd.DataFrame, dfsig: pd.DataFrame,
-                       LFC_cutoff: float = 1, FDR_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
+                       n_clusters: int, LFC_cutoff: float = 1, FDR_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
     
         lista = np.unique(dfall.cluster)
         dic = {}; icount=-1
@@ -4683,11 +4684,12 @@ class GDC(object):
             icount += 1
             dic[icount] = {}
             dic2 = dic[icount]
+            dic2['n_clusters'] = n_clusters
             dic2['ncluster'] = ncluster
             dic2['ngenes'] = len(df2)
             dic2['genes'] = np.unique(df2.symbol)
 
-            fname = f"cluster_{ncluster}_{self.psi_or_gdc_project_id}_signature_genes_using_LFC_{LFC_cutoff}_FDR_{FDR_cutoff}.txt"
+            fname = f"cluster_{ncluster}_from_{n_clusters}_{self.psi_or_gdc_project_id}_signature_genes_using_LFC_{LFC_cutoff}_FDR_{FDR_cutoff}.txt"
             write_txt(s_genes, fname, self.root_mprog_lfc)
 
             if verbose:
@@ -5558,6 +5560,7 @@ class GDC(object):
         fname_hca = self.fname_hca % (n_clusters, group)
         fname_all_sign = self.fname_all_sign % (n_clusters, group)
         fname_sig_sign = self.fname_sig_sign % (n_clusters, group)
+        fname_best_eval = self.fname_best_eval % (n_clusters, group)
 
         fname_cluster = self.fname_cluster % (n_clusters, group, LFC_cutoff, FDR_cutoff)
 
@@ -5608,6 +5611,7 @@ class GDC(object):
         df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
         self.df_eval = df_eval
         self.df_samp_clusters = df_samp_clusters
+        _ = pdwritecsv(df_eval, fname_best_eval, self.root_mprog_lfc, verbose=verbose)        
 
         print(f"Calc PCA-UMAP ...")
         df_umap = self.calc_PCA_UMAP(df_pca=df_pca, df_samp_clusters=df_samp_clusters, n_neighbors=n_umap_neighbors, min_dist=min_umap_dist, metric=umap_metric)
@@ -5626,7 +5630,7 @@ class GDC(object):
         pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc)
         pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc)
 
-        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, n_clusters=n_clusters, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
         self.df_cluster = df_cluster
 
         #-------------------- genes and  unique genes ------------------------
