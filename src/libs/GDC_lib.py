@@ -16,6 +16,7 @@ import time
 import math
 import random
 import warnings
+from datetime import datetime
 from collections import Counter
 from pathlib import Path
 from tabnanny import verbose
@@ -123,6 +124,9 @@ class GDC(object):
         self.fname_exp_normal = 'expression_normal_for_%s.tsv'
         self.fname_exp_gtex = 'expression_gtex_for_%s.tsv'
 
+        self.remove_biotype_list = ['Mt_rRNA', 'Mt_tRNA', 'TEC', 'TR_V_gene', 'lncRNA', 'misc_RNA',
+       'rRNA_pseudogene', 'scaRNA', 'snRNA', 'snoRNA',]
+        
         # GTEx control - per tissue
         self.df_gtex_ctrl = pd.DataFrame()
         self.df_meta_prep = pd.DataFrame()
@@ -149,6 +153,8 @@ class GDC(object):
         self.fname_lfc_ori = "lfc_ori_%s_method_%s_cluster_%d.tsv"
         self.fname_lfc = "lfc_%s_method_%s_cluster_%d.tsv"
         self.fname_degs_txt = "degs_%s_method_%s_cluster_%d.txt"
+        self.fname_degs2000 = "degs_first_2000_%s_method_%s_cluster_%d_biotype_filter.txt"
+        self.fname_text_AI = "anlysis_degs_%s_method_%s_cluster_%d.txt"        
         self.fname_msg = "message_%s_method_%s_cluster_%d.txt"
 
         
@@ -467,7 +473,7 @@ class GDC(object):
             print(">> primary_site:", self.primary_site)
             print(">> disease_id:", self.disease_id)
             print(">> disease_type:", self.disease_type)
-            print(f">> disease_{s_name}:", self.disease_name)
+            print(">> disease:", self.disease_name)
             print("\n-----------------------------")
             print(">> root disease:", self.root_disease)
             print(">> root samples:", self.root_samples)
@@ -3719,7 +3725,6 @@ class GDC(object):
         df_normal: pd.DataFrame,
         df_gtex_ctrl: pd.DataFrame,
         root_src: Path = Path('.'),
-        root_lfc: Path = Path('.'),
         run_conda: bool = False,
         lfc_cutoff: float = 1.0,
         fdr_cutoff: float = 0.05,
@@ -3728,10 +3733,7 @@ class GDC(object):
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
         
-        if root_lfc is None or root_lfc == '.':
-            print(f"Please define a root_lfc")
-            return pd.DataFrame(), pd.DataFrame(), "", ""
-        
+       
         _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
 
         ret = self.set_primary_site(psi_id = psi_id)
@@ -3752,22 +3754,22 @@ class GDC(object):
         fname_degs_txt = self.fname_degs_txt % (self.psi_id, method, ncluster)
         fname_msg = self.fname_msg % (self.psi_id, method, ncluster)
 
-        filename_lfc = root_lfc / fname_lfc
-        filename_lfc_ori = root_lfc / fname_lfc_ori
-        # filename_degs_txt = root_lfc / fname_degs_txt
-        # filename_sample_txt = root_lfc / fname_msg
+        filename_lfc = self.root_mprog_lfc / fname_lfc
+        filename_lfc_ori = self.root_mprog_lfc / fname_lfc_ori
+        # filename_degs_txt = self.root_mprog_lfc / fname_degs_txt
+        # filename_sample_txt = self.root_mprog_lfc / fname_msg
 
         if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
-            df_lfc_ori = pdreadcsv(fname_lfc_ori, root_lfc, verbose=verbose)
-            df_lfc = pdreadcsv(fname_lfc, root_lfc, verbose=verbose)
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_mprog_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, self.root_mprog_lfc, verbose=verbose)
             
             try:
-                degs_txt = read_txt(fname_degs_txt, root_lfc, verbose=verbose)
+                degs_txt = read_txt(fname_degs_txt, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
                 degs_txt = ''
 
             try:
-                sample_txt = read_txt(fname_msg, root_lfc, verbose=verbose)
+                sample_txt = read_txt(fname_msg, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
                 sample_txt = ''
 
@@ -3821,22 +3823,15 @@ class GDC(object):
             print(msg)
             return pd.DataFrame(), pd.DataFrame(), "", msg
 
-
-        if method == 'limma':
-            df_lfc_ori = self.calc_limma_inmoose(
-                df_tumor=df_tumor,
-                df_normal=df_normal2,
-            )
-        else:
-            df_lfc_ori = cdegs.run_deg_rscript(
-                df_tumor=df_tumor,
-                df_normal=df_normal2,
-                method=method,
-                manual_dispersion=0.1,
-                min_total_count=10,
-                merge_how="inner",
-                keep_temp=False,
-            )
+        df_lfc_ori = cdegs.run_deg_rscript(
+            df_tumor=df_tumor,
+            df_normal=df_normal2,
+            method=method,
+            manual_dispersion=0.1,
+            min_total_count=10,
+            merge_how="inner",
+            keep_temp=False,
+        )
 
         # print(">>> columns:", df_lfc_ori.columns.tolist())
  
@@ -3856,13 +3851,13 @@ class GDC(object):
         df_lfc.reset_index(drop=True, inplace=True)
         self.df_lfc = df_lfc
 
-        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, root_lfc)
-        _ = pdwritecsv(df_lfc, fname_lfc, root_lfc)
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_mprog_lfc)
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_mprog_lfc)
 
         degs_txt = "\n".join(df_lfc.symbol)
-        _ = write_txt(degs_txt, fname_degs_txt, root_lfc)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_mprog_lfc)
 
-        _ = write_txt(msg, fname_msg, root_lfc)
+        _ = write_txt(msg, fname_msg, self.root_mprog_lfc)
 
         return df_lfc, df_lfc_ori, degs_txt, msg
 
@@ -4147,10 +4142,180 @@ class GDC(object):
         plt.show()
 
     
-    def calc_limma_inmoose(self, ncluster:int) -> pd.DataFrame:
+    def calc_limma_inmoose(self, prog_id: str, psi_id: str, ncluster: int,
+                           lfc_cutoff: float = 1.0, fdr_cutoff: float = 0.05,
+                           force: bool = False, verbose: bool = False
+                           ) -> tuple[pd.DataFrame, pd.DataFrame, str, str, str, str]:
+        '''
+        input: given a number of the many clusters
+
+        df_hca is table having smaplex x cluster
+        therefore, one can obtain the many desired samples for this cluster
+
+        control samples can be recovered using df_metadata
+        df_metadata is compatible with df_combat and df_hca
+
+        '''
+
+        method = "limma_inmoose"
+
+        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+        ret = self.set_primary_site(psi_id = psi_id)
+
+        if not ret:
+            msg = f"Error: failed to set primary site for {prog_id} {psi_id}"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
 
-        return df_lfc_ori
+        fname_lfc = self.fname_lfc % (self.psi_id, method, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.psi_id, method, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (self.psi_id, method, ncluster)
+        fname_degs2000 = self.fname_degs2000 % (self.psi_id, method, ncluster)
+        fname_text_AI = self.fname_text_AI % (self.psi_id, method, ncluster)
+        fname_msg = self.fname_msg % (self.psi_id, method, ncluster)
+
+
+        filename_lfc = self.root_mprog_lfc / fname_lfc
+        filename_lfc_ori = self.root_mprog_lfc / fname_lfc_ori
+        # filename_degs_txt = self.root_mprog_lfc / fname_degs_txt
+        # filename_sample_txt = self.root_mprog_lfc / fname_msg
+
+        if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_mprog_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, self.root_mprog_lfc, verbose=verbose)
+            
+            try:
+                degs_txt = read_txt(fname_degs_txt, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_txt = ''
+
+            try:
+                degs_first2000 = read_txt(fname_degs2000, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_first2000 = ''
+
+            try:
+                degs_for_AI_analysis = read_txt(fname_text_AI, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_for_AI_analysis = ''
+
+            msg = 'Data read.'
+
+            return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
+        
+        msg = f'Starting calc_limma_inmoose, date-time {datetime.now()}'
+
+        dfa = self.df_hca[self.df_hca.cluster == ncluster]
+        if dfa.empty:
+            msg = f"Error: {ncluster} has no samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+
+        normal_samples = self.df_metadata[self.df_metadata.condition == 'normal'].index.to_list()
+
+        sample_list = dfa['sample']
+        sample_list = [x for x in sample_list if x not in normal_samples]
+
+        if sample_list == [ ]:
+            msg = f"Error: {ncluster} has only control samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+        
+        if len(sample_list) < 3:
+            msg = f"Error: {ncluster} has only {len(sample_list)} samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+
+        msg += f"\nCluster {ncluster} has {len(sample_list)} samples"
+
+        sel_cols = list(sample_list) + list(normal_samples)
+
+        df_combat_nclu = self.df_combat[sel_cols].copy()
+        df_combat_nclu.index = self.df_combat.geneid
+
+        df_meta_exp = pd.DataFrame(
+            {
+                "group": (
+                    ["Tumor"] * len(sample_list) +
+                    ["Normal"] * len(normal_samples)
+                )
+            },
+            index=list(sample_list) + list(normal_samples),
+        )
+
+        df_meta_exp = df_meta_exp.loc[df_combat_nclu.columns]
+
+        # Intercept + binary tumor coefficient
+        # Normal is the reference condition
+        design = pd.DataFrame(
+            {
+                "Intercept": 1.0,
+                "Tumor_vs_Normal": (
+                    df_meta_exp["group"].eq("Tumor").astype(float)
+                ),
+            },
+            index=df_meta_exp.index,
+        )
+
+        assert df_combat_nclu.columns.equals(design.index)
+
+        fit = lmFit(df_combat_nclu, design)
+
+        # InMoose supports trend=True for logCPM-like data and calculates moderated statistics through empirical-Bayes variance shrinkage.
+        coefficient_names = ["Intercept", "Tumor_vs_Normal"]
+
+        fit.coefficients.columns = coefficient_names
+        fit.stdev_unscaled.columns = coefficient_names
+
+        fit_bayes = eBayes(
+            fit,
+            trend=True,
+            robust=False,
+        )
+
+        results = topTable(
+            fit_bayes,
+            coef="Tumor_vs_Normal",
+            number=df_combat_nclu.shape[0],
+            adjust_method="fdr_bh",
+            sort_by="P",
+        )
+
+        df_lfc_ori = pd.DataFrame(
+            data=results.to_numpy(copy=True),
+            index=results.index.copy(),
+            columns=results.columns.copy(),
+        )
+
+        df_lfc_ori = pd.merge(df_lfc_ori, self.df_combat[self.ANNOT_COLS], how="inner", on='geneid')
+
+        cols = ['geneid', 'lfc', 'lfcSE', 'ave_expr', 'stat', 'pvalue', 'fdr', 'B', 'symbol', 'biotype']
+        df_lfc_ori.columns = cols
+
+        cols = ['geneid', 'symbol', 'biotype', 'lfc', 'abs_lfc', 'lfcSE', 'pvalue', 'fdr', 'ave_expr', 'stat', 'B']
+        df_lfc_ori['abs_lfc'] = df_lfc_ori['lfc'].abs()
+        df_lfc_ori = df_lfc_ori[cols]
+
+        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc.reset_index(drop=True, inplace=True)
+        self.df_lfc = df_lfc
+
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_mprog_lfc)
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_mprog_lfc)
+
+        degs_txt = "\n".join(df_lfc.symbol)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_mprog_lfc)
+
+        df_degs_2000 = df_lfc[ (~df_lfc.biotype.isin(self.remove_biotype_list)) ]
+        lista = df_degs_2000.symbol.to_list()[:2000]
+        degs_first2000 = "\n".join(lista)
+        write_txt(degs_first2000, fname_degs2000, self.root_mprog_lfc)
+
+        lista = [f"{row['geneid']} ({row.symbol}) lfc={row['lfc']}" for i, row in df_lfc.iterrows()]
+        degs_for_AI_analysis = "\n".join(lista)
+        write_txt(degs_for_AI_analysis, fname_text_AI, self.root_mprog_lfc)
+
+        _ = write_txt(msg, fname_msg, self.root_mprog_lfc)
+
+        return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
 
 
     def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
