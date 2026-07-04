@@ -4200,7 +4200,10 @@ class GDC(object):
             except ValueError:
                 degs_for_AI_analysis = ''
 
-            msg = 'Data read.'
+            try:
+                msg = read_txt(fname_msg, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                msg = ''
 
             return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
         
@@ -4216,7 +4219,7 @@ class GDC(object):
         sample_list = dfa['sample']
         sample_list = [x for x in sample_list if x not in normal_samples]
 
-        if sample_list == [ ]:
+        if sample_list == []:
             msg = f"Error: {ncluster} has only control samples"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
         
