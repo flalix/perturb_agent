@@ -157,7 +157,6 @@ class GDC(object):
         self.fname_text_AI = "anlysis_degs_%s_method_%s_cluster_%d.txt"        
         self.fname_msg = "message_%s_method_%s_cluster_%d.txt"
 
-        
         ctx = load_project_context( )
 
         self.SUBTYPE_GENES = ctx.SUBTYPE_GENES
@@ -4312,8 +4311,11 @@ class GDC(object):
         degs_first2000 = "\n".join(lista)
         write_txt(degs_first2000, fname_degs2000, self.root_mprog_lfc)
 
-        lista = [f"{row['geneid']} ({row.symbol}) lfc={row['lfc']}" for i, row in df_lfc.iterrows()]
-        degs_for_AI_analysis = "\n".join(lista)
+        header_lfc = 'ensemblid\t(symbol)\tlfc\n'
+
+        lista = [f"{row['geneid']}\t({row.symbol})\t{row['lfc']:.3f}" for i, row in df_lfc.iterrows()]
+        degs_for_AI_analysis = header_lfc + "\n".join(lista)
+
         write_txt(degs_for_AI_analysis, fname_text_AI, self.root_mprog_lfc)
 
         _ = write_txt(msg, fname_msg, self.root_mprog_lfc)
