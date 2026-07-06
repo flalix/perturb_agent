@@ -1,0 +1,439 @@
+{
+  "n_requested": 1,
+  "records": [
+    {
+      "accession": "GSE149884",
+      "title": "The transcriptome of a murine model of melanoma initiation and progression unravels molecular signatures of phenotype switch and novel independent prognostic factors for melanoma patients",
+      "organism": [
+        "Mus musculus"
+      ],
+      "series_type": [
+        "Expression profiling by high throughput sequencing"
+      ],
+      "status": "Public on Aug 31 2020",
+      "submission_date": "May 05 2020",
+      "last_update_date": "May 25 2022",
+      "summary": "Despite advances in therapeutics, the progression of melanoma to metastasis still confers a poor outcome to patients. Nevertheless, there is a lack of biological models to understand cellular and molecular changes taking place along disease progression. Here, we analyzed the transcriptome of a multi-stage murine model of melanoma progression comprising a non-tumorigenic melanocyte lineage (melan-a), pre-malignant melanocytes (4C), non-metastatic (4C11-) and metastasis-prone (4C11+) melanoma cells. Clustering analyses have grouped the four cell lines according to their differentiated (melan-a and 4C11+) or undifferentiated/\u201cmesenchymal-like\u201d (4C and 4C11-) morphologies, suggesting dynamic gene expression patterns associated with the transition between these phenotypes. The cell plasticity observed in the murine melanoma progression is corroborated by molecular markers described for cell subtypes during human melanoma differentiation, as the differentiated cell lines in our model exhibit upregulation of transitory and melanocytic markers, whereas mesenchymal-like cells show increased expression of markers from undifferentiated and neural crest-like states. Sets of differentially expressed genes (DEGs) were detected at each transition step of tumor progression, and transcriptional signatures related to malignancy, metastasis and epithelial-to-mesenchymal transition were identified. Finally, DEGs were mapped to their human orthologs and subsequently evaluated in uni- and multivariate survival analysis using gene expression and clinical data of 703 drug-na\u00efve primary melanoma patients, revealing several independent candidate prognostic markers. Altogether, these results provide novel insights into the molecular mechanisms underlying the phenotypic switch taking place during melanoma progression, reveal potential drug targets and prognostic biomarkers, and corroborate the translational relevance of this unique sequential model of melanoma progression.",
+      "overall_design": "Total RNA-seq strand-oriented libraries (triplicate) from nonmalignant melanocytes (melan-a), non-tumorigenic pre-malignant melanocytes (4C), non-metastatic melanoma (4C11-)  and metastatic melanoma (4C11+) were pair-sequenced (2 x 100nt) in a Illumina HiSeq 1500 platform.",
+      "pubmed_ids": [
+        "32831131",
+        "33845354",
+        "35075772"
+      ],
+      "platforms": [
+        "GPL18480"
+      ],
+      "n_samples": 11,
+      "samples": [
+        {
+          "accession": "GSM4516333",
+          "title": "melan_rep2",
+          "type": "SRA",
+          "source_name": "melan-a melanocyte lineage",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "nonmalignant melanocytes (melan-a)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516333/suppl/GSM4516333_melan2.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516334",
+          "title": "melan_rep3",
+          "type": "SRA",
+          "source_name": "melan-a melanocyte lineage",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "nonmalignant melanocytes (melan-a)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516334/suppl/GSM4516334_melan3.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516335",
+          "title": "4c_rep1",
+          "type": "SRA",
+          "source_name": "non-tumorigenic pre-malignant melanocytes (4C)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-tumorigenic pre-malignant melanocytes (4C)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516335/suppl/GSM4516335_4c1.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516336",
+          "title": "4c_rep2",
+          "type": "SRA",
+          "source_name": "non-tumorigenic pre-malignant melanocytes (4C)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-tumorigenic pre-malignant melanocytes (4C)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516336/suppl/GSM4516336_4c2.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516337",
+          "title": "4c_rep3",
+          "type": "SRA",
+          "source_name": "non-tumorigenic pre-malignant melanocytes (4C)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-tumorigenic pre-malignant melanocytes (4C)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516337/suppl/GSM4516337_4c3.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516338",
+          "title": "4c11minus_rep1",
+          "type": "SRA",
+          "source_name": "non-metastatic melanoma (4C11-)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-metastatic melanoma (4C11-)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516338/suppl/GSM4516338_4c11minus1.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516339",
+          "title": "4c11minus_rep2",
+          "type": "SRA",
+          "source_name": "non-metastatic melanoma (4C11-)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-metastatic melanoma (4C11-)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516339/suppl/GSM4516339_4c11minus2.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516340",
+          "title": "4c11minus_rep3",
+          "type": "SRA",
+          "source_name": "non-metastatic melanoma (4C11-)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "non-metastatic melanoma (4C11-)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516340/suppl/GSM4516340_4c11minus3.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516341",
+          "title": "4c11plus_rep1",
+          "type": "SRA",
+          "source_name": "metastatic melanoma (4C11+)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "metastatic melanoma (4C11+)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516341/suppl/GSM4516341_4c11plus1.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516342",
+          "title": "4c11plus_rep2",
+          "type": "SRA",
+          "source_name": "metastatic melanoma (4C11+)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "metastatic melanoma (4C11+)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516342/suppl/GSM4516342_4c11plus2.norm.counts.txt.gz"
+          ]
+        },
+        {
+          "accession": "GSM4516343",
+          "title": "4c11plus_rep3",
+          "type": "SRA",
+          "source_name": "metastatic melanoma (4C11+)",
+          "organism": [
+            "Mus musculus"
+          ],
+          "taxid": [
+            "10090"
+          ],
+          "characteristics": [
+            {
+              "tag": "cell type",
+              "value": "metastatic melanoma (4C11+)"
+            }
+          ],
+          "molecule": "total RNA",
+          "library_strategy": "RNA-Seq",
+          "library_source": "transcriptomic",
+          "library_selection": "cDNA",
+          "instrument_model": "Illumina HiSeq 1500",
+          "platform_id": "GPL18480",
+          "supplementary_files": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516343/suppl/GSM4516343_4c11plus3.norm.counts.txt.gz"
+          ]
+        }
+      ],
+      "supplementary_files": {
+        "series": [
+          "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE149nnn/GSE149884/suppl/GSE149884_RAW.tar"
+        ],
+        "samples": {
+          "GSM4516333": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516333/suppl/GSM4516333_melan2.norm.counts.txt.gz"
+          ],
+          "GSM4516334": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516334/suppl/GSM4516334_melan3.norm.counts.txt.gz"
+          ],
+          "GSM4516335": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516335/suppl/GSM4516335_4c1.norm.counts.txt.gz"
+          ],
+          "GSM4516336": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516336/suppl/GSM4516336_4c2.norm.counts.txt.gz"
+          ],
+          "GSM4516337": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516337/suppl/GSM4516337_4c3.norm.counts.txt.gz"
+          ],
+          "GSM4516338": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516338/suppl/GSM4516338_4c11minus1.norm.counts.txt.gz"
+          ],
+          "GSM4516339": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516339/suppl/GSM4516339_4c11minus2.norm.counts.txt.gz"
+          ],
+          "GSM4516340": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516340/suppl/GSM4516340_4c11minus3.norm.counts.txt.gz"
+          ],
+          "GSM4516341": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516341/suppl/GSM4516341_4c11plus1.norm.counts.txt.gz"
+          ],
+          "GSM4516342": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516342/suppl/GSM4516342_4c11plus2.norm.counts.txt.gz"
+          ],
+          "GSM4516343": [
+            "ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4516nnn/GSM4516343/suppl/GSM4516343_4c11plus3.norm.counts.txt.gz"
+          ]
+        },
+        "ftp_root": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE149nnn/GSE149884/"
+      },
+      "esummary": {
+        "uid": "200149884",
+        "accession": "GSE149884",
+        "title": "The transcriptome of a murine model of melanoma initiation and progression unravels molecular signatures of phenotype switch and novel independent prognostic factors for melanoma patients",
+        "summary": "Despite advances in therapeutics, the progression of melanoma to metastasis still confers a poor outcome to patients. Nevertheless, there is a lack of biological models to understand cellular and molecular changes taking place along disease progression. Here, we analyzed the transcriptome of a multi-stage murine model of melanoma progression comprising a non-tumorigenic melanocyte lineage (melan-a), pre-malignant melanocytes (4C), non-metastatic (4C11-) and metastasis-prone (4C11+) melanoma cells. Clustering analyses have grouped the four cell lines according to their differentiated (melan-a and 4C11+) or undifferentiated/\u201cmesenchymal-like\u201d (4C and 4C11-) morphologies, suggesting dynamic gene expression patterns associated with the transition between these phenotypes. The cell plasticity observed in the murine melanoma progression is corroborated by molecular markers described for cell subtypes during human melanoma differentiation, as the differentiated cell lines in our model exhibit upregulation of transitory and melanocytic markers, whereas mesenchymal-like cells show increased expression of markers from undifferentiated and neural crest-like states. Sets of differentially expressed genes (DEGs) were detected at each transition step of tumor progression, and transcriptional signatures related to malignancy, metastasis and epithelial-to-mesenchymal transition were identified. Finally, DEGs were mapped to their human orthologs and subsequently evaluated in uni- and multivariate survival analysis using gene expression and clinical data of 703 drug-na\u00efve primary melanoma patients, revealing several independent candidate prognostic markers. Altogether, these results provide novel insights into the molecular mechanisms underlying the phenotypic switch taking place during melanoma progression, reveal potential drug targets and prognostic biomarkers, and corroborate the translational relevance of this unique sequential model of melanoma progression.",
+        "gdstype": "Expression profiling by high throughput sequencing",
+        "taxon": "Mus musculus",
+        "n_samples": 11,
+        "pdat": "2020/08/31",
+        "suppfile": "TXT",
+        "ftplink": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE149nnn/GSE149884/",
+        "bioproject": "PRJNA630432",
+        "gpl": "18480",
+        "gse": "149884",
+        "pubmedids": [
+          "32831131",
+          "33845354",
+          "35075772"
+        ],
+        "platformtitle": "",
+        "platformtaxa": "",
+        "samplestaxa": "",
+        "entrytype": "GSE",
+        "samples": [
+          {
+            "accession": "GSM4516333",
+            "title": "melan_rep2"
+          },
+          {
+            "accession": "GSM4516334",
+            "title": "melan_rep3"
+          },
+          {
+            "accession": "GSM4516335",
+            "title": "4c_rep1"
+          },
+          {
+            "accession": "GSM4516336",
+            "title": "4c_rep2"
+          },
+          {
+            "accession": "GSM4516337",
+            "title": "4c_rep3"
+          },
+          {
+            "accession": "GSM4516338",
+            "title": "4c11minus_rep1"
+          },
+          {
+            "accession": "GSM4516339",
+            "title": "4c11minus_rep2"
+          },
+          {
+            "accession": "GSM4516340",
+            "title": "4c11minus_rep3"
+          },
+          {
+            "accession": "GSM4516341",
+            "title": "4c11plus_rep1"
+          },
+          {
+            "accession": "GSM4516342",
+            "title": "4c11plus_rep2"
+          },
+          {
+            "accession": "GSM4516343",
+            "title": "4c11plus_rep3"
+          }
+        ]
+      }
+    }
+  ]
+}
