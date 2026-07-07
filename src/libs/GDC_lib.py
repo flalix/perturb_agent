@@ -5337,6 +5337,7 @@ class GDC(object):
             
             dfn_tumor = pdreadcsv(self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
             dfn_normal = pdreadcsv(self.fname_normal, self.root_mprog_lfc, verbose=verbose)
+
             df_gtex_ctrl = pdreadcsv(self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
             df_summ = pdreadcsv(self.fname_summ, self.root_mprog_lfc, verbose=verbose)
 
@@ -5437,7 +5438,7 @@ class GDC(object):
         #----------- build metadata -------------------
         _ = self.build_metadata(dic, del_normal_list, verbose=verbose)        
 
-        return dfn_tumor, dfn_normal, df_gtex_ctrl, df_summ
+        return dfn_tumor, dfn_normal2, df_gtex_ctrl, df_summ
 
 
     def build_metadata(self, dic: dict, del_normal_list: list=[], verbose: bool=False) -> pd.DataFrame:
