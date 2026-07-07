@@ -3866,8 +3866,7 @@ class GDC(object):
         
         dfn, df_gene_annot = self.calc_cpm_merge_turmor_and_normal(dfn_tumor=dfn_tumor, dfn_normal=dfn_normal, 
                                                                    perc_min_samples=perc_min_samples, top_n=top_n,
-                                                                   force=force, verbose=verbose)
-        
+                                                                   verbose=verbose)
         self.dfn = dfn
        
         df_combat = self.calc_combat_input_dfn(
@@ -3886,7 +3885,7 @@ class GDC(object):
 
     def calc_cpm_merge_turmor_and_normal(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
                                          perc_min_samples:float=0.25, top_n:int=10_000,
-                                         force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+                                         verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
         '''
             calc_cpm_merge_turmor_and_normal()
                 calc_expression_and_batch()
@@ -3895,7 +3894,7 @@ class GDC(object):
 
         df_sel, df_cpm, df_gene_annot = self.calc_expression_and_batch(dfn_tumor=dfn_tumor, group='Tumor',
                                                            perc_min_samples=perc_min_samples, top_n=top_n,
-                                                           force=force, verbose=verbose)
+                                                           force=False, verbose=verbose)
         
         self.df_sel = df_sel
         self.df_cpm = df_cpm
@@ -3905,20 +3904,22 @@ class GDC(object):
         self.dfc_log = dfc_log
 
         dfn = df_sel.copy()
+        n_tumor_col = dfn.shape[1]
         dfn.reset_index(inplace=True)
 
         #---- normal or control -------------------------
         #---- get all rows from df_gene_annot - top_n ---
         dfn_normal2 = dfn_normal[dfn_normal.geneid.isin(df_gene_annot.geneid.to_list())].copy()
-        dfc_log_nor = self.normalize_all(dfn_normal2, dfn.shape[1]-1)
+        dfc_log_nor = self.normalize_all(dfn_normal2, n_tumor_col)
  
         dfn = dfn.merge(dfc_log_nor, on="geneid", how="inner")
+        dfn.set_index("geneid", inplace=True)
 
         dfall = self.dfall
-        if dfall.shape[1]-2 != dfn.shape[1]:
+        if dfall.shape[1]-3 != dfn.shape[1]:
             # get all rows from dfall
             dfn_normal2 = dfn_normal[dfn_normal.geneid.isin(dfall.geneid.to_list())].copy()
-            dfc_log_nor = self.normalize_all(dfn_normal2, dfn.shape[1]-1)
+            dfc_log_nor = self.normalize_all(dfn_normal2, n_tumor_col)
                 
             dfall = dfall.merge(dfc_log_nor, on="geneid", how="inner")
             self.dfall = dfall
@@ -4025,19 +4026,19 @@ class GDC(object):
             return pd.DataFrame()
 
         keep_genes = dfn.var(axis=1) > 0
-        expression_filtered = dfn.loc[keep_genes]
+        df_exp_filt = dfn.loc[keep_genes]
 
         print(
-            f"ComBat input: {expression_filtered.shape[0]:,} genes × {expression_filtered.shape[1]:,} samples"
+            f"ComBat input: {df_exp_filt.shape[0]:,} genes × {df_exp_filt.shape[1]:,} samples"
         )
         print(
             f"Removed {(~keep_genes).sum():,} zero-variance genes."
         )
 
         adata = AnnData(
-            X=expression_filtered.T.to_numpy(dtype=np.float64),
+            X=df_exp_filt.T.to_numpy(dtype=np.float64),
             obs=df_metadata.copy(),
-            var=pd.DataFrame(index=expression_filtered.index),
+            var=pd.DataFrame(index=df_exp_filt.index),
         )
 
         adata.obs[batch_col] = (
@@ -4061,7 +4062,7 @@ class GDC(object):
 
         df_combat = pd.DataFrame(
             corrected_array.T,
-            index=expression_filtered.index,
+            index=df_exp_filt.index,
             columns=original_columns,
         )
 
