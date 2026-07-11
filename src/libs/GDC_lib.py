@@ -2367,20 +2367,15 @@ class GDC(object):
         df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
         fname_all_cases = self.fname_all_cases % (self.prog_id)
-        filename_cases = os.path.join(self.root_summary, fname_all_cases)
+        filename_cases = self.root_summary / fname_all_cases
 
         fname_all_samples = self.fname_all_samples % (self.prog_id)
-        filename_samples = os.path.join(self.root_summary, fname_all_samples)
+        filename_samples = self.root_summary / fname_all_samples
 
         fname_all_mutations = self.fname_all_mutations % (self.prog_id)
-        filename_mutations = os.path.join(self.root_summary, fname_all_mutations)
+        filename_mutations = self.root_summary / fname_all_mutations
 
-        if (
-            os.path.exists(filename_cases)
-            and os.path.exists(filename_samples)
-            and os.path.exists(filename_mutations)
-            and not force
-        ):
+        if filename_cases.exists() and filename_samples.exists() and filename_mutations.exists() and not force:
             df_all_cases = pdreadcsv(fname_all_cases, self.root_summary, verbose=verbose)
             df_all_samples = pdreadcsv(fname_all_samples, self.root_summary, verbose=verbose)
             df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary, verbose=verbose)
