@@ -773,7 +773,8 @@ class GDC(object):
                             "diagnoses.primary_diagnosis",
                             "diagnoses.tumor_grade",
                             "diagnoses.ajcc_pathologic_stage",
-                            "diagnoses.ajcc_clinical_stagediagnoses.figo_stage",
+                            "diagnoses.ajcc_clinical_stage",
+                            "diagnoses.figo_stage",
                             "diagnoses.tumor_stage",
                         ]
                     ),
@@ -820,6 +821,14 @@ class GDC(object):
             # ------------ having all hits -------------
 
             df_cases = pd.json_normalize(all_hits)
+
+            df_cases = df_cases.rename(
+                columns={
+                    "submitter_id": "barcode_case",
+                    "project.project_id": "gdc_project_id",
+                }
+            )
+            
             self.df_cases = df_cases
 
             # ------------------- main_diag -------------------------------------------------------
@@ -1276,12 +1285,12 @@ class GDC(object):
 		"""
 
         df_cases = df_cases[
+            (df_cases.primary_site == self.primary_site) & 
             (df_cases.subtype_global == subtype_global) & 
             (df_cases.tumor_class == tumor_class) & 
             (df_cases.subtype_tissue == subtype_tissue)
-        ]
-
-        df_cases = df_cases.copy().reset_index(drop=True)
+        ].copy().reset_index(drop=True)
+        
         self.df_cases = df_cases
 
         if df_cases.empty:
@@ -1378,7 +1387,10 @@ class GDC(object):
                         break
 
                     all_hits.extend(hits)
-                    from_ += size_
+                    from_ += len(hits)
+
+                    if len(all_hits) >= total: 
+                        break
 
                 # print("\n")
 
@@ -1386,6 +1398,7 @@ class GDC(object):
                     print(f"No files were found for {self.psi_or_gdc_project_id} cases {case_id_list}")
                     self.df_samples = pd.DataFrame()
                     return self.df_samples
+                
 
                 # ------------ lost data? ------------------
                 N = len(all_hits)
