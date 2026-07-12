@@ -899,6 +899,14 @@ class GDC(object):
 
         case_ids = np.unique(case_ids)
 
+
+        fname = self.fname_demo % self.psi_id
+        filename = self.root_disease / fname
+
+        if filename.exists() and not force:
+            return pdreadcsv(fname, self.root_disease, verbose=verbose)
+        
+        
         fields = [
             # Case
             "case_id",
@@ -944,13 +952,6 @@ class GDC(object):
             "diagnoses.ajcc_clinical_m",
             "diagnoses.classification_of_tumor",
         ]
-
-
-        fname = self.fname_demo % self.psi_id
-        filename = self.root_disease / fname
-
-        if filename.exists() and not force:
-            return pdreadcsv(fname, self.root_disease, verbose=verbose)
 
         records = []
         icount=-1
