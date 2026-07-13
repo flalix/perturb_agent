@@ -2,7 +2,7 @@
 #!python
 # -*- coding: utf-8 -*-
 # Created on 2026/03/19
-# Udated  on 2026/07/13, 2026/03/20
+# Udated  on 2026/03/20
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
@@ -82,23 +82,6 @@ class GDC(object):
         self.root_mprog_disease = Path()
         self.root_mprog_lfc = Path()
 
-        self.fname_programs = "gdc_programs.txt"
-
-        # primary_site
-        self.fname_prim_site_tcga = "primary_site_program_TCGA.tsv"
-        self.fname_prim_site_cbio = "gdc_to_cbioportal_study_mapping.tsv"
-        self.fname_cases0 = "cases_for_%s.tsv"
-        self.fname_demo0 = 'clinical_and_demographics_for_%s.tsv'
-        self.fname_subtype0 = "subtype_for_%s.tsv"
-        self.fname_samples0 = "samples_for_%s.tsv"
-        self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
-        self.fname_rnaseq_exp = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
-
-        self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
-
-        self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
-        self.fname_mut_anal0 = "mutations_anal_for_%s.tsv"
-        self.fname_mut_summ0 = "mutations_summ_for_%s.tsv"
 
         self.fname_tumor = f"expression_tumor_counts_all_samples.tsv"
         self.fname_normal = f"expression_normal_counts_all_samples.tsv"
@@ -163,9 +146,7 @@ class GDC(object):
 
         self.clean_gdc_files()
 
-
         self.fname_all_cases = "%s_summ_cases.tsv"
-        self.fname_all_clin_demo = "%s_summ_clin_demo.tsv"
         self.fname_all_samples = "%s_summ_samples.tsv"
         self.fname_all_mutations = "%s_summ_mutations.tsv"
 
@@ -193,6 +174,23 @@ class GDC(object):
         self.gdc_data_type = ""
 
         self.s_case = ""
+
+        self.fname_programs = "gdc_programs.txt"
+
+        # primary_site
+        self.fname_prim_site_tcga = "primary_site_program_TCGA.tsv"
+        self.fname_prim_site_cbio = "gdc_to_cbioportal_study_mapping.tsv"
+        self.fname_cases0 = "cases_for_%s.tsv"
+        self.fname_subtype0 = "subtype_for_%s.tsv"
+        self.fname_samples0 = "samples_for_%s.tsv"
+        self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
+        self.fname_rnaseq_exp = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
+
+        self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
+
+        self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
+        self.fname_mut_anal0 = "mutations_anal_for_%s.tsv"
+        self.fname_mut_summ0 = "mutations_summ_for_%s.tsv"
 
         self.gdc_fname = ""
         self.gdc_filename = ""
@@ -536,9 +534,6 @@ class GDC(object):
         self.fname_subt = self.fname_subtype0 % (self.psi_id)
         self.filename_subt = self.root_disease / self.fname_subt
 
-        self.fname_demo = self.fname_demo0 % self.psi_id
-        self.filename_demo = self.root_disease / self.fname_demo
-
     def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
         df_cases = df_cases[df_cases.validity == "valid"].copy()
         df_cases = df_cases[df_cases["consistency"] == "ok"]
@@ -567,13 +562,10 @@ class GDC(object):
         e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
 
         input: psi_id = primary site ID
-        output: df_cases, df_subt, df_clin_demo
+        output: df_cases, df_subt, df_prof
         """
 
-   
-        if self.filename_cases.exists() and self.filename_subt.exists() and \
-           self.filename_demo.exists() and not force:
-            
+        if self.filename_cases.exists() and self.filename_subt.exists() and not force:
             df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
             if "pid" in df_cases.columns:
                 df_cases = df_cases.rename(columns={"pid": "psi_id"})
@@ -584,13 +576,13 @@ class GDC(object):
             df_cases = self.apply_filter_cases(df_cases)
 
             df_subt = self.groupby_case_by_subtypes(df_cases)
-            df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, batch_size=50, verbose=verbose)
+            df_prof = self.build_profile(df_cases)
 
             self.df_cases = df_cases
             self.df_subt = df_subt
-            self.df_clin_demo = df_clin_demo
+            self.df_prof = df_prof
 
-            return df_cases, df_subt, df_clin_demo
+            return df_cases, df_subt, df_prof
 
         def build_tcga_ontology(df):
             """
@@ -730,26 +722,14 @@ class GDC(object):
 
             # df["stage"] = df["stage"].fillna('unknown')
             return df
-        
+
         # -------------------------- batch loop ---------------------------
         filters = {
-            "op": "and",
-            "content": [
-                {
-                    "op": "in",
-                    "content": {
-                        "field": "project.project_id",
-                        "value": [self.gdc_project_id],
-                    },
-                },
-                {
-                    "op": "in",
-                    "content": {
-                        "field": "primary_site",
-                        "value": [self.primary_site],
-                    },
-                },
-            ],
+            "op": "in",
+            "content": {
+                "field": "cases.project.project_id",
+                "value": [self.gdc_project_id],
+            },
         }
                 
         all_hits = []
@@ -759,7 +739,7 @@ class GDC(object):
 
         self.df_cases = pd.DataFrame()
         self.df_subt = pd.DataFrame()
-        self.df_clin_demo = pd.DataFrame()
+        self.df_prof = pd.DataFrame()
 
         df_cases = pd.DataFrame()
 
@@ -778,8 +758,7 @@ class GDC(object):
                             "diagnoses.primary_diagnosis",
                             "diagnoses.tumor_grade",
                             "diagnoses.ajcc_pathologic_stage",
-                            "diagnoses.ajcc_clinical_stage",
-                            "diagnoses.figo_stage",
+                            "diagnoses.ajcc_clinical_stagediagnoses.figo_stage",
                             "diagnoses.tumor_stage",
                         ]
                     ),
@@ -794,7 +773,7 @@ class GDC(object):
                 if "data" not in response.keys():
                     print(f"No data found while searching for '{self.psi_or_gdc_project_id}'")
                     print(">>> response", response)
-                    return self.df_cases, self.df_subt, self.df_clin_demo
+                    return self.df_cases, self.df_subt, self.df_prof
 
                 hits = response.get("data", {}).get("hits", [])
 
@@ -811,7 +790,7 @@ class GDC(object):
 
             if all_hits == []:
                 print(f"No subtypes found for {self.psi_or_gdc_project_id} - filter value: {self.gdc_project_id}")
-                return self.df_cases, self.df_subt, self.df_clin_demo
+                return self.df_cases, self.df_subt, self.df_prof
 
             # ------------ lost data? ------------------
             N = len(all_hits)
@@ -826,14 +805,6 @@ class GDC(object):
             # ------------ having all hits -------------
 
             df_cases = pd.json_normalize(all_hits)
-
-            df_cases = df_cases.rename(
-                columns={
-                    "submitter_id": "barcode_case",
-                    "project.project_id": "gdc_project_id",
-                }
-            )
-            
             self.df_cases = df_cases
 
             # ------------------- main_diag -------------------------------------------------------
@@ -841,6 +812,11 @@ class GDC(object):
             self.main_diag = main_diag
 
             df_cases = unpack_diagnoses(df_cases, main_diag)
+            """
+			'id', 'primary_site', 'disease_type', 'case_id', 'diagnoses',
+			'project.project_id', 'subtype_global', 'stage_ajcc', 'tumor_grade',
+			'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
+			"""
 
             df_cases = df_cases.rename(columns={"project.project_id": "gdc_project_id"})
             df_cases["psi_id"] = self.psi_id
@@ -870,343 +846,19 @@ class GDC(object):
             print(f"Error for searching diags for '{self.psi_or_gdc_project_id}'. error: {e}")
             self.df_cases = df_cases
             self.df_subt = pd.DataFrame()
-            self.df_clin_demo = pd.DataFrame()
-            return self.df_cases, self.df_subt, self.df_clin_demo
+            self.df_prof = pd.DataFrame()
+            return self.df_cases, self.df_subt, self.df_prof
 
         if do_filter:
             df_cases = self.apply_filter_cases(df_cases)
 
-        df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, force=True, batch_size=50, verbose=verbose)
+        df_prof = self.build_profile(df_cases)
 
         self.df_cases = df_cases
         self.df_subt = df_subt
-        self.df_clin_demo = df_clin_demo
+        self.df_prof = df_prof
 
-        return df_cases, df_subt, df_clin_demo
-
-
-    def get_gdc_clin_demo_data(self, 
-        case_ids: pd.Series,
-        batch_size: int = 200,
-        force: bool = False, verbose: bool = False,
-    ) -> pd.DataFrame:
-        """
-        Retrieve case-level demographic and diagnosis data from the GDC.
-
-        Returns one row per case-diagnosis combination because a case may
-        contain more than one diagnosis.
-        """
-
-        case_ids = np.unique(case_ids)
- 
-        if self.filename_demo.exists() and not force:
-            return pdreadcsv(self.fname_demo, self.root_disease, verbose=verbose)
-        
-
-        fields = [
-            # Case
-            "case_id",
-            "submitter_id",
-            "project.project_id",
-            "primary_site",
-            "disease_type",
-
-            # Demographic
-            "demographic.demographic_id",
-            "demographic.sex_at_birth",
-            # "demographic.gender",   deprecated in newer dictionary versions
-            "demographic.race",
-            "demographic.ethnicity",
-            "demographic.vital_status",
-            "demographic.days_to_birth",
-            "demographic.days_to_death",
-            "demographic.year_of_birth",
-            "demographic.year_of_death",
-
-            # Diagnosis
-            "diagnoses.diagnosis_id",
-            "diagnoses.submitter_id",
-            "diagnoses.primary_diagnosis",
-            "diagnoses.morphology",
-            "diagnoses.tissue_or_organ_of_origin",
-            "diagnoses.site_of_resection_or_biopsy",
-            "diagnoses.age_at_diagnosis",
-            "diagnoses.days_to_diagnosis",
-            "diagnoses.days_to_last_follow_up",
-            "diagnoses.days_to_last_known_disease_status",
-            "diagnoses.last_known_disease_status",
-            "diagnoses.progression_or_recurrence",
-            "diagnoses.tumor_grade",
-            "diagnoses.tumor_stage",
-            "diagnoses.ajcc_pathologic_stage",
-            "diagnoses.ajcc_pathologic_t",
-            "diagnoses.ajcc_pathologic_n",
-            "diagnoses.ajcc_pathologic_m",
-            "diagnoses.ajcc_clinical_stage",
-            "diagnoses.ajcc_clinical_t",
-            "diagnoses.ajcc_clinical_n",
-            "diagnoses.ajcc_clinical_m",
-            "diagnoses.classification_of_tumor",
-        ]
-
-        records = []
-        icount=-1
-
-        for start in range(0, len(case_ids), batch_size):
-            batch = case_ids[start:start + batch_size]
-
-            if isinstance(batch, np.ndarray):
-                batch = batch.tolist()
-
-            filters = {
-                "op": "in",
-                "content": {
-                    "field": "case_id",
-                    "value": batch,
-                },
-            }
-
-            params = {
-                "filters": json.dumps(filters),
-                "fields": ",".join(fields),
-                "format": "JSON",
-                "size": len(batch),
-            }
-
-            response = requests.get(
-                self.url_gdc_cases,
-                params=params,
-                timeout=120,
-            )
-            response.raise_for_status()
-
-            hits = response.json()["data"]["hits"]
-
-            for case in hits:
-
-                icount += 1
-                if icount%10==0:
-                    print(".", end='')
-
-                demographic = case.get("demographic") or {}
-                project = case.get("project") or {}
-                diagnoses = case.get("diagnoses") or []
-
-                # Preserve cases for which diagnosis information is unavailable.
-                if not diagnoses:
-                    diagnoses = [{}]
-
-                for diagnosis in diagnoses:
-                    records.append(
-                        {
-                            # Case identifiers
-                            "case_id": case.get("case_id"),
-                            "barcode_case": case.get("submitter_id"),
-                            "project_id": project.get("project_id"),
-                            "primary_site": case.get("primary_site"),
-                            "disease_type": case.get("disease_type"),
-
-                            # Demographic
-                            "sex_at_birth": demographic.get("sex_at_birth"),
-                            "gender": demographic.get("gender"),
-                            "race": demographic.get("race"),
-                            "ethnicity": demographic.get("ethnicity"),
-                            "vital_status": demographic.get("vital_status"),
-                            "days_to_birth": demographic.get("days_to_birth"),
-                            "days_to_death": demographic.get("days_to_death"),
-                            "year_of_birth": demographic.get("year_of_birth"),
-                            "year_of_death": demographic.get("year_of_death"),
-
-                            # Diagnosis
-                            "diagnosis_id": diagnosis.get("diagnosis_id"),
-                            "barcode_diagnosis": diagnosis.get("submitter_id"),
-                            "primary_diagnosis": diagnosis.get(
-                                "primary_diagnosis"
-                            ),
-                            "morphology": diagnosis.get("morphology"),
-                            "tissue_or_organ_of_origin": diagnosis.get(
-                                "tissue_or_organ_of_origin"
-                            ),
-                            "site_of_resection_or_biopsy": diagnosis.get(
-                                "site_of_resection_or_biopsy"
-                            ),
-                            "age_at_diagnosis": diagnosis.get(
-                                "age_at_diagnosis"
-                            ),
-                            "days_to_diagnosis": diagnosis.get(
-                                "days_to_diagnosis"
-                            ),
-                            "days_to_last_follow_up": diagnosis.get(
-                                "days_to_last_follow_up"
-                            ),
-                            "days_to_last_known_disease_status":
-                                diagnosis.get(
-                                    "days_to_last_known_disease_status"
-                                ),
-                            "last_known_disease_status": diagnosis.get(
-                                "last_known_disease_status"
-                            ),
-                            "progression_or_recurrence": diagnosis.get(
-                                "progression_or_recurrence"
-                            ),
-                            "tumor_grade": diagnosis.get("tumor_grade"),
-                            "tumor_stage": diagnosis.get("tumor_stage"),
-                            "ajcc_pathologic_stage": diagnosis.get(
-                                "ajcc_pathologic_stage"
-                            ),
-                            "ajcc_pathologic_t": diagnosis.get(
-                                "ajcc_pathologic_t"
-                            ),
-                            "ajcc_pathologic_n": diagnosis.get(
-                                "ajcc_pathologic_n"
-                            ),
-                            "ajcc_pathologic_m": diagnosis.get(
-                                "ajcc_pathologic_m"
-                            ),
-                            "ajcc_clinical_stage": diagnosis.get(
-                                "ajcc_clinical_stage"
-                            ),
-                            "ajcc_clinical_t": diagnosis.get(
-                                "ajcc_clinical_t"
-                            ),
-                            "ajcc_clinical_n": diagnosis.get(
-                                "ajcc_clinical_n"
-                            ),
-                            "ajcc_clinical_m": diagnosis.get(
-                                "ajcc_clinical_m"
-                            ),
-                            "classification_of_tumor": diagnosis.get(
-                                "classification_of_tumor"
-                            ),
-                        }
-                    )
-
-        print("\n--------------- end ------------")
-        if records == []:
-            print(f"Could not find clinical demographics data.")
-            df = pd.DataFrame()
-        else:
-            try:
-                df = pd.DataFrame(records)
-            except Exception as e:
-                print(f"Error clinical demographics: {e}")
-                df = pd.DataFrame()
-
-        if not df.empty:
-            df_age = self.get_gdc_ages_by_case_ids(case_ids)
-            
-            df = pd.merge(df, df_age, on='case_id', how='outer')
-
-            cols_rename = ['case_id', 'barcode_case', 'project_id', 'primary_site', 'disease_type', 'gender',
-                'xxxx2', 'race', 'ethnicity', 'vital_status', 'days_to_birth', 'days_to_death',
-                'year_of_birth', 'year_of_death', 'diagnosis_id', 'barcode_diagnosis', 'primary_diagnosis',
-                'morphology', 'tissue_or_organ_of_origin', 'site_of_resection_or_biopsy',
-                'xxxx', 'days_to_diagnosis', 'days_to_last_follow_up',
-                'days_to_last_known_disease_status', 'last_known_disease_status',
-                'progression_or_recurrence', 'tumor_grade', 'tumor_stage', 'ajcc_pathologic_stage',
-                'ajcc_pathologic_t', 'ajcc_pathologic_n', 'ajcc_pathologic_m', 'ajcc_clinical_stage',
-                'ajcc_clinical_t', 'ajcc_clinical_n', 'ajcc_clinical_m', 'classification_of_tumor',
-                'age_at_diagnosis']
-            df.columns = cols_rename
-
-            cols = ['case_id', 'barcode_case', 'project_id', 'primary_site', 'disease_type', 'gender',
-                'age_at_diagnosis', 'race', 'ethnicity', 'vital_status', 'diagnosis_id', 'barcode_diagnosis', 'primary_diagnosis',
-                'morphology', 'tissue_or_organ_of_origin', 'site_of_resection_or_biopsy',
-                'last_known_disease_status', 'progression_or_recurrence', 'tumor_grade', 'tumor_stage', 'ajcc_pathologic_stage',
-                'ajcc_pathologic_t', 'ajcc_pathologic_n', 'ajcc_pathologic_m', 'ajcc_clinical_stage',
-                'ajcc_clinical_t', 'ajcc_clinical_n', 'ajcc_clinical_m', 'classification_of_tumor',
-                ]
-            df = df[cols]            
-            
-            pdwritecsv(df, self.fname_demo, self.root_disease, verbose=verbose)
-                        
-        return df
-
-    def get_gdc_ages_by_case_ids(self,
-        case_ids,
-        batch_size: int = 200,
-    ) -> pd.DataFrame:
-
-        case_ids = np.unique(case_ids)
-
-        age_dict = {}
-
-        for batch_number, start in enumerate(
-            range(0, len(case_ids), batch_size),
-            start=1,
-        ):
-            batch = case_ids[start:start + batch_size]
-
-            if isinstance(batch, np.ndarray):
-                batch = batch.tolist()
-
-            filters = {
-                "op": "in",
-                "content": {
-                    "field": "case_id",
-                    "value": batch,
-                },
-            }
-
-            params = {
-                "filters": json.dumps(filters),
-                "fields": ",".join(
-                    [
-                        "case_id",
-                        "submitter_id",
-                        "diagnoses.age_at_diagnosis",
-                    ]
-                ),
-                "format": "JSON",
-                "size": len(batch),
-            }
-
-            response = requests.get(
-                self.url_gdc_cases,
-                params=params,
-                timeout=120,
-            )
-            response.raise_for_status()
-
-            hits = response.json().get("data", {}).get("hits", [])
-
-            print(
-                f"Batch {batch_number}: "
-                f"{len(batch)} requested, {len(hits)} returned"
-            )
-
-            returned_case_ids = set()
-
-            for case in hits:
-                case_id = case.get("case_id")
-                returned_case_ids.add(case_id)
-
-                diagnoses = case.get("diagnoses") or []
-
-                age_days = next(
-                    (
-                        diagnosis.get("age_at_diagnosis")
-                        for diagnosis in diagnoses
-                        if isinstance(diagnosis, dict)
-                        and diagnosis.get("age_at_diagnosis")
-                        is not None
-                    ),
-                    None,
-                )
-
-                age_dict[case_id] = (
-                    round(float(age_days) / 365.25, 2)
-                    if age_days is not None
-                    else np.nan
-                )
-
-            # Cases not returned by GDC
-            for case_id in set(batch) - returned_case_ids:
-                age_dict[case_id] = np.nan
-
-            df_age = pd.DataFrame(age_dict.items(), columns=['case_id', 'age_at_diagnosis'])
-
-        return df_age
+        return df_cases, df_subt, df_prof
 
     def group_file_types(self, df_samples: pd.DataFrame) -> pd.DataFrame:
         dic = Counter(df_samples.data_type)
@@ -1243,6 +895,72 @@ class GDC(object):
         self.df_subt = df_subt
 
         return df_subt
+
+    def build_profile(self, df_cases: pd.DataFrame) -> pd.DataFrame:
+
+        def clean_case_profile(diagnoses) -> dict:
+
+            result = {
+                "primary_diagnosis": None,
+                "stage": None,
+                "tumor_grade": None,
+                "diagnosis_conflict": False,
+                "n_diagnoses": 0,
+            }
+
+            # ---------- validate ----------
+            if not isinstance(diagnoses, list) or len(diagnoses) == 0:
+                return result
+
+            result["n_diagnoses"] = len(diagnoses)
+
+            # ---------- extract diagnoses ----------
+            diag_list = [
+                d.get("primary_diagnosis")
+                for d in diagnoses
+                if isinstance(d, dict) and d.get("primary_diagnosis") is not None
+            ]
+
+            if not diag_list:
+                return result
+
+            # ---------- main diagnosis (mode) ----------
+            main_diag = Counter(diag_list).most_common(1)[0][0]
+            result["primary_diagnosis"] = main_diag
+
+            # ---------- conflict detection ----------
+            unique_diags = set(diag_list)
+            if len(unique_diags) > 1:
+                result["diagnosis_conflict"] = True
+
+            # ---------- extract attributes ONLY for main diagnosis ----------
+            for d in diagnoses:
+                if not isinstance(d, dict):
+                    continue
+
+                if d.get("primary_diagnosis") == main_diag:
+                    # stage (pathologic > clinical fallback)
+                    stage = (
+                        d.get("ajcc_pathologic_stage")
+                        or d.get("ajcc_clinical_stage")
+                        or d.get("figo_stage")
+                        or d.get("tumor_stage")
+                    )
+
+                    result["stage"] = stage
+
+                    # tumor grade
+                    grade = d.get("tumor_grade")
+                    if grade and result["tumor_grade"] is None:
+                        result["tumor_grade"] = grade
+
+            return result
+
+        profiles = df_cases["diagnoses"].apply(clean_case_profile)
+        df_prof = pd.DataFrame(profiles.tolist())
+        self.df_prof = df_prof
+
+        return df_prof
 
     def get_stage_from_cases(self, case_id_list: list):
 
@@ -1327,12 +1045,12 @@ class GDC(object):
 		"""
 
         df_cases = df_cases[
-            (df_cases.primary_site == self.primary_site) & 
             (df_cases.subtype_global == subtype_global) & 
             (df_cases.tumor_class == tumor_class) & 
             (df_cases.subtype_tissue == subtype_tissue)
-        ].copy().reset_index(drop=True)
-        
+        ]
+
+        df_cases = df_cases.copy().reset_index(drop=True)
         self.df_cases = df_cases
 
         if df_cases.empty:
@@ -1429,10 +1147,7 @@ class GDC(object):
                         break
 
                     all_hits.extend(hits)
-                    from_ += len(hits)
-
-                    if len(all_hits) >= total: 
-                        break
+                    from_ += size_
 
                 # print("\n")
 
@@ -1440,7 +1155,6 @@ class GDC(object):
                     print(f"No files were found for {self.psi_or_gdc_project_id} cases {case_id_list}")
                     self.df_samples = pd.DataFrame()
                     return self.df_samples
-                
 
                 # ------------ lost data? ------------------
                 N = len(all_hits)
@@ -2634,7 +2348,7 @@ class GDC(object):
 
     def loop_program_psi_get_cases_samples_mut(
         self, prog_id: str = "TCGA", force: bool = False, verbose: bool = False
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
             input: prog_id
 
@@ -2653,32 +2367,31 @@ class GDC(object):
         df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
         fname_all_cases = self.fname_all_cases % (self.prog_id)
-        filename_cases = self.root_summary / fname_all_cases
-
-        fname_all_clin_demo = self.fname_all_clin_demo % (self.prog_id)
-        filename_clin_demo = self.root_summary / fname_all_clin_demo
+        filename_cases = os.path.join(self.root_summary, fname_all_cases)
 
         fname_all_samples = self.fname_all_samples % (self.prog_id)
-        filename_samples = self.root_summary / fname_all_samples
+        filename_samples = os.path.join(self.root_summary, fname_all_samples)
 
         fname_all_mutations = self.fname_all_mutations % (self.prog_id)
-        filename_mutations = self.root_summary / fname_all_mutations
+        filename_mutations = os.path.join(self.root_summary, fname_all_mutations)
 
-        if filename_cases.exists() and filename_clin_demo.exists() and \
-           filename_samples.exists() and filename_mutations.exists() and not force:
+        if (
+            os.path.exists(filename_cases)
+            and os.path.exists(filename_samples)
+            and os.path.exists(filename_mutations)
+            and not force
+        ):
             df_all_cases = pdreadcsv(fname_all_cases, self.root_summary, verbose=verbose)
-            df_all_clin_demo = pdreadcsv(fname_all_clin_demo, self.root_summary, verbose=verbose)
             df_all_samples = pdreadcsv(fname_all_samples, self.root_summary, verbose=verbose)
             df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary, verbose=verbose)
 
             self.df_all_cases = df_all_cases
-            self.df_all_clin_demo = df_all_clin_demo
             self.df_all_samples = df_all_samples
             self.df_all_mutations = df_all_mutations
 
-            return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+            return df_all_cases, df_all_samples, df_all_mutations
 
-        df_list_cases, df_list_clin_demo, df_list_samples, df_list_mutations = [], [], [], []
+        df_list_cases, df_list_samples, df_list_mutations = [], [], []
 
         # loop for all primary sites in df_psi
         for ipsi, row in df_psi.iterrows():
@@ -2690,7 +2403,7 @@ class GDC(object):
 
             print(f"{ipsi}) {psi_id} -{primary_site}", end=" - ")
 
-            df_cases, df_subt, df_clin_demo = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
+            df_cases, df_subt, _ = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
 
             if df_cases.empty:
                 if verbose: print("No cases found for PSI_ID:", psi_id)
@@ -2701,7 +2414,6 @@ class GDC(object):
                 continue
 
             df_list_cases.append(df_cases)
-            df_list_clin_demo.append(df_clin_demo)
 
             for isubt, row in df_subt.iterrows():
                 subtype_global = row.subtype_global
@@ -2757,14 +2469,6 @@ class GDC(object):
         else:
             df_all_cases = pd.DataFrame()
 
-        if len(df_list_clin_demo) > 0:
-            df_all_clin_demo = pd.concat(df_list_clin_demo, ignore_index=True)
-            self.df_all_clin_demo = df_all_clin_demo
-            df_all_clin_demo = df_all_clin_demo.drop_duplicates()
-            df_all_clin_demo = df_all_clin_demo.reset_index(drop=True)
-        else:
-            df_all_clin_demo = pd.DataFrame()
-
         if len(df_list_samples) > 0:
             df_all_samples = pd.concat(df_list_samples, ignore_index=True)
             self.df_all_samples = df_all_samples
@@ -2783,19 +2487,16 @@ class GDC(object):
 
         if not df_all_cases.empty:
             _ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary, verbose=verbose)
-        if not df_all_clin_demo.empty:
-            _ = pdwritecsv(df_all_clin_demo, fname_all_clin_demo, self.root_summary, verbose=verbose)
         if not df_all_samples.empty:
             _ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary, verbose=verbose)
         if not df_all_mutations.empty:
                 _ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary, verbose=verbose)
 
         self.df_all_cases = df_all_cases
-        self.df_all_clin_demo = df_all_clin_demo
         self.df_all_samples = df_all_samples
         self.df_all_mutations = df_all_mutations
 
-        return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+        return df_all_cases, df_all_samples, df_all_mutations
 
     def get_filtered_tables(
         self, 
