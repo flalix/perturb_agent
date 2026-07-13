@@ -584,7 +584,7 @@ class GDC(object):
             df_cases = self.apply_filter_cases(df_cases)
 
             df_subt = self.groupby_case_by_subtypes(df_cases)
-            df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, batch_size=50, verbose=verbose)
+            df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, batch_size=200, verbose=verbose)
 
             self.df_cases = df_cases
             self.df_subt = df_subt
@@ -876,7 +876,7 @@ class GDC(object):
         if do_filter:
             df_cases = self.apply_filter_cases(df_cases)
 
-        df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, force=True, batch_size=50, verbose=verbose)
+        df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, force=True, batch_size=200, verbose=verbose)
 
         self.df_cases = df_cases
         self.df_subt = df_subt
@@ -887,7 +887,7 @@ class GDC(object):
 
     def get_gdc_clin_demo_data(self, 
         case_ids: pd.Series,
-        batch_size: int = 50,
+        batch_size: int = 200,
         force: bool = False, verbose: bool = False,
     ) -> pd.DataFrame:
         """
@@ -952,9 +952,13 @@ class GDC(object):
         records = []
         icount=-1
 
-        for start in range(0, len(case_ids), batch_size):
+        for batch_number, start in enumerate(
+            range(0, len(case_ids), batch_size),
+            start=1,
+        ):
             batch = case_ids[start:start + batch_size]
 
+            # Keep this conversion for JSON serialization.
             if isinstance(batch, np.ndarray):
                 batch = batch.tolist()
 
@@ -966,40 +970,83 @@ class GDC(object):
                 },
             }
 
-            params = {
+            post_data = {
                 "filters": json.dumps(filters),
                 "fields": ",".join(fields),
                 "format": "JSON",
                 "size": len(batch),
             }
 
-            response = requests.get(
-                self.url_gdc_cases,
-                params=params,
-                timeout=120,
-            )
-            response.raise_for_status()
+            try:
+                response = requests.post(
+                    self.url_gdc_cases,
+                    data=post_data,
+                    timeout=120,
+                )
+                response.raise_for_status()
 
-            hits = response.json()["data"]["hits"]
+            except requests.RequestException as exc:
+                status = (
+                    exc.response.status_code
+                    if exc.response is not None
+                    else "unknown"
+                )
+
+                print(
+                    f"\nClinical batch {batch_number} failed: "
+                    f"HTTP {status}: {exc}"
+                )
+
+                if exc.response is not None:
+                    print(exc.response.text[:1000])
+
+                continue
+
+            payload = response.json()
+            hits = payload.get("data", {}).get("hits", [])
+
+            if verbose:
+                print(
+                    f"Batch {batch_number}: "
+                    f"{len(batch)} requested, "
+                    f"{len(hits)} returned"
+                )
 
             for case in hits:
-
                 icount += 1
-                if icount%10==0:
-                    print(".", end='')
+
+                if icount % 10 == 0:
+                    print(".", end="", flush=True)
 
                 demographic = case.get("demographic") or {}
                 project = case.get("project") or {}
-                diagnoses = case.get("diagnoses") or []
-
-                # Preserve cases for which diagnosis information is unavailable.
-                if not diagnoses:
-                    diagnoses = [{}]
+                diagnoses = case.get("diagnoses") or [{}]
 
                 for diagnosis in diagnoses:
+                    age_days = diagnosis.get("age_at_diagnosis")
+
+                    try:
+                        age_years = (
+                            round(float(age_days) / 365.25, 2)
+                            if age_days is not None
+                            else np.nan
+                        )
+                    except (TypeError, ValueError):
+                        age_years = np.nan
+
+                    sex_at_birth = demographic.get("sex_at_birth")
+                    gender = demographic.get("gender")
+
+                    # Prefer the newer sex_at_birth field.
+                    sex_or_gender = (
+                        sex_at_birth
+                        if sex_at_birth not in [None, ""]
+                        else gender
+                    )
+
                     records.append(
                         {
-                            # Case identifiers
+                            # Case
                             "case_id": case.get("case_id"),
                             "barcode_case": case.get("submitter_id"),
                             "project_id": project.get("project_id"),
@@ -1007,32 +1054,50 @@ class GDC(object):
                             "disease_type": case.get("disease_type"),
 
                             # Demographic
-                            "sex_at_birth": demographic.get("sex_at_birth"),
-                            "gender": demographic.get("gender"),
+                            "gender": sex_or_gender,
+                            "sex_at_birth": sex_at_birth,
                             "race": demographic.get("race"),
                             "ethnicity": demographic.get("ethnicity"),
-                            "vital_status": demographic.get("vital_status"),
-                            "days_to_birth": demographic.get("days_to_birth"),
-                            "days_to_death": demographic.get("days_to_death"),
-                            "year_of_birth": demographic.get("year_of_birth"),
-                            "year_of_death": demographic.get("year_of_death"),
+                            "vital_status": demographic.get(
+                                "vital_status"
+                            ),
+                            "days_to_birth": demographic.get(
+                                "days_to_birth"
+                            ),
+                            "days_to_death": demographic.get(
+                                "days_to_death"
+                            ),
+                            "year_of_birth": demographic.get(
+                                "year_of_birth"
+                            ),
+                            "year_of_death": demographic.get(
+                                "year_of_death"
+                            ),
 
                             # Diagnosis
-                            "diagnosis_id": diagnosis.get("diagnosis_id"),
-                            "barcode_diagnosis": diagnosis.get("submitter_id"),
+                            "diagnosis_id": diagnosis.get(
+                                "diagnosis_id"
+                            ),
+                            "barcode_diagnosis": diagnosis.get(
+                                "submitter_id"
+                            ),
                             "primary_diagnosis": diagnosis.get(
                                 "primary_diagnosis"
                             ),
                             "morphology": diagnosis.get("morphology"),
-                            "tissue_or_organ_of_origin": diagnosis.get(
-                                "tissue_or_organ_of_origin"
-                            ),
-                            "site_of_resection_or_biopsy": diagnosis.get(
-                                "site_of_resection_or_biopsy"
-                            ),
-                            "age_at_diagnosis": diagnosis.get(
-                                "age_at_diagnosis"
-                            ),
+                            "tissue_or_organ_of_origin":
+                                diagnosis.get(
+                                    "tissue_or_organ_of_origin"
+                                ),
+                            "site_of_resection_or_biopsy":
+                                diagnosis.get(
+                                    "site_of_resection_or_biopsy"
+                                ),
+
+                            # Preserve both units explicitly.
+                            "age_at_diagnosis_days": age_days,
+                            "age_at_diagnosis": age_years,
+
                             "days_to_diagnosis": diagnosis.get(
                                 "days_to_diagnosis"
                             ),
@@ -1043,17 +1108,24 @@ class GDC(object):
                                 diagnosis.get(
                                     "days_to_last_known_disease_status"
                                 ),
-                            "last_known_disease_status": diagnosis.get(
-                                "last_known_disease_status"
+                            "last_known_disease_status":
+                                diagnosis.get(
+                                    "last_known_disease_status"
+                                ),
+                            "progression_or_recurrence":
+                                diagnosis.get(
+                                    "progression_or_recurrence"
+                                ),
+                            "tumor_grade": diagnosis.get(
+                                "tumor_grade"
                             ),
-                            "progression_or_recurrence": diagnosis.get(
-                                "progression_or_recurrence"
+                            "tumor_stage": diagnosis.get(
+                                "tumor_stage"
                             ),
-                            "tumor_grade": diagnosis.get("tumor_grade"),
-                            "tumor_stage": diagnosis.get("tumor_stage"),
-                            "ajcc_pathologic_stage": diagnosis.get(
-                                "ajcc_pathologic_stage"
-                            ),
+                            "ajcc_pathologic_stage":
+                                diagnosis.get(
+                                    "ajcc_pathologic_stage"
+                                ),
                             "ajcc_pathologic_t": diagnosis.get(
                                 "ajcc_pathologic_t"
                             ),
@@ -1063,9 +1135,10 @@ class GDC(object):
                             "ajcc_pathologic_m": diagnosis.get(
                                 "ajcc_pathologic_m"
                             ),
-                            "ajcc_clinical_stage": diagnosis.get(
-                                "ajcc_clinical_stage"
-                            ),
+                            "ajcc_clinical_stage":
+                                diagnosis.get(
+                                    "ajcc_clinical_stage"
+                                ),
                             "ajcc_clinical_t": diagnosis.get(
                                 "ajcc_clinical_t"
                             ),
@@ -1075,139 +1148,79 @@ class GDC(object):
                             "ajcc_clinical_m": diagnosis.get(
                                 "ajcc_clinical_m"
                             ),
-                            "classification_of_tumor": diagnosis.get(
-                                "classification_of_tumor"
-                            ),
+                            "classification_of_tumor":
+                                diagnosis.get(
+                                    "classification_of_tumor"
+                                ),
                         }
                     )
 
-        print("\n")
-    
-        if records == []:
-            print(f"Could not find clinical demographics data.")
-            df = pd.DataFrame()
-        else:
-            try:
-                df = pd.DataFrame(records)
-            except Exception as e:
-                print(f"Error clinical demographics: {e}")
-                df = pd.DataFrame()
+        print()
 
-        if not df.empty:
-            df_age = self.get_gdc_ages_by_case_ids(case_ids)
+        columns = [
+            "case_id",
+            "barcode_case",
+            "project_id",
+            "primary_site",
+            "disease_type",
+            "gender",
+            "sex_at_birth",
+            "age_at_diagnosis",
+            "age_at_diagnosis_days",
+            "race",
+            "ethnicity",
+            "vital_status",
+            "days_to_birth",
+            "days_to_death",
+            "year_of_birth",
+            "year_of_death",
+            "diagnosis_id",
+            "barcode_diagnosis",
+            "primary_diagnosis",
+            "morphology",
+            "tissue_or_organ_of_origin",
+            "site_of_resection_or_biopsy",
+            "days_to_diagnosis",
+            "days_to_last_follow_up",
+            "days_to_last_known_disease_status",
+            "last_known_disease_status",
+            "progression_or_recurrence",
+            "tumor_grade",
+            "tumor_stage",
+            "ajcc_pathologic_stage",
+            "ajcc_pathologic_t",
+            "ajcc_pathologic_n",
+            "ajcc_pathologic_m",
+            "ajcc_clinical_stage",
+            "ajcc_clinical_t",
+            "ajcc_clinical_n",
+            "ajcc_clinical_m",
+            "classification_of_tumor",
+        ]
+
+        df = pd.DataFrame.from_records(
+            records,
+            columns=columns,
+        )
+        
+        if df.empty:
+            print("Could not find clinical demographics data.")
+            return df
+
+        df = (
+            df.drop_duplicates()
+            .sort_values(
+                ["case_id", "diagnosis_id"],
+                na_position="last",
+            )
+            .reset_index(drop=True)
+        )
+  
             
-            df = pd.merge(df, df_age, on='case_id', how='outer')
-
-            cols_rename = ['case_id', 'barcode_case', 'project_id', 'primary_site', 'disease_type', 'gender',
-                'xxxx2', 'race', 'ethnicity', 'vital_status', 'days_to_birth', 'days_to_death',
-                'year_of_birth', 'year_of_death', 'diagnosis_id', 'barcode_diagnosis', 'primary_diagnosis',
-                'morphology', 'tissue_or_organ_of_origin', 'site_of_resection_or_biopsy',
-                'xxxx', 'days_to_diagnosis', 'days_to_last_follow_up',
-                'days_to_last_known_disease_status', 'last_known_disease_status',
-                'progression_or_recurrence', 'tumor_grade', 'tumor_stage', 'ajcc_pathologic_stage',
-                'ajcc_pathologic_t', 'ajcc_pathologic_n', 'ajcc_pathologic_m', 'ajcc_clinical_stage',
-                'ajcc_clinical_t', 'ajcc_clinical_n', 'ajcc_clinical_m', 'classification_of_tumor',
-                'age_at_diagnosis']
-            df.columns = cols_rename
-
-            cols = ['case_id', 'barcode_case', 'project_id', 'primary_site', 'disease_type', 'gender',
-                'age_at_diagnosis', 'race', 'ethnicity', 'vital_status', 'diagnosis_id', 'barcode_diagnosis', 'primary_diagnosis',
-                'morphology', 'tissue_or_organ_of_origin', 'site_of_resection_or_biopsy',
-                'last_known_disease_status', 'progression_or_recurrence', 'tumor_grade', 'tumor_stage', 'ajcc_pathologic_stage',
-                'ajcc_pathologic_t', 'ajcc_pathologic_n', 'ajcc_pathologic_m', 'ajcc_clinical_stage',
-                'ajcc_clinical_t', 'ajcc_clinical_n', 'ajcc_clinical_m', 'classification_of_tumor',
-                ]
-            df = df[cols]            
-            
-            pdwritecsv(df, self.fname_demo, self.root_disease, verbose=verbose)
+        _ = pdwritecsv(df, self.fname_demo, self.root_disease, verbose=verbose)
                         
         return df
 
-    def get_gdc_ages_by_case_ids(self,
-        case_ids,
-        batch_size: int = 200,
-    ) -> pd.DataFrame:
-
-        case_ids = np.unique(case_ids)
-
-        age_dict = {}
-
-        for batch_number, start in enumerate(
-            range(0, len(case_ids), batch_size),
-            start=1,
-        ):
-            batch = case_ids[start:start + batch_size]
-
-            if isinstance(batch, np.ndarray):
-                batch = batch.tolist()
-
-            filters = {
-                "op": "in",
-                "content": {
-                    "field": "case_id",
-                    "value": batch,
-                },
-            }
-
-            params = {
-                "filters": json.dumps(filters),
-                "fields": ",".join(
-                    [
-                        "case_id",
-                        "submitter_id",
-                        "diagnoses.age_at_diagnosis",
-                    ]
-                ),
-                "format": "JSON",
-                "size": len(batch),
-            }
-
-            response = requests.get(
-                self.url_gdc_cases,
-                params=params,
-                timeout=120,
-            )
-            response.raise_for_status()
-
-            hits = response.json().get("data", {}).get("hits", [])
-
-            print(
-                f"Batch {batch_number}: "
-                f"{len(batch)} requested, {len(hits)} returned"
-            )
-
-            returned_case_ids = set()
-
-            for case in hits:
-                case_id = case.get("case_id")
-                returned_case_ids.add(case_id)
-
-                diagnoses = case.get("diagnoses") or []
-
-                age_days = next(
-                    (
-                        diagnosis.get("age_at_diagnosis")
-                        for diagnosis in diagnoses
-                        if isinstance(diagnosis, dict)
-                        and diagnosis.get("age_at_diagnosis")
-                        is not None
-                    ),
-                    None,
-                )
-
-                age_dict[case_id] = (
-                    round(float(age_days) / 365.25, 2)
-                    if age_days is not None
-                    else np.nan
-                )
-
-            # Cases not returned by GDC
-            for case_id in set(batch) - returned_case_ids:
-                age_dict[case_id] = np.nan
-
-            df_age = pd.DataFrame(age_dict.items(), columns=['case_id', 'age_at_diagnosis'])
-
-        return df_age
 
     def group_file_types(self, df_samples: pd.DataFrame) -> pd.DataFrame:
         dic = Counter(df_samples.data_type)
@@ -1337,7 +1350,7 @@ class GDC(object):
         self.df_cases = df_cases
 
         if df_cases.empty:
-            print(f"No cases found for {self.s_case}")
+            if verbose: print(f"No cases found for {self.s_case}")
             return self.df_samples
 
         fname = self.fname_samples0 % (self.s_case)
@@ -2696,7 +2709,7 @@ class GDC(object):
 
             self.set_primary_site(psi_id)
 
-            print(f"\t{ipsi}) {psi_id} -{primary_site}")
+            print(f"\t{ipsi}) {psi_id} - {primary_site}")
 
             df_cases, df_subt, df_clin_demo = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
 
