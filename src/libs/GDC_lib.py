@@ -887,7 +887,7 @@ class GDC(object):
 
     def get_gdc_clin_demo_data(self, 
         case_ids: pd.Series,
-        batch_size: int = 200,
+        batch_size: int = 50,
         force: bool = False, verbose: bool = False,
     ) -> pd.DataFrame:
         """
@@ -1081,7 +1081,8 @@ class GDC(object):
                         }
                     )
 
-        print("\n--------------- end ------------")
+        print("\n")
+    
         if records == []:
             print(f"Could not find clinical demographics data.")
             df = pd.DataFrame()
@@ -2430,8 +2431,15 @@ class GDC(object):
         self.dff = dff
         self.df_mut = df_mut
 
-        _ = pdwritecsv(dff, self.fname_mut_summ, self.root_mutations, verbose=False)
-        _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_mutations, verbose=False)
+        if dff.empty:
+            if verbose: print("No mutation summary data found.")
+        else:
+            _ = pdwritecsv(dff, self.fname_mut_summ, self.root_mutations, verbose=verbose)
+
+        if df_mut.empty:
+            if verbose: print("No mutation analytical data found.")
+        else:
+            _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_mutations, verbose=verbose)
 
         return dff, df_mut
     
@@ -2688,7 +2696,7 @@ class GDC(object):
 
             self.set_primary_site(psi_id)
 
-            print(f"{ipsi}) {psi_id} -{primary_site}", end=" - ")
+            print(f"\t{ipsi}) {psi_id} -{primary_site}")
 
             df_cases, df_subt, df_clin_demo = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
 
@@ -2716,7 +2724,7 @@ class GDC(object):
                     force=False,
                     verbose=verbose,
                 )
-                print(f"{isubt}) {self.s_case}")
+                print(f"\t\t{isubt}) {self.s_case}")
 
                 if df_samples.empty:
                     if verbose: print(f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
@@ -2736,7 +2744,6 @@ class GDC(object):
                 barcode_sample_list = list(self.prepare_barcode_sample_list(df2.barcode_sample))
                 self.barcode_sample_list = barcode_sample_list
 
-                print("Getting mutations", end=" ")
                 dff, _ = self.get_df_mut_transform_mutation_table(
                     barcode_sample_list=barcode_sample_list,
                     force=False,
