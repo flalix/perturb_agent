@@ -1,4 +1,4 @@
-prog_id	cbioportal_study_id	gdc_project_id	psi_id	primary_site	disease_id	organ	disease_context
+prog_id	cbioportal_study_id	gdc_project_id	psi_id	disease_id	disease_cd	primary_site	disease_context
 TCGA	paad_tcga_pan_can_atlas_2018	TCGA-PAAD	PAAD	pancreatic_adenocarcinoma	PAAD	Pancreas	TCGA pancreatic adenocarcinoma, PanCancer Atlas
 CPTAC3	paad_cptac_2021	CPTAC-3	PAAD	pancreatic_ductal_adenocarcinoma	PAAD	Pancreas	CPTAC publication cohort, Cell 2021; 140 pancreatic cancers
 CPTAC3	pancreas_cptac_gdc	CPTAC-3	PAAD-GDC	pancreatic_cancer	PAAD	Pancreas	Newer cBioPortal cohort generated from GDC/CDA data in 2025

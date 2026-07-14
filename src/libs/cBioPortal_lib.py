@@ -293,7 +293,21 @@ class cBioPortal(object):
 
         self.clean_gdc_files()
 
-    def open_primary_sites_cbio(self, verbose: bool = False) -> pd.DataFrame:
+    def get_primary_sites(self, prog_id: str, verbose: bool = False) -> pd.DataFrame:
+        self.set_program(prog_id=prog_id)
+
+        if self.df_psi.empty:
+            df_psi = self.open_primary_site(verbose=verbose)
+        else:
+            df_psi = self.df_psi
+
+        df_psi2 = df_psi[df_psi.prog_id == prog_id].copy()
+        df_psi2.reset_index(drop=True, inplace=True)
+
+        return df_psi2
+
+
+    def open_primary_site(self, verbose: bool = False) -> pd.DataFrame:
 
         fname = self.fname_prim_site_cbio
         filename = self.root0_data / fname
@@ -311,19 +325,25 @@ class cBioPortal(object):
 
         return df_psi
 
+    def set_program_and_primary_site(
+        self, prog_id: str, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
+    ) -> pd.DataFrame:
+        self.set_program(prog_id=prog_id)
+        return self.set_primary_site(psi_id=psi_id, primary_site=primary_site, verbose=verbose)
+
     def set_primary_site(
         self, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
-    ) -> bool:
+    ) -> pd.DataFrame:
         '''
         primary site, here, is a disease
         given psi_id --> root_disease and disease
 
         input: psi_id (primary site identifier, like TCGA-BRCA) - OR - primary_site (its name/description)
-        output: bool (success or failure)
+        output: pd.DataFrame (the filtered DataFrame or an empty one)
         '''
 
         if self.df_psi.empty:
-            _= self.open_primary_sites_cbio(verbose=verbose)
+            _= self.open_primary_site(verbose=verbose)
 
         self.psi_id = ""
         self.primary_site, self.disease_type, self.disease_name, self.disease_id = "", "", "", ""
@@ -335,15 +355,15 @@ class cBioPortal(object):
             dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
             if dfa.empty:
                 print("No primary site information found for:", psi_id)
-                return False
+                return pd.DataFrame()
         elif isinstance(primary_site, str) and primary_site != "":
             dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.primary_site == primary_site)]
             if dfa.empty:
                 print("No primary site information found for:", primary_site)
-                return False
+                return pd.DataFrame()
         else:
             print("No primary site information provided.")
-            return False
+            return pd.DataFrame()
 
         row = dfa.iloc[0]
 
@@ -352,11 +372,9 @@ class cBioPortal(object):
         self.primary_site = row.primary_site
         self.prog_psi_id = row.prog_id + ' - ' + row.psi_id
         self.disease_id = row.disease_id
-        self.organ = row.organ
+        self.disease_cd = row.disease_cd
         self.gdc_project_id = row.gdc_project_id
         self.cbioportal_study_id = row.cbioportal_study_id
-
-        self.set_program(prog_id=row.prog_id)
 
         self.root_mprog_disease = create_dir(self.root_mprog, self.disease_id)
         self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
@@ -374,7 +392,7 @@ class cBioPortal(object):
             print(">> psi_id:", self.psi_id)
             print(">> primary_site:", self.primary_site)
             print(">> disease_id:", self.disease_id)
-            print(">> organ:", self.organ)
+            print(">> disease_cd:", self.disease_cd)
             print("\n-----------------------------")
             print(">> cbioportal_study_id:", self.cbioportal_study_id)
             print(">> gdc_project_id:", self.gdc_project_id)
@@ -387,7 +405,7 @@ class cBioPortal(object):
 
         self.set_filenames()
 
-        return True
+        return dfa
 
 
     def list_disease_types(self, psi_id: str) -> np.ndarray:
@@ -404,7 +422,7 @@ class cBioPortal(object):
         self.fname_subt = self.fname_subtype0 % (self.psi_id)
         self.filename_subt = self.root_disease / self.fname_subt
 
-        self.fname_demo = self.fname_demo0 % self.psi_id
+        self.fname_demo = self.fname_demo0 % self.cbioportal_study_id
         self.filename_demo = self.root_disease / self.fname_demo
 
     def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
@@ -449,10 +467,10 @@ class cBioPortal(object):
 
             self.df_cases = df_cases
 
-            df_cases = self.apply_filter_cases(df_cases)
+            # df_cases = self.apply_filter_cases(df_cases)
 
             df_subt = self.groupby_case_by_subtypes(df_cases)
-            df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, batch_size=200, verbose=verbose)
+            df_clin_demo = self.get_clin_demo_data(barcode_cases = df_cases.barcode_case, verbose=verbose)
 
             self.df_cases = df_cases
             self.df_subt = df_subt
@@ -640,15 +658,11 @@ class cBioPortal(object):
                     "fields": ",".join(
                         [
                             "case_id",
+                            "submitter_id",
                             "project.project_id",
                             "primary_site",
                             "disease_type",
                             "diagnoses.primary_diagnosis",
-                            "diagnoses.tumor_grade",
-                            "diagnoses.ajcc_pathologic_stage",
-                            "diagnoses.ajcc_clinical_stage",
-                            "diagnoses.figo_stage",
-                            "diagnoses.tumor_stage",
                         ]
                     ),
                     "format": "JSON",
@@ -679,6 +693,7 @@ class cBioPortal(object):
 
             if all_hits == []:
                 print(f"No subtypes found for {self.prog_psi_id} - filter value: {self.gdc_project_id}")
+                self.save_case_files(verbose=verbose)
                 return self.df_cases, self.df_subt, self.df_clin_demo
 
             # ------------ lost data? ------------------
@@ -702,22 +717,23 @@ class cBioPortal(object):
                 }
             )
             
-            self.df_cases = df_cases
+            self.df_cases0 = df_cases
 
             # ------------------- main_diag -------------------------------------------------------
             main_diag = calc_main_diagnosis(df_cases)
-            self.main_diag = main_diag
-
             df_cases = unpack_diagnoses(df_cases, main_diag)
 
-            df_cases = df_cases.rename(columns={"project.project_id": "gdc_project_id"})
+            self.df_cases1 = df_cases
+
             df_cases["psi_id"] = self.psi_id
             df_cases["disease_id"] = self.disease_id
             df_cases["cbioportal_study_id"] = self.cbioportal_study_id
 
-            self.df_cases = df_cases
+            self.df_cases2 = df_cases
 
             df_cases = build_tcga_ontology(df_cases)
+
+            self.df_cases3 = df_cases
 
             df_cases["validity"] = df_cases.apply(classify_validity, axis=1)
 
@@ -731,31 +747,38 @@ class cBioPortal(object):
 
             df_subt = self.groupby_case_by_subtypes(df_cases)
 
-            _ = pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
-            _ = pdwritecsv(df_subt, self.fname_subt, self.root_disease, verbose=verbose)
 
         except Exception as e:
             print(f"Error for searching diags for '{self.prog_psi_id}'. error: {e}")
             self.df_cases = df_cases
             self.df_subt = pd.DataFrame()
             self.df_clin_demo = pd.DataFrame()
+
+            self.save_case_files(verbose=verbose)
             return self.df_cases, self.df_subt, self.df_clin_demo
 
-        if do_filter:
-            df_cases = self.apply_filter_cases(df_cases)
+        # if do_filter:
+        #     df_cases = self.apply_filter_cases(df_cases)
 
-        df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, force=True, batch_size=200, verbose=verbose)
+        df_clin_demo = self.get_clin_demo_data(barcode_cases=df_cases.barcode_case, force=True, verbose=verbose)
 
         self.df_cases = df_cases
         self.df_subt = df_subt
         self.df_clin_demo = df_clin_demo
 
+        self.save_case_files(verbose=verbose)
+
         return df_cases, df_subt, df_clin_demo
 
+    def save_case_files(self, verbose: bool = False):
+        _ = pdwritecsv(self.df_cases, self.fname_cases, self.root_disease, verbose=verbose)
+        _ = pdwritecsv(self.df_subt, self.fname_subt, self.root_disease, verbose=verbose)
+        _ = pdwritecsv(self.df_clin_demo, self.fname_demo, self.root_disease, verbose=verbose)
 
-    def get_gdc_clin_demo_data(self, 
-        case_ids: pd.Series,
-        batch_size: int = 200,
+
+    def get_clin_demo_data(self, 
+        barcode_cases: pd.Series,
+        timeout: int = 120,
         force: bool = False, verbose: bool = False,
     ) -> pd.DataFrame:
         """
@@ -765,329 +788,125 @@ class cBioPortal(object):
         contain more than one diagnosis.
         """
 
-        case_ids = np.unique(case_ids)
- 
+        study_id = self.cbioportal_study_id
+        self.df_clin_demo = pd.DataFrame()
+
         if self.filename_demo.exists() and not force:
-            return pdreadcsv(self.fname_demo, self.root_disease, verbose=verbose)
-        
+            df_clin_demo = pdreadcsv(self.fname_demo, self.root_disease, verbose=verbose)
+            self.df_clin_demo = df_clin_demo
 
-        fields = [
-            # Case
-            "case_id",
-            "submitter_id",
-            "project.project_id",
-            "primary_site",
-            "disease_type",
+            return df_clin_demo
 
-            # Demographic
-            "demographic.demographic_id",
-            "demographic.sex_at_birth",
-            # "demographic.gender",   deprecated in newer dictionary versions
-            "demographic.race",
-            "demographic.ethnicity",
-            "demographic.vital_status",
-            "demographic.days_to_birth",
-            "demographic.days_to_death",
-            "demographic.year_of_birth",
-            "demographic.year_of_death",
+        url = f"{self.url_cbioportal}/studies/{study_id}/clinical-data"
 
-            # Diagnosis
-            "diagnoses.diagnosis_id",
-            "diagnoses.submitter_id",
-            "diagnoses.primary_diagnosis",
-            "diagnoses.morphology",
-            "diagnoses.tissue_or_organ_of_origin",
-            "diagnoses.site_of_resection_or_biopsy",
-            "diagnoses.age_at_diagnosis",
-            "diagnoses.days_to_diagnosis",
-            "diagnoses.days_to_last_follow_up",
-            "diagnoses.days_to_last_known_disease_status",
-            "diagnoses.last_known_disease_status",
-            "diagnoses.progression_or_recurrence",
-            "diagnoses.tumor_grade",
-            "diagnoses.tumor_stage",
-            "diagnoses.ajcc_pathologic_stage",
-            "diagnoses.ajcc_pathologic_t",
-            "diagnoses.ajcc_pathologic_n",
-            "diagnoses.ajcc_pathologic_m",
-            "diagnoses.ajcc_clinical_stage",
-            "diagnoses.ajcc_clinical_t",
-            "diagnoses.ajcc_clinical_n",
-            "diagnoses.ajcc_clinical_m",
-            "diagnoses.classification_of_tumor",
-        ]
+        params = {
+            "clinicalDataType": "PATIENT",
+            "projection": "DETAILED",
+            "pageSize": 100000,
+            "pageNumber": 0,
+        }
 
-        records = []
-        icount=-1
-
-        for batch_number, start in enumerate(
-            range(0, len(case_ids), batch_size),
-            start=1,
-        ):
-            batch = case_ids[start:start + batch_size]
-
-            # Keep this conversion for JSON serialization.
-            if isinstance(batch, np.ndarray):
-                batch = batch.tolist()
-
-            filters = {
-                "op": "in",
-                "content": {
-                    "field": "case_id",
-                    "value": batch,
-                },
-            }
-
-            post_data = {
-                "filters": json.dumps(filters),
-                "fields": ",".join(fields),
-                "format": "JSON",
-                "size": len(batch),
-            }
-
-            try:
-                response = requests.post(
-                    self.url_gdc_cases,
-                    data=post_data,
-                    timeout=120,
-                )
-                response.raise_for_status()
-
-            except requests.RequestException as exc:
-                status = (
-                    exc.response.status_code
-                    if exc.response is not None
-                    else "unknown"
-                )
-
-                print(
-                    f"\nClinical batch {batch_number} failed: "
-                    f"HTTP {status}: {exc}"
-                )
-
-                if exc.response is not None:
-                    print(exc.response.text[:1000])
-
-                continue
-
-            payload = response.json()
-            hits = payload.get("data", {}).get("hits", [])
-
-            if verbose:
-                print(
-                    f"Batch {batch_number}: "
-                    f"{len(batch)} requested, "
-                    f"{len(hits)} returned"
-                )
-
-            for case in hits:
-                icount += 1
-
-                if icount % 10 == 0:
-                    print(".", end="", flush=True)
-
-                demographic = case.get("demographic") or {}
-                project = case.get("project") or {}
-                diagnoses = case.get("diagnoses") or [{}]
-
-                for diagnosis in diagnoses:
-                    age_days = diagnosis.get("age_at_diagnosis")
-
-                    try:
-                        age_years = (
-                            round(float(age_days) / 365.25, 2)
-                            if age_days is not None
-                            else np.nan
-                        )
-                    except (TypeError, ValueError):
-                        age_years = np.nan
-
-                    sex_at_birth = demographic.get("sex_at_birth")
-                    gender = demographic.get("gender")
-
-                    # Prefer the newer sex_at_birth field.
-                    sex_or_gender = (
-                        sex_at_birth
-                        if sex_at_birth not in [None, ""]
-                        else gender
-                    )
-
-                    records.append(
-                        {
-                            # Case
-                            "case_id": case.get("case_id"),
-                            "barcode_case": case.get("submitter_id"),
-                            "project_id": project.get("project_id"),
-                            "primary_site": case.get("primary_site"),
-                            "disease_type": case.get("disease_type"),
-
-                            # Demographic
-                            "gender": sex_or_gender,
-                            "sex_at_birth": sex_at_birth,
-                            "race": demographic.get("race"),
-                            "ethnicity": demographic.get("ethnicity"),
-                            "vital_status": demographic.get(
-                                "vital_status"
-                            ),
-                            "days_to_birth": demographic.get(
-                                "days_to_birth"
-                            ),
-                            "days_to_death": demographic.get(
-                                "days_to_death"
-                            ),
-                            "year_of_birth": demographic.get(
-                                "year_of_birth"
-                            ),
-                            "year_of_death": demographic.get(
-                                "year_of_death"
-                            ),
-
-                            # Diagnosis
-                            "diagnosis_id": diagnosis.get(
-                                "diagnosis_id"
-                            ),
-                            "barcode_diagnosis": diagnosis.get(
-                                "submitter_id"
-                            ),
-                            "primary_diagnosis": diagnosis.get(
-                                "primary_diagnosis"
-                            ),
-                            "morphology": diagnosis.get("morphology"),
-                            "tissue_or_organ_of_origin":
-                                diagnosis.get(
-                                    "tissue_or_organ_of_origin"
-                                ),
-                            "site_of_resection_or_biopsy":
-                                diagnosis.get(
-                                    "site_of_resection_or_biopsy"
-                                ),
-
-                            # Preserve both units explicitly.
-                            "age_at_diagnosis_days": age_days,
-                            "age_at_diagnosis": age_years,
-
-                            "days_to_diagnosis": diagnosis.get(
-                                "days_to_diagnosis"
-                            ),
-                            "days_to_last_follow_up": diagnosis.get(
-                                "days_to_last_follow_up"
-                            ),
-                            "days_to_last_known_disease_status":
-                                diagnosis.get(
-                                    "days_to_last_known_disease_status"
-                                ),
-                            "last_known_disease_status":
-                                diagnosis.get(
-                                    "last_known_disease_status"
-                                ),
-                            "progression_or_recurrence":
-                                diagnosis.get(
-                                    "progression_or_recurrence"
-                                ),
-                            "tumor_grade": diagnosis.get(
-                                "tumor_grade"
-                            ),
-                            "tumor_stage": diagnosis.get(
-                                "tumor_stage"
-                            ),
-                            "ajcc_pathologic_stage":
-                                diagnosis.get(
-                                    "ajcc_pathologic_stage"
-                                ),
-                            "ajcc_pathologic_t": diagnosis.get(
-                                "ajcc_pathologic_t"
-                            ),
-                            "ajcc_pathologic_n": diagnosis.get(
-                                "ajcc_pathologic_n"
-                            ),
-                            "ajcc_pathologic_m": diagnosis.get(
-                                "ajcc_pathologic_m"
-                            ),
-                            "ajcc_clinical_stage":
-                                diagnosis.get(
-                                    "ajcc_clinical_stage"
-                                ),
-                            "ajcc_clinical_t": diagnosis.get(
-                                "ajcc_clinical_t"
-                            ),
-                            "ajcc_clinical_n": diagnosis.get(
-                                "ajcc_clinical_n"
-                            ),
-                            "ajcc_clinical_m": diagnosis.get(
-                                "ajcc_clinical_m"
-                            ),
-                            "classification_of_tumor":
-                                diagnosis.get(
-                                    "classification_of_tumor"
-                                ),
-                        }
-                    )
-
-        print()
-
-        columns = [
-            "case_id",
-            "barcode_case",
-            "project_id",
-            "primary_site",
-            "disease_type",
-            "gender",
-            "sex_at_birth",
-            "age_at_diagnosis",
-            "age_at_diagnosis_days",
-            "race",
-            "ethnicity",
-            "vital_status",
-            "days_to_birth",
-            "days_to_death",
-            "year_of_birth",
-            "year_of_death",
-            "diagnosis_id",
-            "barcode_diagnosis",
-            "primary_diagnosis",
-            "morphology",
-            "tissue_or_organ_of_origin",
-            "site_of_resection_or_biopsy",
-            "days_to_diagnosis",
-            "days_to_last_follow_up",
-            "days_to_last_known_disease_status",
-            "last_known_disease_status",
-            "progression_or_recurrence",
-            "tumor_grade",
-            "tumor_stage",
-            "ajcc_pathologic_stage",
-            "ajcc_pathologic_t",
-            "ajcc_pathologic_n",
-            "ajcc_pathologic_m",
-            "ajcc_clinical_stage",
-            "ajcc_clinical_t",
-            "ajcc_clinical_n",
-            "ajcc_clinical_m",
-            "classification_of_tumor",
-        ]
-
-        df = pd.DataFrame.from_records(
-            records,
-            columns=columns,
+        response = requests.get(
+            url,
+            params=params,
+            headers={"Accept": "application/json"},
+            timeout=timeout,
         )
-        
-        if df.empty:
-            print("Could not find clinical demographics data.")
-            return df
+        response.raise_for_status()
 
-        df = (
-            df.drop_duplicates()
-            .sort_values(
-                ["case_id", "diagnosis_id"],
-                na_position="last",
+        df_long = pd.DataFrame(response.json())
+
+        if df_long.empty:
+            return pd.DataFrame(
+                columns=["barcode_case", "cbioportal_study_id"]
             )
-            .reset_index(drop=True)
+
+        required_columns = {
+            "patientId",
+            "clinicalAttributeId",
+            "value",
+        }
+
+        missing_columns = required_columns - set(df_long.columns)
+
+        if missing_columns:
+            raise ValueError(
+                "Unexpected cBioPortal clinical response. "
+                f"Missing columns: {sorted(missing_columns)}"
+            )
+
+        # Keep only requested patients.
+        df_long["patientId"] = (
+            df_long["patientId"]
+            .astype(str)
+            .str.strip()
         )
-  
-            
-        _ = pdwritecsv(df, self.fname_demo, self.root_disease, verbose=verbose)
+
+        if df_long.empty:
+            return pd.DataFrame(
+                columns=["barcode_case", "cbioportal_study_id"]
+            )
+
+        df_clin_demo = (
+            df_long
+            .pivot_table(
+                index="patientId",
+                columns="clinicalAttributeId",
+                values="value",
+                aggfunc="first",
+            )
+            .reset_index()
+        )
+
+        df_clin_demo.columns.name = None
+     
+        cols = df_clin_demo.columns.tolist()
+        cols = [x.lower() for x in cols]
+        df_clin_demo.columns = cols
+
+        if 'bmi' not in cols:
+            df_clin_demo['bmi'] = None
+
+        df_clin_demo["cbioportal_study_id"] = study_id
+
+        df_clin_demo = df_clin_demo.rename(columns={"sex": "gender", "patientid": "barcode_case"})
+        self.df_clin_demo = df_clin_demo
                         
-        return df
+        return df_clin_demo
+
+    def check_clinical_attributes(self,
+        study_id:str,
+        terms: str = "BMI|WEIGHT|HEIGHT|AGE",
+    ) -> pd.DataFrame:
+
+        url = (
+            f"https://www.cbioportal.org/api/studies/{study_id}/clinical-attributes"
+        )
+
+        response = requests.get(
+            url,
+            headers={"Accept": "application/json"},
+            timeout=120,
+        )
+        response.raise_for_status()
+
+        df = pd.DataFrame(response.json())
+
+        mask = (
+            df["clinicalAttributeId"]
+            .fillna("")
+            .str.contains(terms, case=False, regex=True)
+            |
+            df["displayName"]
+            .fillna("")
+            .str.contains(terms, case=False, regex=True)
+            |
+            df["description"]
+            .fillna("")
+            .str.contains(terms, case=False, regex=True)
+        )
+
+        return df.loc[mask].reset_index(drop=True)
 
 
     def group_file_types(self, df_samples: pd.DataFrame) -> pd.DataFrame:
@@ -1096,7 +915,7 @@ class cBioPortal(object):
         dfu = dfu.sort_values("n", ascending=False).reset_index(drop=True)
         return dfu
 
-    def groupby_sstate(self, df_cases: pd.DataFrame):
+    def groupby_stage(self, df_cases: pd.DataFrame):
 
         df_cases["sstage"] = df_cases["stage"].map(lambda x: self.simplify_stage(x))
         df_subt = (
@@ -1114,9 +933,6 @@ class cBioPortal(object):
         return df_subt
 
     def groupby_case_by_subtypes(self, df_cases: pd.DataFrame):
-
-        # df_subt = df_cases[cols].copy().drop_duplicates()
-        # df_subt = df_subt.sort_values(cols).reset_index(drop=True)
 
         cols = ["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
         df_subt = df_cases.groupby(cols, dropna=False).size().reset_index(name="n")
@@ -1173,9 +989,21 @@ class cBioPortal(object):
         input: psi_id, subtype_global, tumor_class, subtype_tissue
         output: df_samples
         """
-        self.df_samples = pd.DataFrame()
 
         self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+        fname = self.fname_samples0 % (self.s_case)
+        fname = title_replace(fname)
+        filename = self.root_samples / fname
+
+        if filename.exists() and not force:
+            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
+            self.df_samples = df_samples
+
+            return df_samples
+
+
+        self.df_samples = pd.DataFrame()
 
         df_cases, _, _ = self.get_cases_and_subtypes(
             batch_size=batch_size, do_filter=False, force=False, verbose=verbose
@@ -1220,16 +1048,6 @@ class cBioPortal(object):
         if df_cases.empty:
             if verbose: print(f"No cases found for {self.s_case}")
             return self.df_samples
-
-        fname = self.fname_samples0 % (self.s_case)
-        fname = title_replace(fname)
-        filename = self.root_samples / fname
-
-        if filename.exists() and not force:
-            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
-            self.df_samples = df_samples
-
-            return df_samples
 
         case_id_list = list(df_cases.case_id)
         case_id_list.sort()
@@ -2537,7 +2355,7 @@ class cBioPortal(object):
             output: df_all_cases, df_all_samples, df_all_mutations
         """
 
-        df_psi = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+        df_psi2 = self.get_primary_sites(prog_id=prog_id)
 
         df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
 
@@ -2570,12 +2388,12 @@ class cBioPortal(object):
         df_list_cases, df_list_clin_demo, df_list_samples, df_list_mutations = [], [], [], []
 
         # loop for all primary sites in df_psi
-        for ipsi, row in df_psi.iterrows():
+        for ipsi, row in df_psi2.iterrows():
 
             psi_id = row.psi_id
             primary_site = row.primary_site
 
-            self.set_primary_site(psi_id)
+            _ = self.set_primary_site(psi_id=psi_id)
 
             print(f"\t{ipsi}) {psi_id} - {primary_site}")
 
@@ -2640,7 +2458,7 @@ class cBioPortal(object):
         if len(df_list_cases) > 0:
             df_all_cases = pd.concat(df_list_cases, ignore_index=True)
             self.df_all_cases = df_all_cases
-            df_all_cases = df_all_cases.drop_duplicates()
+            df_all_cases = df_all_cases.drop_duplicates(subset=['case_id', 'barcode_case'])
             df_all_cases = df_all_cases.reset_index(drop=True)
         else:
             df_all_cases = pd.DataFrame()
@@ -2648,24 +2466,18 @@ class cBioPortal(object):
         if len(df_list_clin_demo) > 0:
             df_all_clin_demo = pd.concat(df_list_clin_demo, ignore_index=True)
             self.df_all_clin_demo = df_all_clin_demo
-            df_all_clin_demo = df_all_clin_demo.drop_duplicates()
-            df_all_clin_demo = df_all_clin_demo.reset_index(drop=True)
         else:
             df_all_clin_demo = pd.DataFrame()
 
         if len(df_list_samples) > 0:
             df_all_samples = pd.concat(df_list_samples, ignore_index=True)
             self.df_all_samples = df_all_samples
-            df_all_samples = df_all_samples.drop_duplicates()
-            df_all_samples = df_all_samples.reset_index(drop=True)
         else:
             df_all_samples = pd.DataFrame()
 
         if len(df_list_mutations) > 0:
             df_all_mutations = pd.concat(df_list_mutations, ignore_index=True)
             self.df_all_mutations = df_all_mutations
-            df_all_mutations = df_all_mutations.drop_duplicates()
-            df_all_mutations = df_all_mutations.reset_index(drop=True)
         else:
             df_all_mutations = pd.DataFrame()
 
@@ -2728,8 +2540,8 @@ class cBioPortal(object):
             df_cases = df_cases.rename(columns={"pid": "psi_id"})
             pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
 
-        if do_filter:
-            df_cases = self.apply_filter_cases(df_cases)
+        # if do_filter:
+        #     df_cases = self.apply_filter_cases(df_cases)
 
         self.df_cases = df_cases
 
@@ -3859,7 +3671,7 @@ class cBioPortal(object):
         verbose: bool = False,
     ) -> tuple[pd.DataFrame, str]:
 
-        self.set_primary_site(psi_id=psi_id)
+        _ = self.set_primary_site(psi_id=psi_id)
 
         cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
         self.cdegs = cdegs
@@ -3920,11 +3732,9 @@ class cBioPortal(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
         
        
-        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+        df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id)
 
-        ret = self.set_primary_site(psi_id = psi_id)
-
-        if not ret:
+        if df_psi2.empty:
             print(f"Error: failed to set primary site for {prog_id} {psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
@@ -4358,11 +4168,9 @@ class cBioPortal(object):
 
         method = "limma_inmoose"
 
-        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+        df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id)
 
-        ret = self.set_primary_site(psi_id = psi_id)
-
-        if not ret:
+        if df_psi2.empty:
             msg = f"Error: failed to set primary site for {prog_id} {psi_id}"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
@@ -5497,7 +5305,7 @@ class cBioPortal(object):
     def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
                                   force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
-        df_psi = self.open_primary_sites_cbio(verbose=False)
+        df_psi = self.open_primary_site(verbose=False)
 
         df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
         dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
@@ -5509,8 +5317,8 @@ class cBioPortal(object):
                 continue
 
             psi_id = row.psi_id
-            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
-            ret = self.set_primary_site(psi_id = psi_id)
+            # only to set params
+            _ = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
             break
 
         filename_tumor = self.root_mprog_lfc / self.fname_tumor  
@@ -5548,13 +5356,11 @@ class cBioPortal(object):
             disease_id = row.disease_id
             primary_site = row.primary_site
 
-            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
-
-            ret = self.set_primary_site(psi_id = psi_id)
+            df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
 
             print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id} - {self.root_lfc}", end=" ")
 
-            if not ret:
+            if df_psi2.empty:
                 print(f"Error: failed to set primary site for {prog_id} {psi_id}")
                 continue
 
