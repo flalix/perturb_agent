@@ -1,0 +1,8 @@
+prog_id	cbioportal_study_id	gdc_project_id	psi_id	primary_site	disease_id	organ	disease_context
+TCGA	paad_tcga_pan_can_atlas_2018	TCGA-PAAD	PAAD	pancreatic_adenocarcinoma	PAAD	Pancreas	TCGA pancreatic adenocarcinoma, PanCancer Atlas
+CPTAC3	paad_cptac_2021	CPTAC-3	PAAD	pancreatic_ductal_adenocarcinoma	PAAD	Pancreas	CPTAC publication cohort, Cell 2021; 140 pancreatic cancers
+CPTAC3	pancreas_cptac_gdc	CPTAC-3	PAAD-GDC	pancreatic_cancer	PAAD	Pancreas	Newer cBioPortal cohort generated from GDC/CDA data in 2025
+TCGA	skcm_tcga_pan_can_atlas_2018	TCGA-SKCM	SKCM	cutaneous_melanoma	SKCM	Skin	TCGA skin cutaneous melanoma, PanCancer Atlas
+TCGA	brca_tcga_pan_can_atlas_2018	TCGA-BRCA	BRCA	breast_invasive_carcinoma	BRCA	Breast	TCGA breast invasive carcinoma, PanCancer Atlas
+CPTAC2	brca_cptac_2020	CPTAC-2	BRCA	breast_cancer	BRCA	Breast	CPTAC breast cancer publication cohort, Cell 2020
+CPTAC2	breast_cptac_gdc	CPTAC-2	BRCA-GDC	breast_cancer gdc	BRCA	Breast	Newer cBioPortal cohort generated from GDC/CDA data in 2025

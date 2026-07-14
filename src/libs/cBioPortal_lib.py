@@ -1,0 +1,5935 @@
+#!/usr/bin/python
+#!python
+# -*- coding: utf-8 -*-
+# Created on 2026/03/19
+# Udated  on 2026/07/13, 2026/03/20
+# @author: Flavio Lichtenstein
+# @local: Home sweet home
+
+import numpy as np
+import pandas as pd
+import requests
+import json
+import os
+import re
+import time
+import math
+import random
+import warnings
+from datetime import datetime
+from collections import Counter
+from pathlib import Path
+from tabnanny import verbose
+from typing import Any, Iterable, List, Optional, Tuple
+
+import scanpy as sc
+from anndata import AnnData
+from inmoose.limma import lmFit, eBayes, topTable, makeContrasts, contrasts_fit
+
+from scipy.stats import hypergeom, ttest_ind, zscore
+from sklearn.cluster import KMeans
+from sklearn.manifold import MDS
+from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+
+import umap
+import hdbscan
+
+from scipy.stats import ttest_ind
+from statsmodels.stats.multitest import multipletests
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+from libs.Basic import create_dir, isint, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
+from libs.calc_degs_lib import CALC_DEGS
+from libs.stat_lib import fdr
+from project_context_GDC import load_project_context
+
+
+class cBioPortal(object):
+    def __init__(self, root0: Path, root0_data: Path, memory_restriction: bool=False):
+        '''
+        Compare GDC and cBioPortal barcodes
+
+        Your GDC case table should contain:
+
+        case_id          GDC UUID
+        barcode_case     CPTAC participant identifier
+
+        Merge data per disease: if there are common patientId and sampleId.
+        
+        '''
+
+        self.memory_restriction = memory_restriction
+
+        self.url_gdc_project = "https://api.gdc.cancer.gov/projects"
+        self.url_gdc_cases = "https://api.gdc.cancer.gov/cases"
+        self.url_gdc_files = "https://api.gdc.cancer.gov/files"
+        self.url_gdc_data = "https://api.gdc.cancer.gov/data"
+
+        self.url_cbioportal = "https://www.cbioportal.org/api"
+
+        self.prog_id, self.psi_id = "", ""
+        self.s_case = ''
+        self.primary_site = ''
+        self.disease_id, self.prog_psi_id = '', ''
+        self.disease_type = ''
+        self.disease_name = ''
+        
+        self.root0 = Path(root0)
+        self.root_src   =  create_dir(self.root0, 'src')
+
+        self.root0_data = Path(root0_data)
+        self.root_colab = create_dir(self.root0_data, 'colab')
+        self.root_gtex  = create_dir(self.root_colab, "GTEx")
+
+        self.root_mprog = create_dir(self.root0_data, "multi_progs")
+        self.root_mprog_disease = Path()
+        self.root_mprog_lfc = Path()
+
+        self.fname_prim_site_cbio = "cbioportal_study_mapping.tsv"
+
+        # primary_site
+        self.fname_cases0 = "cases_for_%s.tsv"
+        self.fname_demo0 = 'clinical_and_demographics_for_%s.tsv'
+        self.fname_subtype0 = "subtype_for_%s.tsv"
+        self.fname_samples0 = "samples_for_%s.tsv"
+        self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
+        self.fname_rnaseq_exp = "rnaseq_exp_files_for_PS_%s_Subtype_%s_Stage_%s.tsv"
+
+        self.fname_cases_deprecated = "cases_for_PS_%s_Subtype_%s_Stage_%s.tsv"
+
+        self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
+        self.fname_mut_anal0 = "mutations_anal_for_%s.tsv"
+        self.fname_mut_summ0 = "mutations_summ_for_%s.tsv"
+
+        self.fname_tumor = f"expression_tumor_counts_all_samples.tsv"
+        self.fname_normal = f"expression_normal_counts_all_samples.tsv"
+        self.fname_gtex = f"expression_gtex_controls_counts.tsv"
+        self.fname_summ = f"expression_summary.tsv"
+
+        self.fname_sel_log = f"%s_expression_sel_log_CPM_top_%d_genes_all_samples.tsv"
+        self.fname_log_cpm = f"%s_expression_log_CPM_all_samples.tsv"
+        self.fname_gene_annot = f"%s_expression_gene_annot_top_%d_genes_all_samples.tsv"
+        self.fname_cpm_all = 'cpm_log_all_genes_all_rows.tsv'
+
+        self.fname_pca = f"pca_%d_clusters_for_%s_%s_samples.tsv"
+        self.fname_umap = f"umap_%d_clusters_for_%s_%s_samples.tsv"
+        self.fname_hca = f"hca_%d_clusters_for_%s_%s_samples.tsv"
+        self.fname_all_sign = f"all_sign_%d_clusters_for_%s_%s_signatures_up_down_DEGs.tsv"
+        self.fname_sig_sign = f"sig_sign_%d_clusters_for_%s_%s_signatures_up_down_DEGs.tsv"
+        self.fname_best_eval = f"best_eval_%d_clusters_for_%s_%s.tsv"
+        self.fname_cluster = f"cluster_%d_for_%s_%s_samples_LFC_%.3f_FDR_%.2e.tsv"
+
+        self.fname_combat = 'combat_log_exp_tumor_and_normal.tsv'
+        self.fname_metadata = 'metadata_tumor_and_normal.tsv'
+
+        self.fname_gtex_table = "gdc_primary_site_to_gtex_ids.tsv"
+        self.df_gdc_to_gtex = pd.DataFrame()
+        self.gtex_id = ""
+        self.fname_gtex_exp_counts = "gtex_expression_counts_%s.tsv"
+
+        self.fname_tpm_exp = "gtex_TPM_%s.tsv"
+        self.fname_GTEx_counts = "GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_reads.gct.gz"
+        self.fname_GTEx_meta   = "GTEx_Analysis_v11_Annotations_SampleAttributesDS.tsv"
+        self.fname_GTEx_pheno  = "GTEx_Analysis_v11_Annotations_SubjectPhenotypesDS.tsv"
+
+        self.GTEX_API = "https://gtexportal.org/api/v2"
+
+        self.df_gtex_counts = pd.DataFrame()
+        self.df_gtex_pheno = pd.DataFrame()
+        self.df_gtex_meta = pd.DataFrame()
+  
+        self.fname_exp_tumor = 'expression_tumor_for_%s.tsv'
+        self.fname_exp_normal = 'expression_normal_for_%s.tsv'
+        self.fname_exp_gtex = 'expression_gtex_for_%s.tsv'
+
+        self.remove_biotype_list = ['Mt_rRNA', 'Mt_tRNA', 'TEC', 'TR_V_gene', 'lncRNA', 'misc_RNA',
+       'rRNA_pseudogene', 'scaRNA', 'snRNA', 'snoRNA',]
+        
+        # GTEx control - per tissue
+        self.df_gtex_ctrl = pd.DataFrame()
+        self.df_meta_prep = pd.DataFrame()
+
+        self.df_gtex_normal = pd.DataFrame()
+        self.df_normal = pd.DataFrame()
+        self.df_tumor = pd.DataFrame()
+
+        self.root_project = Path()
+        self.root_summary = Path()
+        self.root_disease = Path()
+        self.root_samples = Path()
+        self.root_lfc = Path()
+        self.root_mutations = Path()
+
+        self.ANNOT_COLS = ["geneid", "symbol", "biotype"]
+
+        self.clean_gdc_files()
+
+
+        self.fname_all_cases = "%s_summ_cases.tsv"
+        self.fname_all_clin_demo = "%s_summ_clin_demo.tsv"
+        self.fname_all_samples = "%s_summ_samples.tsv"
+        self.fname_all_mutations = "%s_summ_mutations.tsv"
+
+        self.fname_lfc_ori = "lfc_ori_for_%s_method_%s_cluster_%d.tsv"
+        self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d.tsv"
+        self.fname_degs_txt = "degs_for_%s_method_%s_cluster_%d.txt"
+        self.fname_degs2000 = "degs_first_2000_for_%s_method_%s_cluster_%d_biotype_filter.txt"
+        self.fname_text_AI = "anlysis_degs_for_%s_method_%s_cluster_%d.txt"        
+        self.fname_msg = "message_for_%s_method_%s_cluster_%d.txt"
+
+        ctx = load_project_context( )
+
+        self.SUBTYPE_GENES = ctx.SUBTYPE_GENES
+        self.HISTOLOGY_GENES = ctx.HISTOLOGY_GENES
+        self.TUMOR_CLASS = ctx.TUMOR_CLASS
+        self.GLOBAL_SUBTYPE = ctx.GLOBAL_SUBTYPE
+        self.HISTOLOGY = ctx.HISTOLOGY
+        self.SITE_MAP = ctx.SITE_MAP
+        self.colors = ctx.colors
+
+    def clean_gdc_files(self):
+
+        self.gdc_file_name = ""
+        self.gdc_file_id = ""
+        self.gdc_data_type = ""
+
+        self.s_case = ""
+
+        self.gdc_fname = ""
+        self.gdc_filename = ""
+        self.gdc_ouptut_fname = ""
+        self.gdc_ouptut_filename = ""
+
+        self.exp_unit = ""
+        self.value_col = ""
+
+        # program, primary site, subtype, stage, case_id, samples
+        self.df_subt, self.df_cases = pd.DataFrame(), pd.DataFrame()
+        self.df_stage, self.df_samples, self.df_files = (
+            pd.DataFrame(),
+            pd.DataFrame(),
+            pd.DataFrame(),
+        )
+
+ 
+    def text_normalization(self, x):
+        if pd.isna(x):
+            return ""
+
+        x = x.lower().strip()
+        x = re.sub(r"\bnos\b", "", x)
+        x = re.sub(r"[,;()]", " ", x)
+        x = re.sub(r"\s+", " ", x)
+        return x.strip()
+
+    def map_global_subtype(self, text: str) -> str:
+        for k, patterns in self.GLOBAL_SUBTYPE.items():
+            if any(p in text for p in patterns):
+                return k
+        return "other"
+
+    def map_tumor_class(self, text: str) -> str:
+        for k, patterns in self.TUMOR_CLASS.items():
+            if any(p in text for p in patterns):
+                return k
+        return "other"
+
+    def map_histology(self, subtype: str) -> str:
+        for h, patterns in self.HISTOLOGY.items():
+            if any(p in subtype for p in patterns):
+                return h
+        return "other"
+
+    def map_tissue_subtype(self, global_subtype: str) -> str:
+        if self.psi_id in self.SITE_MAP:
+            return self.SITE_MAP[self.psi_id].get(global_subtype, global_subtype)
+
+        return global_subtype
+
+    def validate_consistency(self, global_subtype: str, disease_type: str) -> str:
+        disease_type = self.text_normalization(disease_type)
+
+        if "squamous" in disease_type and global_subtype != "squamous":
+            return "conflict"
+
+        return "ok"
+
+    def simplify_stage(self, stage: str) -> Any:
+        if not isinstance(stage, str):
+            return None
+
+        stage = stage.strip().upper()
+
+        if stage.startswith("STAGE X"):
+            return "missing"
+        elif stage.startswith("STAGE IV"):
+            return "IV"
+        elif stage.startswith("STAGE III"):
+            return "III"
+        elif stage.startswith("STAGE II"):
+            return "II"
+        elif stage.startswith("STAGE I"):
+            return "I"
+        elif stage.startswith("UNKNOWN"):
+            return "missing"
+
+        return None
+
+    def set_program(self, prog_id: str):
+        self.prog_id = prog_id
+
+        self.is_tcga = True if prog_id == "TCGA" else False
+
+        self.root_project = create_dir(self.root0_data, prog_id)
+        self.root_summary = create_dir(self.root_project, "summary")
+
+        self.clean_gdc_files()
+
+    def open_primary_sites_cbio(self, verbose: bool = False) -> pd.DataFrame:
+
+        fname = self.fname_prim_site_cbio
+        filename = self.root0_data / fname
+
+        if not filename.exists():
+            self.prog_list = []
+            df_psi = pd.DataFrame()
+            self.df_psi = pd.DataFrame()
+
+            print("Could not find cbio primary site table")
+        else:
+            df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
+            self.prog_list = np.unique(df_psi.prog_id)
+            self.df_psi = df_psi
+
+        return df_psi
+
+    def set_primary_site(
+        self, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
+    ) -> bool:
+        '''
+        primary site, here, is a disease
+        given psi_id --> root_disease and disease
+
+        input: psi_id (primary site identifier, like TCGA-BRCA) - OR - primary_site (its name/description)
+        output: bool (success or failure)
+        '''
+
+        if self.df_psi.empty:
+            _= self.open_primary_sites_cbio(verbose=verbose)
+
+        self.psi_id = ""
+        self.primary_site, self.disease_type, self.disease_name, self.disease_id = "", "", "", ""
+
+        self.fname_cases, self.filename_cases = '', Path()
+        self.fname_subt, self.filename_subt = '', Path()
+
+        if isinstance(psi_id, str) and psi_id != "":
+            dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
+            if dfa.empty:
+                print("No primary site information found for:", psi_id)
+                return False
+        elif isinstance(primary_site, str) and primary_site != "":
+            dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.primary_site == primary_site)]
+            if dfa.empty:
+                print("No primary site information found for:", primary_site)
+                return False
+        else:
+            print("No primary site information provided.")
+            return False
+
+        row = dfa.iloc[0]
+
+        self.prog_id = row.prog_id
+        self.psi_id = row.psi_id
+        self.primary_site = row.primary_site
+        self.prog_psi_id = row.prog_id + ' - ' + row.psi_id
+        self.disease_id = row.disease_id
+        self.organ = row.organ
+        self.gdc_project_id = row.gdc_project_id
+        self.cbioportal_study_id = row.cbioportal_study_id
+
+        self.set_program(prog_id=row.prog_id)
+
+        self.root_mprog_disease = create_dir(self.root_mprog, self.disease_id)
+        self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
+
+        #------------- create dirs ------------------
+        self.root_disease = create_dir(self.root_project, self.psi_id)
+
+        self.root_samples   = create_dir(self.root_disease, 'samples')
+        self.root_lfc       = create_dir(self.root_disease, 'lfc')
+        self.root_mutations = create_dir(self.root_disease, 'mutations')
+
+        if verbose:
+            print("\n-----------------------------")
+            print(">> prog_id:", self.prog_id)
+            print(">> psi_id:", self.psi_id)
+            print(">> primary_site:", self.primary_site)
+            print(">> disease_id:", self.disease_id)
+            print(">> organ:", self.organ)
+            print("\n-----------------------------")
+            print(">> cbioportal_study_id:", self.cbioportal_study_id)
+            print(">> gdc_project_id:", self.gdc_project_id)
+            print("\n-----------------------------")
+            print(">> root disease:", self.root_disease)
+            print(">> root samples:", self.root_samples)
+            print(">> root lfc:", self.root_lfc)
+            print(">> root mutations:", self.root_mutations)
+            print("-----------------------------\n")
+
+        self.set_filenames()
+
+        return True
+
+
+    def list_disease_types(self, psi_id: str) -> np.ndarray:
+
+        deas_type_list = np.unique(self.df_psi.primary_site)
+        self.deas_type_list = deas_type_list
+
+        return deas_type_list
+
+    def set_filenames(self):
+        self.fname_cases = self.fname_cases0 % (self.psi_id)
+        self.filename_cases = self.root_disease / self.fname_cases
+
+        self.fname_subt = self.fname_subtype0 % (self.psi_id)
+        self.filename_subt = self.root_disease / self.fname_subt
+
+        self.fname_demo = self.fname_demo0 % self.psi_id
+        self.filename_demo = self.root_disease / self.fname_demo
+
+    def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
+        df_cases = df_cases[df_cases.validity == "valid"].copy()
+        df_cases = df_cases[df_cases["consistency"] == "ok"]
+        df_cases.reset_index(drop=True, inplace=True)
+
+        # frac_threshold:float=0.01,
+        # df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
+        # df_cases = df_cases[df_cases["frac"] > frac_threshold]
+        # df_cases.reset_index(drop=True, inplace=True)'
+        # df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
+
+        return df_cases
+
+    def get_cases_and_subtypes(
+        self,
+        batch_size: int = 200,
+        do_filter: bool = True,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        calc all subtypes, given and psi_id --> df_cases
+        group by ["subtype_global", "subtype_tissue", "stage"] --> df_subt
+
+        filter: NOS (Not Otherwise Specified) → the pathologist could not (or did not) assign a more specific subtype.
+        e.g.: "Yes, it's an adenocarcinoma — but we don’t have finer classification"
+
+        input: psi_id = primary site ID
+        output: df_cases, df_subt, df_clin_demo
+        """
+
+   
+        if self.filename_cases.exists() and self.filename_subt.exists() and \
+           self.filename_demo.exists() and not force:
+            
+            df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
+            if "pid" in df_cases.columns:
+                df_cases = df_cases.rename(columns={"pid": "psi_id"})
+                pdwritecsv(df_cases, self.fname_cases, self.root_disease)
+
+            self.df_cases = df_cases
+
+            df_cases = self.apply_filter_cases(df_cases)
+
+            df_subt = self.groupby_case_by_subtypes(df_cases)
+            df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, batch_size=200, verbose=verbose)
+
+            self.df_cases = df_cases
+            self.df_subt = df_subt
+            self.df_clin_demo = df_clin_demo
+
+            return df_cases, df_subt, df_clin_demo
+
+        def build_tcga_ontology(df):
+            """
+            'id', 'primary_site', 'disease_type', 'case_id', 'diagnoses',
+            'project.project_id', 'subtype_global', 'stage_ajcc', 'tumor_grade',
+            'stage_clin', 'figo_stage', 'tumor_stage', 'stage'],
+
+
+            print("-------- build -------------")
+            print(df.columns)
+            print("---------------------------")
+            """
+
+            df["primary_site_norm"] = df["primary_site"].apply(self.text_normalization)
+            df["disease_type_norm"] = df["disease_type"].apply(self.text_normalization)
+            df["diagnosis_norm"] = df["primary_diagnosis"].apply(self.text_normalization)
+
+            df["tumor_class"] = df["diagnosis_norm"].apply(self.map_tumor_class)
+            
+            """
+			for psi_id=='TCGA-ACC' if subtype_global = other --> change to adrenal_cortical_carcinoma
+			"""
+            if self.psi_id=='TCGA-ACC':
+                df["subtype_global"] = [
+                    df.iloc[i]["tumor_class"]
+                    if (df.iloc[i]["psi_id"] == "TCGA-ACC" and df.iloc[i]["subtype_global"] == "other")
+                    else df.iloc[i]["subtype_global"]
+                    for i in range(len(df))
+                ]
+            else:
+                df["subtype_global"] = df["diagnosis_norm"].apply(self.map_global_subtype)
+
+            # histology
+            df["histology"] = df["subtype_global"].apply(self.map_histology)
+
+            # tissue-specific subtype
+            df["subtype_tissue"] = df.apply(
+                lambda r: self.map_tissue_subtype(r["subtype_global"]), axis=1
+            )
+
+            # consistency check
+            df["consistency"] = df.apply(
+                lambda r: self.validate_consistency(r["subtype_global"], r["disease_type"]), axis=1
+            )
+
+            return df
+
+        # nos -> removes valid dominant classes, like "Endometrioid adenocarcinoma, NOS"
+        def classify_validity(row) -> str:
+
+            diag = row["diagnosis_norm"]
+
+            if diag in ["", "unknown", "not reported"]:
+                return "invalid"
+
+            if row["subtype_global"] == "other":
+                return "ambiguous"
+
+            return "valid"
+
+        def extract_any(x, key, debug: bool = False):
+            if debug:
+                print("#", x)
+
+            if isinstance(x, list):
+                for d in x:
+                    if isinstance(d, dict) and key in d and d[key] is not None:
+                        return d[key]
+            elif isinstance(x, dict):
+                return x.get(key)
+            return None
+
+        def extract_all(x, key, main_diag):
+            # print(">>> extract_all")
+            # print(f">>> main_diag '{main_diag}' - key '{key}' - '{x}'")
+
+            dicf = {"diagnosis": "unknown", "ajcc": "unknown"}
+
+            i = 0
+            if isinstance(x, list):
+                for d in x:
+                    # print("int loop", i)
+                    if isinstance(d, dict):
+                        diag_aux = d.get("primary_diagnosis")
+
+                        if diag_aux == main_diag:
+                            if key in d.keys():
+                                dicf = {"diagnosis": main_diag, "ajcc": d.get(key)}
+                                # print(">> exit1:", i, dicf, '\n\n')
+                                return dicf
+                            else:
+                                dicf = {"diagnosis": main_diag, "ajcc": "unknown"}
+                    i += 1
+
+            elif isinstance(x, dict):
+                dicf = {"diagnosis": x.get("primary_diagnosis"), "ajcc": x.get(key)}
+
+            # print(">> exit2:", i, dicf, '\n\n')
+            return dicf
+
+        def calc_main_diagnosis(df_cases: pd.DataFrame) -> str:
+            diag_list = df_cases["diagnoses"].map(lambda x: extract_any(x, "primary_diagnosis"))
+            diag_list = [x for x in diag_list if isinstance(x, str) and x.strip()]
+            dic = Counter(diag_list)
+
+            dfa = pd.DataFrame({"diag": list(dic.keys()), "n": list(dic.values())})
+
+            dfa = dfa.sort_values("n", ascending=False)
+
+            return dfa.iloc[0].diag
+
+        def unpack_diagnoses(df, main_diag):
+
+            # series = df["diagnoses"].map(lambda x: extract_all(x, "ajcc_pathologic_stage", main_diag))
+            series = [
+                extract_all(diags, "ajcc_pathologic_stage", main_diag)
+                for diags in df_cases["diagnoses"]
+            ]
+
+            df["subtype_global"] = [dic["diagnosis"] for dic in series]
+            df["stage_ajcc"] = [dic["ajcc"] for dic in series]
+
+            df["primary_diagnosis"] = df["diagnoses"].map(
+                lambda x: extract_any(x, "primary_diagnosis")
+            )
+            df["tumor_grade"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_grade"))
+            df["stage_clin"] = df["diagnoses"].map(lambda x: extract_any(x, "ajcc_clinical_stage"))
+            df["figo_stage"] = df["diagnoses"].map(lambda x: extract_any(x, "figo_stage"))
+            df["tumor_stage"] = df["diagnoses"].map(lambda x: extract_any(x, "tumor_stage"))
+
+            df["stage"] = (
+                df["stage_ajcc"]
+                .fillna(df["stage_clin"])
+                .fillna(df["figo_stage"])
+                .fillna(df["tumor_stage"])
+            )
+
+            # df["stage"] = df["stage"].fillna('unknown')
+            return df
+        
+        # -------------------------- batch loop ---------------------------
+        filters = {
+            "op": "and",
+            "content": [
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "project.project_id",
+                        "value": [self.gdc_project_id],
+                    },
+                },
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "primary_site",
+                        "value": [self.primary_site],
+                    },
+                },
+            ],
+        }
+                
+        all_hits = []
+        from_ = 0
+        size_ = batch_size
+        total = None
+
+        self.df_cases = pd.DataFrame()
+        self.df_subt = pd.DataFrame()
+        self.df_clin_demo = pd.DataFrame()
+
+        df_cases = pd.DataFrame()
+
+        try:
+            while True:
+                print(".", end="")
+
+                params = {
+                    "filters": json.dumps(filters),
+                    "fields": ",".join(
+                        [
+                            "case_id",
+                            "project.project_id",
+                            "primary_site",
+                            "disease_type",
+                            "diagnoses.primary_diagnosis",
+                            "diagnoses.tumor_grade",
+                            "diagnoses.ajcc_pathologic_stage",
+                            "diagnoses.ajcc_clinical_stage",
+                            "diagnoses.figo_stage",
+                            "diagnoses.tumor_stage",
+                        ]
+                    ),
+                    "format": "JSON",
+                    "size": size_,
+                    "from": from_,
+                }
+
+                res = requests.get(self.url_gdc_cases, params=params)
+                response = res.json()
+
+                if "data" not in response.keys():
+                    print(f"No data found while searching for '{self.prog_psi_id}'")
+                    print(">>> response", response)
+                    return self.df_cases, self.df_subt, self.df_clin_demo
+
+                hits = response.get("data", {}).get("hits", [])
+
+                if total is None:
+                    total = response["data"]["pagination"]["total"]
+
+                if not hits:
+                    break
+
+                all_hits.extend(hits)
+                from_ += size_
+
+            print("\n")
+
+            if all_hits == []:
+                print(f"No subtypes found for {self.prog_psi_id} - filter value: {self.gdc_project_id}")
+                return self.df_cases, self.df_subt, self.df_clin_demo
+
+            # ------------ lost data? ------------------
+            N = len(all_hits)
+
+            if N < total:
+                print(
+                    f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} "
+                )
+            else:
+                print(f"👉 Returned {N} / Total paginated {total}")
+
+            # ------------ having all hits -------------
+
+            df_cases = pd.json_normalize(all_hits)
+
+            df_cases = df_cases.rename(
+                columns={
+                    "submitter_id": "barcode_case",
+                    "project.project_id": "gdc_project_id",
+                }
+            )
+            
+            self.df_cases = df_cases
+
+            # ------------------- main_diag -------------------------------------------------------
+            main_diag = calc_main_diagnosis(df_cases)
+            self.main_diag = main_diag
+
+            df_cases = unpack_diagnoses(df_cases, main_diag)
+
+            df_cases = df_cases.rename(columns={"project.project_id": "gdc_project_id"})
+            df_cases["psi_id"] = self.psi_id
+            df_cases["disease_id"] = self.disease_id
+            df_cases["cbioportal_study_id"] = self.cbioportal_study_id
+
+            self.df_cases = df_cases
+
+            df_cases = build_tcga_ontology(df_cases)
+
+            df_cases["validity"] = df_cases.apply(classify_validity, axis=1)
+
+            df_cases["n"] = 1
+            df_cases["frac"] = df_cases["n"] / df_cases["n"].sum()
+            df_cases = df_cases.sort_values("n", ascending=False).reset_index(drop=True)
+            df_cases.reset_index(drop=True, inplace=True)
+
+            df_cases = df_cases.drop(columns=["id"])
+            self.df_cases = df_cases
+
+            df_subt = self.groupby_case_by_subtypes(df_cases)
+
+            _ = pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
+            _ = pdwritecsv(df_subt, self.fname_subt, self.root_disease, verbose=verbose)
+
+        except Exception as e:
+            print(f"Error for searching diags for '{self.prog_psi_id}'. error: {e}")
+            self.df_cases = df_cases
+            self.df_subt = pd.DataFrame()
+            self.df_clin_demo = pd.DataFrame()
+            return self.df_cases, self.df_subt, self.df_clin_demo
+
+        if do_filter:
+            df_cases = self.apply_filter_cases(df_cases)
+
+        df_clin_demo = self.get_gdc_clin_demo_data(df_cases.case_id, force=True, batch_size=200, verbose=verbose)
+
+        self.df_cases = df_cases
+        self.df_subt = df_subt
+        self.df_clin_demo = df_clin_demo
+
+        return df_cases, df_subt, df_clin_demo
+
+
+    def get_gdc_clin_demo_data(self, 
+        case_ids: pd.Series,
+        batch_size: int = 200,
+        force: bool = False, verbose: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Retrieve case-level demographic and diagnosis data from the GDC.
+
+        Returns one row per case-diagnosis combination because a case may
+        contain more than one diagnosis.
+        """
+
+        case_ids = np.unique(case_ids)
+ 
+        if self.filename_demo.exists() and not force:
+            return pdreadcsv(self.fname_demo, self.root_disease, verbose=verbose)
+        
+
+        fields = [
+            # Case
+            "case_id",
+            "submitter_id",
+            "project.project_id",
+            "primary_site",
+            "disease_type",
+
+            # Demographic
+            "demographic.demographic_id",
+            "demographic.sex_at_birth",
+            # "demographic.gender",   deprecated in newer dictionary versions
+            "demographic.race",
+            "demographic.ethnicity",
+            "demographic.vital_status",
+            "demographic.days_to_birth",
+            "demographic.days_to_death",
+            "demographic.year_of_birth",
+            "demographic.year_of_death",
+
+            # Diagnosis
+            "diagnoses.diagnosis_id",
+            "diagnoses.submitter_id",
+            "diagnoses.primary_diagnosis",
+            "diagnoses.morphology",
+            "diagnoses.tissue_or_organ_of_origin",
+            "diagnoses.site_of_resection_or_biopsy",
+            "diagnoses.age_at_diagnosis",
+            "diagnoses.days_to_diagnosis",
+            "diagnoses.days_to_last_follow_up",
+            "diagnoses.days_to_last_known_disease_status",
+            "diagnoses.last_known_disease_status",
+            "diagnoses.progression_or_recurrence",
+            "diagnoses.tumor_grade",
+            "diagnoses.tumor_stage",
+            "diagnoses.ajcc_pathologic_stage",
+            "diagnoses.ajcc_pathologic_t",
+            "diagnoses.ajcc_pathologic_n",
+            "diagnoses.ajcc_pathologic_m",
+            "diagnoses.ajcc_clinical_stage",
+            "diagnoses.ajcc_clinical_t",
+            "diagnoses.ajcc_clinical_n",
+            "diagnoses.ajcc_clinical_m",
+            "diagnoses.classification_of_tumor",
+        ]
+
+        records = []
+        icount=-1
+
+        for batch_number, start in enumerate(
+            range(0, len(case_ids), batch_size),
+            start=1,
+        ):
+            batch = case_ids[start:start + batch_size]
+
+            # Keep this conversion for JSON serialization.
+            if isinstance(batch, np.ndarray):
+                batch = batch.tolist()
+
+            filters = {
+                "op": "in",
+                "content": {
+                    "field": "case_id",
+                    "value": batch,
+                },
+            }
+
+            post_data = {
+                "filters": json.dumps(filters),
+                "fields": ",".join(fields),
+                "format": "JSON",
+                "size": len(batch),
+            }
+
+            try:
+                response = requests.post(
+                    self.url_gdc_cases,
+                    data=post_data,
+                    timeout=120,
+                )
+                response.raise_for_status()
+
+            except requests.RequestException as exc:
+                status = (
+                    exc.response.status_code
+                    if exc.response is not None
+                    else "unknown"
+                )
+
+                print(
+                    f"\nClinical batch {batch_number} failed: "
+                    f"HTTP {status}: {exc}"
+                )
+
+                if exc.response is not None:
+                    print(exc.response.text[:1000])
+
+                continue
+
+            payload = response.json()
+            hits = payload.get("data", {}).get("hits", [])
+
+            if verbose:
+                print(
+                    f"Batch {batch_number}: "
+                    f"{len(batch)} requested, "
+                    f"{len(hits)} returned"
+                )
+
+            for case in hits:
+                icount += 1
+
+                if icount % 10 == 0:
+                    print(".", end="", flush=True)
+
+                demographic = case.get("demographic") or {}
+                project = case.get("project") or {}
+                diagnoses = case.get("diagnoses") or [{}]
+
+                for diagnosis in diagnoses:
+                    age_days = diagnosis.get("age_at_diagnosis")
+
+                    try:
+                        age_years = (
+                            round(float(age_days) / 365.25, 2)
+                            if age_days is not None
+                            else np.nan
+                        )
+                    except (TypeError, ValueError):
+                        age_years = np.nan
+
+                    sex_at_birth = demographic.get("sex_at_birth")
+                    gender = demographic.get("gender")
+
+                    # Prefer the newer sex_at_birth field.
+                    sex_or_gender = (
+                        sex_at_birth
+                        if sex_at_birth not in [None, ""]
+                        else gender
+                    )
+
+                    records.append(
+                        {
+                            # Case
+                            "case_id": case.get("case_id"),
+                            "barcode_case": case.get("submitter_id"),
+                            "project_id": project.get("project_id"),
+                            "primary_site": case.get("primary_site"),
+                            "disease_type": case.get("disease_type"),
+
+                            # Demographic
+                            "gender": sex_or_gender,
+                            "sex_at_birth": sex_at_birth,
+                            "race": demographic.get("race"),
+                            "ethnicity": demographic.get("ethnicity"),
+                            "vital_status": demographic.get(
+                                "vital_status"
+                            ),
+                            "days_to_birth": demographic.get(
+                                "days_to_birth"
+                            ),
+                            "days_to_death": demographic.get(
+                                "days_to_death"
+                            ),
+                            "year_of_birth": demographic.get(
+                                "year_of_birth"
+                            ),
+                            "year_of_death": demographic.get(
+                                "year_of_death"
+                            ),
+
+                            # Diagnosis
+                            "diagnosis_id": diagnosis.get(
+                                "diagnosis_id"
+                            ),
+                            "barcode_diagnosis": diagnosis.get(
+                                "submitter_id"
+                            ),
+                            "primary_diagnosis": diagnosis.get(
+                                "primary_diagnosis"
+                            ),
+                            "morphology": diagnosis.get("morphology"),
+                            "tissue_or_organ_of_origin":
+                                diagnosis.get(
+                                    "tissue_or_organ_of_origin"
+                                ),
+                            "site_of_resection_or_biopsy":
+                                diagnosis.get(
+                                    "site_of_resection_or_biopsy"
+                                ),
+
+                            # Preserve both units explicitly.
+                            "age_at_diagnosis_days": age_days,
+                            "age_at_diagnosis": age_years,
+
+                            "days_to_diagnosis": diagnosis.get(
+                                "days_to_diagnosis"
+                            ),
+                            "days_to_last_follow_up": diagnosis.get(
+                                "days_to_last_follow_up"
+                            ),
+                            "days_to_last_known_disease_status":
+                                diagnosis.get(
+                                    "days_to_last_known_disease_status"
+                                ),
+                            "last_known_disease_status":
+                                diagnosis.get(
+                                    "last_known_disease_status"
+                                ),
+                            "progression_or_recurrence":
+                                diagnosis.get(
+                                    "progression_or_recurrence"
+                                ),
+                            "tumor_grade": diagnosis.get(
+                                "tumor_grade"
+                            ),
+                            "tumor_stage": diagnosis.get(
+                                "tumor_stage"
+                            ),
+                            "ajcc_pathologic_stage":
+                                diagnosis.get(
+                                    "ajcc_pathologic_stage"
+                                ),
+                            "ajcc_pathologic_t": diagnosis.get(
+                                "ajcc_pathologic_t"
+                            ),
+                            "ajcc_pathologic_n": diagnosis.get(
+                                "ajcc_pathologic_n"
+                            ),
+                            "ajcc_pathologic_m": diagnosis.get(
+                                "ajcc_pathologic_m"
+                            ),
+                            "ajcc_clinical_stage":
+                                diagnosis.get(
+                                    "ajcc_clinical_stage"
+                                ),
+                            "ajcc_clinical_t": diagnosis.get(
+                                "ajcc_clinical_t"
+                            ),
+                            "ajcc_clinical_n": diagnosis.get(
+                                "ajcc_clinical_n"
+                            ),
+                            "ajcc_clinical_m": diagnosis.get(
+                                "ajcc_clinical_m"
+                            ),
+                            "classification_of_tumor":
+                                diagnosis.get(
+                                    "classification_of_tumor"
+                                ),
+                        }
+                    )
+
+        print()
+
+        columns = [
+            "case_id",
+            "barcode_case",
+            "project_id",
+            "primary_site",
+            "disease_type",
+            "gender",
+            "sex_at_birth",
+            "age_at_diagnosis",
+            "age_at_diagnosis_days",
+            "race",
+            "ethnicity",
+            "vital_status",
+            "days_to_birth",
+            "days_to_death",
+            "year_of_birth",
+            "year_of_death",
+            "diagnosis_id",
+            "barcode_diagnosis",
+            "primary_diagnosis",
+            "morphology",
+            "tissue_or_organ_of_origin",
+            "site_of_resection_or_biopsy",
+            "days_to_diagnosis",
+            "days_to_last_follow_up",
+            "days_to_last_known_disease_status",
+            "last_known_disease_status",
+            "progression_or_recurrence",
+            "tumor_grade",
+            "tumor_stage",
+            "ajcc_pathologic_stage",
+            "ajcc_pathologic_t",
+            "ajcc_pathologic_n",
+            "ajcc_pathologic_m",
+            "ajcc_clinical_stage",
+            "ajcc_clinical_t",
+            "ajcc_clinical_n",
+            "ajcc_clinical_m",
+            "classification_of_tumor",
+        ]
+
+        df = pd.DataFrame.from_records(
+            records,
+            columns=columns,
+        )
+        
+        if df.empty:
+            print("Could not find clinical demographics data.")
+            return df
+
+        df = (
+            df.drop_duplicates()
+            .sort_values(
+                ["case_id", "diagnosis_id"],
+                na_position="last",
+            )
+            .reset_index(drop=True)
+        )
+  
+            
+        _ = pdwritecsv(df, self.fname_demo, self.root_disease, verbose=verbose)
+                        
+        return df
+
+
+    def group_file_types(self, df_samples: pd.DataFrame) -> pd.DataFrame:
+        dic = Counter(df_samples.data_type)
+        dfu = pd.DataFrame(dic.items(), columns=["data_type", "n"])
+        dfu = dfu.sort_values("n", ascending=False).reset_index(drop=True)
+        return dfu
+
+    def groupby_sstate(self, df_cases: pd.DataFrame):
+
+        df_cases["sstage"] = df_cases["stage"].map(lambda x: self.simplify_stage(x))
+        df_subt = (
+            df_cases.groupby(
+                ["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "sstage"],
+                dropna=False,
+            )
+            .size()
+            .reset_index(name="n")
+        )
+        df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
+
+        self.df_subt = df_subt
+
+        return df_subt
+
+    def groupby_case_by_subtypes(self, df_cases: pd.DataFrame):
+
+        # df_subt = df_cases[cols].copy().drop_duplicates()
+        # df_subt = df_subt.sort_values(cols).reset_index(drop=True)
+
+        cols = ["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"]
+        df_subt = df_cases.groupby(cols, dropna=False).size().reset_index(name="n")
+        df_subt = df_subt.sort_values("n", ascending=False).reset_index(drop=True)
+
+        self.df_subt = df_subt
+
+        return df_subt
+
+    def get_stage_from_cases(self, case_id_list: list):
+
+        df2 = self.df_cases[~pd.isnull(self.df_cases.stage)]
+        lista = []
+        for case_id in case_id_list:
+            dfa = df2[df2.case_id == case_id]
+
+            if dfa.empty:
+                lista.append(None)
+            else:
+                lista.append(dfa.iloc[0].stage)
+        return lista
+
+    def set_s_case(self, subtype_global: str, tumor_class: str, subtype_tissue: str):
+
+        primary_site = self.primary_site[:40].strip()
+        primary_site = primary_site.replace("_","-")
+
+        subtype_global = subtype_global[:40].strip()
+        subtype_global = subtype_global.replace("_","-")
+
+        tumor_class = tumor_class[:40].strip()
+        tumor_class = tumor_class.replace("_","-")
+
+        subtype_tissue = subtype_tissue[:40].strip()
+        subtype_tissue = subtype_tissue.replace("_","-")
+
+        self.s_case = f"{self.prog_psi_id}_{primary_site}_subtype_{subtype_global}_tumor_{tumor_class}_tissue_{subtype_tissue}"
+        self.s_case = title_replace(self.s_case)
+
+    def get_samples_for_subtypes(
+        self,
+        subtype_global: str,
+        tumor_class: str,
+        subtype_tissue: str,
+        batch_cases: int = 50,
+        batch_size: int = 200,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> pd.DataFrame:
+        """
+        return all samples given a list of cases
+        for psi_id, subtype_global, tumor_class, subtype_tissue
+
+        input: psi_id, subtype_global, tumor_class, subtype_tissue
+        output: df_samples
+        """
+        self.df_samples = pd.DataFrame()
+
+        self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+        df_cases, _, _ = self.get_cases_and_subtypes(
+            batch_size=batch_size, do_filter=False, force=False, verbose=verbose
+        )
+
+        self.df_cases = df_cases
+
+        if df_cases is None or df_cases.empty:
+            print(f"No cases found while searching for '{self.s_case}'")
+            return self.df_samples
+
+        """
+		lista=[]
+		if isinstance(sstage, str):
+			if sstage.startswith('I'):
+				stage = 'Stage ' + sstage
+			elif sstage ==  'missing':
+				lista = ['unknown', 'X']
+		stage = sstage
+
+		if len(lista) > 0:
+			df_cases = df_cases[(df_cases.subtype_global == subtype_global) & 
+								(df_cases.tumor_class == tumor_class) &
+								(df_cases.subtype_tissue == subtype_tissue) &
+								(df_cases.stage.isin(lista))]
+		else:
+			df_cases = df_cases[(df_cases.subtype_global == subtype_global) & 
+								(df_cases.tumor_class == tumor_class) &
+								(df_cases.subtype_tissue == subtype_tissue) &
+								(df_cases.stage == stage)]
+		"""
+
+        df_cases = df_cases[
+            (df_cases.primary_site == self.primary_site) & 
+            (df_cases.subtype_global == subtype_global) & 
+            (df_cases.tumor_class == tumor_class) & 
+            (df_cases.subtype_tissue == subtype_tissue)
+        ].copy().reset_index(drop=True)
+        
+        self.df_cases = df_cases
+
+        if df_cases.empty:
+            if verbose: print(f"No cases found for {self.s_case}")
+            return self.df_samples
+
+        fname = self.fname_samples0 % (self.s_case)
+        fname = title_replace(fname)
+        filename = self.root_samples / fname
+
+        if filename.exists() and not force:
+            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
+            self.df_samples = df_samples
+
+            return df_samples
+
+        case_id_list = list(df_cases.case_id)
+        case_id_list.sort()
+
+        # s_case_id_list3 = f"[{','.join(case_id_list[:3])}]"
+
+        N_cases = len(case_id_list)
+        print(f">>> {N_cases} cases")
+
+        # -------------------------- batch loop ---------------------------
+        all_hits = []
+        from_ = 0
+        size_ = batch_size
+        total = None
+        df_samples = pd.DataFrame()
+
+        # print("Searching: ", end='')
+
+        ini = -batch_cases
+        end = 0
+
+        while True:
+            ini += batch_cases
+            end += batch_cases
+
+            if ini >= N_cases:
+                break
+
+            if end > N_cases:
+                end = N_cases
+
+            print(f"{ini}-{end} ", end="")
+
+            lista = case_id_list[ini:end]
+            # print("\n>>>", len(lista), lista)
+
+            filters = {"op": "in", "content": {"field": "cases.case_id", "value": lista}}
+
+            try:
+                while True:
+                    print(".", end="")
+
+                    params = {
+                        "filters": json.dumps(filters),
+                        "fields": ",".join(
+                            [
+                                "file_id",
+                                "file_name",
+                                "data_type",
+                                "data_format",
+                                "experimental_strategy",
+                                "cases.case_id",
+                                "cases.submitter_id",
+                                "cases.samples.sample_id",
+                                "cases.samples.submitter_id",
+                                "cases.samples.sample_type",
+                            ]
+                        ),
+                        "format": "JSON",
+                        "size": size_,
+                        "from": from_,
+                    }
+
+                    res = requests.get(self.url_gdc_files, params=params)
+                    response = res.json()
+
+                    if "data" not in response.keys():
+                        print(f"No data found while searching for '{self.prog_psi_id}' cases {case_id_list}")
+                        print(">>> response", response)
+                        self.df_samples = pd.DataFrame()
+                        return self.df_samples
+
+                    hits = response.get("data", {}).get("hits", [])
+
+                    if total is None:
+                        total = response["data"]["pagination"]["total"]
+
+                    if not hits:
+                        break
+
+                    all_hits.extend(hits)
+                    from_ += len(hits)
+
+                    if len(all_hits) >= total: 
+                        break
+
+                # print("\n")
+
+                if all_hits == []:
+                    print(f"No files were found for {self.prog_psi_id} cases {case_id_list}")
+                    self.df_samples = pd.DataFrame()
+                    return self.df_samples
+                
+
+                # ------------ lost data? ------------------
+                N = len(all_hits)
+
+                if N < total:
+                    print(
+                        f"⚠️ Warning: results truncated — consider pagination - all hits = {N};  Total paginated {total} "
+                    )
+                else:
+                    if verbose:
+                        print(f"👉 Returned {N} / Total paginated {total}")
+
+                # ------------ having all hits -------------
+                records = []
+
+                for hit in all_hits:
+                    for case in hit.get("cases", []):
+                        for sample in case.get("samples", []):
+                            records.append(
+                                {
+                                    "case_id": case["case_id"],
+                                    "submitter_id": case["submitter_id"],
+
+                                    "sample_id": sample["sample_id"],
+                                    "sample_type": sample["sample_type"],
+                                    "barcode_sample": sample["submitter_id"],
+
+                                    "file_id": hit["file_id"],
+                                    "file_name": hit["file_name"],
+                                    "data_type": hit["data_type"],
+                                    "data_format": hit["data_format"],
+                                }
+                            )
+
+                df_samples = pd.DataFrame(records)
+                self.df_samples = df_samples
+                cols = list(df_samples.columns)
+
+                # 🔹 Metadata
+                df_samples["psi_id"] = self.psi_id
+                df_samples["subtype_global"] = subtype_global
+                df_samples["tumor_class"] = tumor_class
+                df_samples["subtype_tissue"] = subtype_tissue
+                df_samples["stage"] = self.get_stage_from_cases(df_samples.case_id.tolist())
+
+                cols = ["psi_id", "subtype_global", "tumor_class", "subtype_tissue", "stage"] + cols
+
+                df_samples = df_samples.sort_values(
+                    ["case_id", "sample_type"], ascending=[False, False]
+                ).reset_index(drop=True)
+                df_samples.reset_index(drop=True, inplace=True)
+
+                _ = pdwritecsv(df_samples, fname, self.root_samples, verbose=verbose)
+
+            except Exception as e:
+                print(f"Error for searching files for {self.s_case}'. error: {e}")
+                self.df_samples = df_samples
+                return df_samples
+
+        self.df_samples = df_samples
+
+        return df_samples
+
+    def get_table_given_fileID(
+        self,
+        case_id: str,
+        file_id: str,
+        sample_type: str,
+        file_type: str,
+        timeout: int = 120,
+        force: bool = False,
+        debug: bool = False,
+        verbose: bool = False,
+    ) -> tuple[Any, Any]:
+        """
+        Retrieve any kind of table like: RNA or Proteomic expression
+        input: case_id and file_id
+        output: the desired file
+        """
+
+        if debug:
+            print("case_id:", case_id)
+            print("file_id:", file_id)
+            print("sample_type:", sample_type)
+            print("file_type:", file_type)
+
+        if not file_id and not isinstance(file_id, str):
+            print("No file_id defined.")
+
+            self.df_table = pd.DataFrame()
+            return self.df_table
+
+        file_type = file_type.strip()
+
+        if file_type == "Gene Expression Quantification":
+            is_expression = True
+            type_of_file = "tsv"
+            root = self.root_lfc
+        elif file_type == "Raw Simple Somatic Mutation":
+            is_expression = False
+            type_of_file = "tar.gz"
+            root = self.root_mutations
+        else:
+            print(f"Develope the method for this file type {file_type}")
+            raise Exception("\n------------ stop ---------------\n")
+
+        # self.fname_case_file = "%s_%s_for_%s_case_%s_file_%s.%s"
+        fname = self.fname_case_file % (
+            file_type,
+            sample_type,
+            self.psi_id,
+            case_id,
+            file_id,
+            type_of_file,
+        )
+        fname = title_replace(fname)
+        filename = root / fname
+
+        if os.path.exists(filename) and not force:
+            if is_expression:
+                df_table = pdreadcsv(fname, root, verbose=verbose)
+
+                changed = False
+                if "gene_id" in df_table.columns:
+                    df_table = df_table.rename(columns={"gene_id": "geneid"})
+                    changed = True
+                if "gene_type" in df_table.columns:
+                    df_table = df_table.rename(columns={"gene_type": "biotype"})
+                    changed = True
+
+                if changed:
+                    _ = pdwritecsv(df_table, fname, root, verbose=verbose)
+
+
+                self.df_table = df_table
+                return df_table, filename
+            else:
+                return filename, filename
+
+        if verbose:
+            print("Downloading: ", end="")
+        try:
+            url_file = f"{self.url_gdc_data}/{file_id}"
+
+            with requests.get(url_file, stream=True, timeout=timeout) as r:
+                if r.status_code != 200:
+                    print("Error:", r.status_code)
+                    print("URL:", url_file)
+                    print("Content-Type:", r.headers.get("Content-Type"))
+                    try:
+                        print("Preview:", r.text[:500])
+                    except Exception:
+                        print("Could not decode error body as text for file:", file_id)
+                    return None, filename
+
+                with open(filename, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+            if not is_expression:
+                return filename, filename
+
+            df_table = pd.read_csv(filename, sep="\t", comment="#")
+            df_table = self.clean_expression_table(df_table)
+
+            cols = ["gene_id", "symbol", "gene_type", "unstranded", "counts", "stranded_second",
+                    "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
+            df_table = df_table[cols]
+
+            cols = ["geneid", "symbol", "biotype", "unstranded", "counts", "stranded_second",
+                    "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
+            df_table.columns = cols
+
+            _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
+               
+
+        except Exception as e:
+            s_error = f"Download error for '{self.prog_psi_id}', '{file_type}', case {case_id} and {file_id}: {e}"
+            if verbose:
+                print(s_error)
+
+            self.df_table = pd.DataFrame()
+            return self.df_table, filename
+
+        self.df_table = df_table
+        return df_table, filename
+
+
+    def clean_expression_table(self, df: pd.DataFrame) -> pd.DataFrame:
+
+        # Remove summary rows (N_*)
+        df = df[~df["gene_id"].str.startswith("N_")]
+
+        # Keep only valid Ensembl genes
+        df = df[df["gene_id"].str.startswith("ENSG")]
+
+        # Remove version from gene_id (ENSG... -> ENSG...)
+        df["gene_id"] = df["gene_id"].str.split(".").str[0]
+
+        df = df.rename(columns={"gene_name": "symbol", "stranded_first": "counts"})
+
+        return df
+
+    def get_table_searching_for_fileID(
+        self, data_type: str, sample_type: str, file_id: str, verbose: bool = False
+    ) -> pd.DataFrame:
+
+        data_type2 = title_replace(data_type)
+        sample_type2 = title_replace(sample_type)
+
+        files = [
+            x
+            for x in os.listdir(self.root_disease)
+            if file_id in x and data_type2 in x and sample_type2 in x
+        ]
+
+        if len(files) == 0:
+            print(f"No files found for {file_id}.")
+            self.df_table = pd.DataFrame()
+            return self.df_table
+
+        if len(files) > 1:
+            print(f"Multiple files found for {file_id}. Using the first one.")
+
+        fname = files[0]
+        df_table = pdreadcsv(fname, self.root_disease, verbose=verbose)
+        self.df_table = df_table
+
+        return df_table
+
+    def calc_file_expression_tumor_normal_gtex(self, imax_tumor: int = 100, imax_normal: int = 50, force: bool = False,
+                                               verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        '''
+
+        flow:
+            calc_file_expression_tumor_normal_gtex
+                get_dic_expression_tumor_and_normal
+
+                    _, df_tumor_samples, _, _ = self.get_filtered_tables( sample_type_term="Primary Tumor", verbose=verbose )
+                    _, df_normal_samples, _, _ = self.get_filtered_tables( sample_type_term="Solid Tissue Normal", verbose=verbose )
+
+                    get expression filenames:
+                    dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
+                    dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
+
+                    build 2 dicts having the expression tables
+                    output:  dic_tumor, dic_normal
+
+                # from dict to df -> df tumor and normal
+                df_tumor, df_normal = self.prepare_normal_tumor_tables()
+
+                # get GTEx normal control tissue data
+                df_gtex_ctrl, _ = self.get_gtex_control()
+
+
+            output: df_tumor, df_normal, df_gtex_ctrl
+        
+        '''
+
+        fname_exp_tumor = self.fname_exp_tumor%(self.psi_id)
+        filename_tumor = self.root_lfc / fname_exp_tumor
+
+        fname_exp_normal = self.fname_exp_normal%(self.psi_id)
+        filename_normal = self.root_lfc / fname_exp_normal
+
+        fname_exp_gtex = self.fname_exp_gtex%(self.psi_id)
+        filename_gtex = self.root_lfc / fname_exp_gtex
+
+        if filename_tumor.exists() and filename_normal.exists() and filename_gtex.exists() and not force:
+            
+            df_tumor = pdreadcsv(fname_exp_tumor, self.root_lfc, verbose=verbose)
+            df_normal = pdreadcsv(fname_exp_normal, self.root_lfc, verbose=verbose)
+            df_gtex_ctrl = pdreadcsv(fname_exp_gtex, self.root_lfc, verbose=verbose)
+
+            self.df_tumor = df_tumor
+            self.df_normal = df_normal
+            self.df_gtex_ctrl = df_gtex_ctrl
+
+            return df_tumor, df_normal, df_gtex_ctrl
+
+
+        dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
+        if verbose:
+            print(f"Retrieved expression data for {self.psi_id} dic_tumor {len(dic_tumor)}, dic_normal {len(dic_normal)}")
+        self.dic_tumor = dic_tumor
+        self.dic_normal = dic_normal
+
+        if len(dic_tumor) == 0 and len(dic_normal) == 0:
+            print(f"Insufficient expression data for {self.prog_psi_id}.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+        df_tumor, df_normal = self.prepare_normal_tumor_tables(
+            dic_tumor, dic_normal, imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose
+        )
+
+        df_gtex_ctrl, _ = self.get_gtex_control(force=False, verbose=verbose)
+
+        if "gene_id" in df_tumor.columns:
+            df_tumor = df_tumor.rename(columns={"gene_id": "geneid"})
+        if "gene_type" in df_tumor.columns:
+            df_tumor = df_tumor.rename(columns={"gene_type": "biotype"})
+
+        if "gene_id" in df_normal.columns:
+            df_normal = df_normal.rename(columns={"gene_id": "geneid"})
+        if "gene_type" in df_normal.columns:
+            df_normal = df_normal.rename(columns={"gene_type": "biotype"})
+
+        self.df_tumor = df_tumor
+        self.df_normal = df_normal
+        self.df_gtex_ctrl = df_gtex_ctrl
+
+        if not df_tumor.empty and not df_normal.empty and not df_gtex_ctrl.empty:
+            _ = pdwritecsv(df_tumor, fname_exp_tumor, self.root_lfc)
+            _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
+            _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
+
+        return df_tumor, df_normal, df_gtex_ctrl
+
+    def get_dic_expression_tumor_and_normal(self, verbose: bool = False) -> Tuple[dict, dict]:
+
+        #----------- tumor --------------------------------------------------
+        _, df_tumor_samples, _, _ = self.get_filtered_tables(
+            sample_type_term="Primary Tumor", verbose=verbose
+        )
+        #----------- normal --------------------------------------------------
+        _, df_normal_samples, _, _ = self.get_filtered_tables(
+            sample_type_term="Solid Tissue Normal", verbose=verbose
+        )
+
+        if df_tumor_samples.empty:
+            if verbose:
+                print(f"No tumor expression data found for {self.prog_psi_id}.")
+            return {}, {}
+
+        if df_normal_samples.empty:
+            if verbose:
+                print(f"No normal expression data found for {self.prog_psi_id}.")
+            return {}, {}
+
+        self.file_type_list = np.unique(df_tumor_samples.data_type)
+
+        dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
+        dff_normal.reset_index(drop=True, inplace=True)
+        self.dff_normal = dff_normal
+
+        dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
+        dff_tumor.reset_index(drop=True, inplace=True)
+        self.dff_tumor = dff_tumor
+
+        # raise ValueError("\n\n------------ stop --------------\n\n")
+
+        if verbose:
+            print(
+                f"There are {len(dff_tumor)} tumor and {len(dff_normal)} normal Gene Expression tables"
+            )
+
+        if len(dff_tumor) == 0 and len(dff_normal) == 0:
+            print(f"No valid expression data found for {self.prog_psi_id}.")
+            return {}, {}
+
+        print("Downloading normal files:", end=" ")
+        cols = ["geneid", "symbol", "biotype", "counts"]
+
+        dic_normal = {}
+        for i, row in dff_normal.iterrows():
+            if i % 10 == 0:
+                print(i, end="")
+                  
+            case_id = row.case_id
+            file_id = row.file_id
+
+            dfexp, filename_normal = self.get_table_given_fileID(
+                                            case_id=case_id,
+                                            file_id=file_id,
+                                            sample_type="normal",
+                                            file_type="Gene Expression Quantification",
+                                            force=False,
+                                            verbose=verbose,
+                                        )
+            if dfexp is None or dfexp.empty:
+                print("x", end="")
+                continue
+            print(".", end="")
+
+            self.dfexp_normal = dfexp
+
+            try:
+                dfexp = dfexp[cols]
+            except Exception as e:
+                print(f"Error occurred while processing normal file {filename_normal}: {e}")
+                print(dfexp.shape)
+                print(dfexp.columns)
+                continue
+            dic_normal[f"normal_{file_id}"] = dfexp
+
+        print("")
+        if verbose:
+            print(f" -> {len(dff_normal)}")
+
+        print("Downloading tumor files:", end=" ")
+        dic_tumor = {}
+        for i, row in dff_tumor.iterrows():
+            if i % 10 == 0:
+                print(i, end="")
+
+            case_id = row.case_id
+            file_id = row.file_id
+
+            dfexp, filename_tumor = self.get_table_given_fileID(
+                                            case_id=case_id,
+                                            file_id=file_id,
+                                            sample_type="tumor",
+                                            file_type="Gene Expression Quantification",
+                                            force=False,
+                                            verbose=verbose,
+                                        )
+            if dfexp is None or dfexp.empty:
+                print("x", end="")
+                continue
+            print(".", end="")
+
+            try:
+                dfexp = dfexp[cols]
+            except Exception as e:
+                print(f"Error occurred while processing tumor file {filename_tumor}: {e}")
+                print(dfexp.shape)
+                print(dfexp.columns)
+                continue
+            dic_tumor[f"tumor_{file_id}"] = dfexp
+
+        print("")
+        if verbose:
+            print(f" -> {len(dff_tumor)}")
+
+        self.dic_tumor = dic_tumor
+        self.dic_normal = dic_normal
+
+        return dic_tumor, dic_normal
+
+    def get_case_id(self, barcode: str) -> str:
+
+        self.clean_gdc_files()
+
+        if not isinstance(barcode, str) or len(barcode) < 3:
+            print(f"Barcode bad formated {barcode}.")
+            return ""
+
+        try:
+            filters = {"op": "in", "content": {"field": "submitter_id", "value": [barcode]}}
+
+            params = {
+                "filters": json.dumps(filters),
+                "fields": "case_id,submitter_id",
+                "format": "JSON",
+                "size": 1,
+            }
+
+            response = requests.get(self.url_gdc_cases, params=params)
+            data = response.json()
+
+            hits = data.get("data", {}).get("hits", [])
+            if not hits:
+                raise ValueError(f"No case found for barcode {barcode}")
+
+        except Exception as e:
+            print(f"No data found for {barcode}. error: {e}")
+            return ""
+
+        return hits[0]["case_id"]
+
+    def get_representative_geneids(self, 
+        dfs: list[pd.DataFrame],
+        min_fraction: float = 0.75,
+    ) -> pd.DataFrame:
+        """
+        Return genes present in more than min_fraction of dataframes.
+
+        For 10 dataframes and min_fraction=0.75:
+        strict >75% means present in at least 8 dataframes.
+
+        Presence is counted once per dataframe, even if duplicated inside a dataframe.
+        """
+
+        gene_cols: list[str] = ["geneid", "symbol"]
+
+        n = len(dfs)
+        if n == 0:
+            return pd.DataFrame(columns=gene_cols + ["n_dfs", "fraction"])
+
+        min_count = math.floor(n * min_fraction) + 1  # strict > min_fraction
+
+        counter = Counter()
+
+        for df in dfs:
+            missing = [c for c in gene_cols if c not in df.columns]
+            if missing:
+                raise ValueError(f"Missing columns in dataframe: {missing}")
+
+            genes_in_df = (
+                df[gene_cols]
+                .dropna(subset=gene_cols)
+                .astype(str)
+                .drop_duplicates()
+            )
+
+            counter.update(map(tuple, genes_in_df.to_numpy()))
+
+        result = (
+            pd.DataFrame(
+                [(geneid, symbol, count) for (geneid, symbol), count in counter.items()],
+                columns=gene_cols + ["n_dfs"],
+            )
+            .assign(fraction=lambda x: x["n_dfs"] / n)
+            .query("n_dfs >= @min_count")
+            .sort_values(["n_dfs"] + gene_cols, ascending=[False] + [True] * len(gene_cols))
+            .reset_index(drop=True)
+        )
+
+        return result
+    
+    def get_common_gene_list(self, dic_tum_norm: dict, isel_list: List[int], min_fraction: float = 0.75) -> np.ndarray:
+        df_list = []
+
+        cols = self.ANNOT_COLS + ["counts"]
+
+        keys = list(dic_tum_norm.keys())
+
+        for ikey in isel_list:
+            key = keys[ikey]
+            dfa = dic_tum_norm[key]
+
+            if dfa is None or dfa.empty:
+                continue
+
+            if "gene_id" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_id": "geneid"})
+            if "gene_type" in dfa.columns:
+                dfa = dfa.rename(columns={"gene_type": "biotype"})
+
+            dfa = dfa[cols]
+            df_list.append(dfa)
+
+        dfq = self.get_representative_geneids(df_list, min_fraction=min_fraction)
+        lista = np.unique(dfq.geneid.to_list())
+        return lista
+
+
+    def prepare_normal_tumor_tables(
+        self,
+        dic_tumor: dict,
+        dic_normal: dict,
+        imax_tumor: int = 100,
+        imax_normal: int = 50,
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Process tumor and normal dictionary expression data.
+
+        input:
+                dic_tumor
+                dic_normal
+                    # get the most common geneids to merge all tumor tables
+                    lista = self.get_common_gene_list(dic_tumor, min_fraction=0.75)
+                verbose: bool, whether to print verbose messages
+        output:
+                df_tumor and df_normal tables
+        """
+
+        print(">> prepare_normal_tumor_tables()")
+
+        df_tumor = pd.DataFrame()
+        df_normal = pd.DataFrame()
+
+        cols = self.ANNOT_COLS + ["counts"]
+        common_cols = self.ANNOT_COLS    
+        
+        # ----------- Normal tissue ----------------
+        if len(dic_normal) == 0:
+            print(">>> No data for normal samples")
+        else:
+            print(">>> Processing normal data:", len(dic_normal))
+
+            isel_normal_list = np.arange(len(dic_normal))
+
+            if len(isel_normal_list) > imax_normal:
+                isel_normal_list = random.sample(list(isel_normal_list), imax_normal)
+
+
+            # ----------- normal tissue ----------------
+            common_gene_list = self.get_common_gene_list(dic_normal, list(isel_normal_list), min_fraction=0.75)
+
+            if len(common_gene_list) == 0:
+                print(">>> No common genes found for normal samples.")
+            else:
+                keys = list(dic_normal.keys())
+                i=0
+                for ikey in isel_normal_list:
+                    key = keys[ikey]
+                    dfa = dic_normal[key]
+
+                    if "gene_id" in dfa.columns:
+                        dfa = dfa.rename(columns={"gene_id": "geneid"})
+                    if "gene_type" in dfa.columns:
+                        dfa = dfa.rename(columns={"gene_type": "biotype"})
+
+                    dfa = dfa[cols]
+
+                    dfa = (
+                        dfa.dropna(subset=['geneid', 'symbol'])
+                        .drop_duplicates(['geneid', 'symbol'])
+                    )
+                    if dfa.empty:
+                        continue
+
+                    i+=1
+                    dfa = dfa.rename(columns={"counts": f"normal_{i}"})
+
+                    dfa = dfa[dfa.geneid.isin(common_gene_list)]
+                    if dfa.empty:
+                        continue
+                    
+                    dfa.reset_index(drop=True, inplace=True)
+            
+                    if df_normal.empty:
+                        df_normal = dfa
+                    else:
+                        df_normal = df_normal.merge(dfa, on=common_cols, how="outer")
+ 
+        # ----------- tumor ----------------
+        if len(dic_tumor) == 0:
+            print(">>> No data for tumor samples")
+        else:
+            print(">>> Processing tumor data:", len(dic_tumor))
+
+            isel_tumor_list = np.arange(len(dic_tumor))
+            if len(isel_tumor_list) > imax_tumor:
+                isel_tumor_list = random.sample(list(isel_tumor_list), imax_tumor)
+
+            common_gene_list = self.get_common_gene_list(dic_tumor, list(isel_tumor_list), min_fraction=0.75)
+
+            if len(common_gene_list) == 0:
+                print(">>> No common genes found for tumor samples.")
+                return df_tumor, df_normal
+
+            keys = list(dic_tumor.keys())
+            i=0
+            for ikey in isel_tumor_list:
+                key = keys[ikey]
+                dfa = dic_tumor[key]
+
+                if dfa is None or dfa.empty:
+                    continue
+
+                if "gene_id" in dfa.columns:
+                    dfa = dfa.rename(columns={"gene_id": "geneid"})
+                if "gene_type" in dfa.columns:
+                    dfa = dfa.rename(columns={"gene_type": "biotype"})
+
+                dfa = dfa[cols]
+
+                dfa = (
+                    dfa.dropna(subset=['geneid', 'symbol'])
+                    .drop_duplicates(['geneid', 'symbol'])
+                )
+                if dfa.empty:
+                    continue
+
+                i+=1
+                dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
+
+                dfa = dfa[dfa.geneid.isin(common_gene_list)]
+                if dfa.empty:
+                    continue
+                
+                dfa.reset_index(drop=True, inplace=True)
+        
+                if df_tumor.empty:
+                    df_tumor = dfa
+                else:
+                    df_tumor = df_tumor.merge(dfa, on=common_cols, how="outer")
+
+        return df_tumor, df_normal
+
+    def resolve_mutation_profile(self, study_id: str, timeout: int = 60) -> str:
+        '''
+        here is the cBioPortl endpoint
+
+        there is no PSI_ID 
+        one must know the correct study_id
+
+        input:  study_id
+        output: molecular_profile_id
+        '''
+
+        candidates = [
+            f"{study_id}_mutations",
+            f"{study_id}_mutations_extended",
+        ]
+
+        for mp in candidates:
+            url = f"{self.url_cbioportal}/molecular-profiles/{mp}"
+            if requests.get(url, timeout=timeout).ok:
+                return mp
+
+        print(f"\n\n------------ No mutation profile found for {study_id} ------------- \n")
+        return ''
+
+    def get_cBioportal_mutations_from_samples(
+        self,
+        barcode_sample_list: Iterable[str],
+        study_id: str,
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+    ) -> pd.DataFrame:
+        """
+        Fetch mutation records from cBioPortal for a list of sample IDs.
+
+        Parameters
+        ----------
+        barcode_sample_list : Iterable[str]
+                cBioPortal sample IDs, e.g. ["TCGA-GC-A3BM-01", "TCGA-XF-A9SY-01"].
+        study_id : str
+                cBioPortal study ID, e.g. "blca_tcga".
+        molecular_profile_id : str | None
+                Mutation profile ID. If None, defaults to "{study_id}_mutations".
+        base_url : str
+                cBioPortal API base URL.
+        session : requests.Session | None
+                Optional requests session.
+        timeout : int
+                Request timeout in seconds.
+
+        Returns
+        -------
+        pd.DataFrame
+                Mutation table. Empty DataFrame if nothing is returned.
+
+        Notes
+        -----
+        - This function assumes all sample_ids belong to the same study.
+        - If your samples come from multiple studies, call the function per study.
+        """
+
+        # molecular_profile_id = f"{study_id}_mutations"
+        molecular_profile_id = self.resolve_mutation_profile(study_id)
+
+        if molecular_profile_id == '':
+            return pd.DataFrame()
+
+        http = session or requests.Session()
+
+        url = f"{self.url_cbioportal}/molecular-profiles/{molecular_profile_id}/mutations/fetch"
+
+        payload = {"sampleIds": barcode_sample_list}
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        resp = http.post(url, json=payload, headers=headers, timeout=timeout)
+
+        # Helpful error message from cBioPortal
+        if not resp.ok:
+            msg = ""
+            try:
+                msg = resp.json()
+            except Exception:
+                msg = resp.text
+
+            raise RuntimeError(
+                f"cBioPortal request failed: HTTP {resp.status_code} | "
+                f"profile={molecular_profile_id} | details={msg}"
+            )
+
+        data = resp.json()
+        if not data:
+            if verbose:
+                print(f"Error: cBioPortal URL: {url}")
+                print(
+                    f"No mutations found for molecular profile '{molecular_profile_id}' barcodes: {barcode_sample_list}."
+                )
+            return pd.DataFrame()
+
+        df = pd.DataFrame(data)
+
+        cols_ori = list(df.columns)
+
+        if "tumorAltCount" in df.columns:
+            cols_ori.remove("tumorAltCount")
+        else:
+            df["tumorAltCount"] = None
+
+        cols = cols_ori + ["tumorAltCount"]
+        df = df[cols]
+
+        # self.df = df
+        # raise Exception('stop3')
+
+        # the selected cols + others not listed
+        # cols = [c for c in df.columns if c in df.columns.to_list()] + [c for c in df.columns if c not in cols]
+        # self.df = df
+
+        df["keyword"] = [x.split(" ")[0] if isinstance(x, str) else x for x in df["keyword"]]
+
+
+        # sometime these fields are not present
+        optional_api_cols = [
+            "tumorRefCount",
+            "normalRefCount",
+            "tumorAltCount",
+        ]
+
+        for col in optional_api_cols:
+            if col not in df.columns:
+                df[col] = None     
+
+        dic_rename = {
+            "uniqueSampleKey": "unique_sample_key",
+            "uniquePatientKey": "unique_patient_key",
+            "molecularProfileId": "molecular_profile_id",
+            "sampleId": "barcode_sample",
+            "patientId": "barcode",
+            "entrezGeneId": "entrez_gene_id",
+            "studyId": "psi_id",
+            "center": "center",
+            "mutationStatus": "mutation_status",
+            "validationStatus": "validation_status",
+            "tumorRefCount": "tumor_ref_count",
+            "normalRefCount": "normal_ref_count",
+            "startPosition": "start",
+            "endPosition": "end",
+            "referenceAllele": "ref_allele",
+            "proteinChange": "protein_mut",
+            "mutationType": "mutation_type",
+            "ncbiBuild": "ncbi_build",
+            "variantType": "variant_type",
+            "keyword": "symbol",
+            "chr": "chr",
+            "variantAllele": "variant_allele",
+            "refseqMrnaId": "refseq_mrna_id",
+            "proteinPosStart": "protein_pos_start",
+            "proteinPosEnd": "protein_pos_end",
+            "tumorAltCount": "tumor_alt_count",
+        }
+
+        rename_cols = [dic_rename.get(col, col) for col in df.columns]
+
+        df.columns = rename_cols
+
+        df["sample"] = [x.split("-")[-1] for x in df["barcode_sample"]]
+
+        order_cols = [
+            "psi_id",
+            "molecular_profile_id",
+            "barcode",
+            "sample",
+            "barcode_sample",
+            "symbol",
+            "refseq_mrna_id",
+            "entrez_gene_id",
+            "protein_mut",
+            "mutation_type",
+            "mutation_status",
+            "ref_allele",
+            "variant_allele",
+            "variant_type",
+            "chr",
+            "start",
+            "end",
+            "validation_status",
+            "protein_pos_start",
+            "protein_pos_end",
+            "tumor_alt_count",
+            "ncbi_build",
+            "center",
+            "tumor_ref_count",
+            "unique_sample_key",
+            "unique_patient_key",
+        ]
+
+        df = df[order_cols]
+
+        return df
+
+
+    def set_mutation_filenames(self):
+
+        self.fname_mut_anal = self.fname_mut_anal0 % (self.s_case)
+        self.fname_mut_summ = self.fname_mut_summ0 % (self.s_case)
+
+        self.fname_mut_anal = title_replace(self.fname_mut_anal)
+        self.filename_mutanal = self.root_mutations / self.fname_mut_anal
+
+        self.fname_mut_summ = title_replace(self.fname_mut_summ)
+        self.filename_mutsumm = self.root_mutations / self.fname_mut_summ
+
+    def get_df_mut_transform_mutation_table(
+        self,
+        barcode_sample_list: List[str],
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        """
+		if TCGA remove the last characters if len > 2
+		TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
+
+        already defined
+            a) set_primary_site() -> self.psi_id 
+            b) df_samples = self.get_samples_for_subtypes(
+                subtype_global=subtype_global,
+                tumor_class=tumor_class,
+                subtype_tissue=subtype_tissue,
+                batch_size=200,
+                force=force,
+                verbose=verbose,
+                )
+            c) self.s_case -> to call self.set_mutation_filenames()
+        )
+
+		"""
+        barcode_sample_list = list(np.unique(barcode_sample_list))
+
+        if self.is_tcga:
+            # see set_primary_site()
+            df2 = pd.DataFrame()
+        else:
+            df2 = self.df_psi[ (self.df_psi.prog_id == self.prog_id) & (self.df_psi.disease_id == self.disease_id)]
+
+            if df2.empty:
+                print(f"Error: No data found for {self.prog_id} an d{self.disease_id}.")
+                return pd.DataFrame(), pd.DataFrame()
+                       
+        self.set_mutation_filenames()
+
+        if self.filename_mutanal.exists() and self.filename_mutsumm.exists() and not force:
+            dff    = pdreadcsv(self.fname_mut_summ, self.root_mutations, verbose=verbose)
+            df_mut = pdreadcsv(self.fname_mut_anal, self.root_mutations, verbose=verbose)
+            return dff, df_mut
+
+        """
+			df_mut cols: ["sample_id", "barcode_sample", "psi_id", "mol_profile_id","gene",
+			"entrez_gene_id", "protein_mut", "mutation_type", "mutation_status",
+			"variant_type", "chr", "start", "end",
+			"ref_allele", "tumor_seq_allele"]		
+		"""
+
+        self.dff, self.df_mut = pd.DataFrame(), pd.DataFrame()
+
+        if self.is_tcga:
+            dff, df_mut = self.get_dff_mutation(
+                study_id= self.cbioportal_study_id,
+                barcode_sample_list=barcode_sample_list,
+                session=session,
+                timeout=timeout
+            )
+        else:
+            df_list_mut, df_list = [], []
+        
+            for _, row in df2.iterrows():
+
+                dffa, dfmut = self.get_dff_mutation(
+                    study_id=row.cbioportal_study_id,
+                    barcode_sample_list=barcode_sample_list,
+                    session=session,
+                    timeout=timeout
+                )
+                df_list_mut.append(dfmut)
+                df_list.append(dffa)
+
+            if df_list_mut == [] or df_list == []:
+                return pd.DataFrame(), pd.DataFrame()
+
+            df_mut = pd.concat(df_list_mut, ignore_index=True)
+            dff    = pd.concat(df_list, ignore_index=True)
+
+        dff = dff.drop_duplicates()
+        dff.reset_index(drop=True, inplace=True)
+
+        df_mut = df_mut.drop_duplicates()
+        df_mut.reset_index(drop=True, inplace=True)
+
+        self.dff = dff
+        self.df_mut = df_mut
+
+        if dff.empty:
+            if verbose: print("No mutation summary data found.")
+        else:
+            _ = pdwritecsv(dff, self.fname_mut_summ, self.root_mutations, verbose=verbose)
+
+        if df_mut.empty:
+            if verbose: print("No mutation analytical data found.")
+        else:
+            _ = pdwritecsv(df_mut, self.fname_mut_anal, self.root_mutations, verbose=verbose)
+
+        return dff, df_mut
+    
+
+    def get_cbioportal_samples_for_study(
+        self,
+        study_id: str,
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+    ) -> pd.DataFrame:
+
+        http = session or requests.Session()
+
+        url = f"{self.url_cbioportal}/studies/{study_id}/samples"
+
+        resp = http.get(
+            url,
+            params={"projection": "DETAILED"},
+            headers={"Accept": "application/json"},
+            timeout=timeout,
+        )
+
+        if not resp.ok:
+            print(f"Could not retrieve samples for study_id={study_id}")
+            print("HTTP:", resp.status_code)
+            print(resp.text[:500])
+            return pd.DataFrame()
+
+        data = resp.json()
+        if not data:
+            return pd.DataFrame()
+
+        return pd.DataFrame(data)
+
+    '''
+    verify sample overlap before fetching mutations
+    Before calling /mutations/fetch, test whether your barcode_sample_list exists in the selected cBioPortal study.
+    '''
+    def check_cbioportal_sample_overlap(
+        self,
+        study_id: str,
+        barcode_sample_list: list[str],
+        session: Optional[requests.Session] = None,
+        timeout: int = 60,
+    ) -> pd.DataFrame:
+
+        df_cbio_samples = self.get_cbioportal_samples_for_study(
+            study_id=study_id,
+            session=session,
+            timeout=timeout,
+        )
+
+        if df_cbio_samples.empty:
+            print(f"No cBioPortal samples found for study_id={study_id}")
+            return pd.DataFrame()
+
+        cbio_sample_ids = set(df_cbio_samples["sampleId"].astype(str))
+        query_sample_ids = set(map(str, barcode_sample_list))
+
+        overlap = sorted(query_sample_ids & cbio_sample_ids)
+        missing = sorted(query_sample_ids - cbio_sample_ids)
+
+        print("study_id:", study_id)
+        print("query samples:", len(query_sample_ids))
+        print("cBioPortal samples:", len(cbio_sample_ids))
+        print("overlap:", len(overlap))
+
+        if len(overlap) == 0:
+            print("First query samples:")
+            print(sorted(list(query_sample_ids))[:10])
+
+            print("First cBioPortal samples:")
+            print(sorted(list(cbio_sample_ids))[:10])
+
+        return pd.DataFrame(
+            {
+                "barcode_sample": sorted(query_sample_ids),
+                "in_cbioportal": [x in cbio_sample_ids for x in sorted(query_sample_ids)],
+            }
+        )
+
+    def get_dff_mutation(self, 
+                        study_id: str,
+                        barcode_sample_list: List[str],
+                        session: Optional[requests.Session] = None,
+                        timeout: int = 60,
+                        verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        
+        '''
+
+            TCGA
+            GDC sample submitter_id ≈ cBioPortal sampleId
+            barcode_sample_list is used
+            TCGA-OR-A5J2-01A → TCGA-OR-A5J2-01
+
+            CPTAC / non-TCGA
+            GDC sample IDs may be UUIDs
+            cBioPortal has its own sampleId system
+            Use cBioPortal-native sequenced sampleId list    
+            barcode_sample_list is not used!            
+                    
+        '''
+
+        if not self.is_tcga:
+            df_cbio = self.get_cbioportal_samples_for_study(
+                    study_id=study_id,
+                    session=session,
+                    timeout=timeout,
+                )
+            
+            if df_cbio is None or df_cbio.empty:
+                print(f"No cBioPortal samples found for study_id={study_id}.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            if "sequenced" in df_cbio.columns:
+                sequenced = df_cbio["sequenced"].astype(bool)
+                df_cbio = df_cbio[sequenced].copy()
+
+            if "sampleId" not in df_cbio.columns:
+                print(f"cBioPortal sample table for {study_id} has no sampleId column.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            barcode_sample_list = (
+                df_cbio["sampleId"]
+                .dropna()
+                .astype(str)
+                .unique()
+                .tolist()
+            )
+
+            if len(barcode_sample_list) == 0:
+                print(f"No sequenced cBioPortal samples found for {study_id}.")
+                return pd.DataFrame(), pd.DataFrame()
+
+            if verbose:
+                print(f"Using {len(barcode_sample_list)} cBioPortal samples.")
+
+        df_mut = self.get_cBioportal_mutations_from_samples(
+            barcode_sample_list=barcode_sample_list,
+            study_id=study_id,
+            session=session,
+            timeout=timeout,
+        )
+
+        if df_mut.empty:
+            print("No mutations found for these samples.")
+            return pd.DataFrame(), pd.DataFrame()
+
+        # --------------- map main cols from df_mut ------------------------
+        """
+		order_cols = ['barcode_sample', 'barcode_sample', 'psi_id', 'mol_profile_id',
+			'symbol', 'refseq_mrna_id', 'entrez_gene_id', 
+			'protein_mut', 'mutation_type', 'mutation_status',
+			'ref_allele', 'variant_allele', 'variant_type', 
+			'chr', 'start', 'end', 
+			'validation_status', 'protein_pos_start', 'protein_pos_end', 'tumor_alt_count',
+			'ncbi_build', 'center', 'tumorRefCount', 'unique_sample_key',
+			'unique_patient_key']
+		"""
+        dff = (
+            df_mut.groupby(
+                [
+                    "psi_id",
+                    "barcode",
+                    "barcode_sample",
+                    "symbol",
+                    "refseq_mrna_id",
+                    "entrez_gene_id",
+                    "protein_mut",
+                    "mutation_type",
+                    "variant_type",
+                    "chr",
+                ]
+            )
+            .size()
+            .reset_index(name="n_mutations")
+        )
+
+        dff = dff[dff.barcode.notna()]
+        dff = dff[dff.barcode_sample.notna()]
+        dff = dff[dff.entrez_gene_id.notna()]
+
+        dff = dff.sort_values(["barcode", "symbol", "protein_mut"])
+        dff = dff.reset_index(drop=True)
+
+        return dff, df_mut
+
+
+    def cbioportal_studies(self):
+        url = "https://www.cbioportal.org/api/studies"
+
+        res = requests.get(url, headers={"Accept": "application/json"})
+        res.raise_for_status()
+
+        studies = res.json()
+
+        study_ids = [s["studyId"] for s in studies]
+
+        return study_ids
+
+    def loop_program_psi_get_cases_samples_mut(
+        self, prog_id: str = "TCGA", force: bool = False, verbose: bool = False
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+            input: prog_id
+
+            "get or calc" -> df_all_cases, df_all_samples, df_all_mutations
+
+            df_all_cases -> self.get_cases_and_subtypes()
+            loop on subtypes ->
+                df_all_samples ->  self.get_samples_for_subtypes(subtype_global=subtype_global, tumor_class=tumor_class, subtype_tissue=subtype_tissue, )
+                df_all_mutations -> for each subtype get from samples the barcode_sample_list -> self.get_df_mut_transform_mutation_table()
+
+            output: df_all_cases, df_all_samples, df_all_mutations
+        """
+
+        df_psi = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+        df_cases, df_subt = pd.DataFrame(), pd.DataFrame()
+
+        fname_all_cases = self.fname_all_cases % (self.prog_id)
+        filename_cases = self.root_summary / fname_all_cases
+
+        fname_all_clin_demo = self.fname_all_clin_demo % (self.prog_id)
+        filename_clin_demo = self.root_summary / fname_all_clin_demo
+
+        fname_all_samples = self.fname_all_samples % (self.prog_id)
+        filename_samples = self.root_summary / fname_all_samples
+
+        fname_all_mutations = self.fname_all_mutations % (self.prog_id)
+        filename_mutations = self.root_summary / fname_all_mutations
+
+        if filename_cases.exists() and filename_clin_demo.exists() and \
+           filename_samples.exists() and filename_mutations.exists() and not force:
+            df_all_cases = pdreadcsv(fname_all_cases, self.root_summary, verbose=verbose)
+            df_all_clin_demo = pdreadcsv(fname_all_clin_demo, self.root_summary, verbose=verbose)
+            df_all_samples = pdreadcsv(fname_all_samples, self.root_summary, verbose=verbose)
+            df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary, verbose=verbose)
+
+            self.df_all_cases = df_all_cases
+            self.df_all_clin_demo = df_all_clin_demo
+            self.df_all_samples = df_all_samples
+            self.df_all_mutations = df_all_mutations
+
+            return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+
+        df_list_cases, df_list_clin_demo, df_list_samples, df_list_mutations = [], [], [], []
+
+        # loop for all primary sites in df_psi
+        for ipsi, row in df_psi.iterrows():
+
+            psi_id = row.psi_id
+            primary_site = row.primary_site
+
+            self.set_primary_site(psi_id)
+
+            print(f"\t{ipsi}) {psi_id} - {primary_site}")
+
+            df_cases, df_subt, df_clin_demo = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
+
+            if df_cases.empty:
+                if verbose: print("No cases found for PSI_ID:", psi_id)
+                continue
+
+            if df_subt.empty:
+                if verbose: print("No df_subt found for PSI_ID:", psi_id)
+                continue
+
+            df_list_cases.append(df_cases)
+            df_list_clin_demo.append(df_clin_demo)
+
+            for isubt, row in df_subt.iterrows():
+                subtype_global = row.subtype_global
+                tumor_class = row.tumor_class
+                subtype_tissue = row.subtype_tissue
+
+                df_samples = self.get_samples_for_subtypes(
+                    subtype_global=subtype_global,
+                    tumor_class=tumor_class,
+                    subtype_tissue=subtype_tissue,
+                    batch_size=200,
+                    force=False,
+                    verbose=verbose,
+                )
+                print(f"\t\t{isubt}) {self.s_case}")
+
+                if df_samples.empty:
+                    if verbose: print(f"No samples found for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
+                    continue
+
+                if not isinstance(df_samples, pd.DataFrame):
+                    if verbose: print(f"df_samples is not a DataFrame for PSI_ID: {psi_id} subtype: {subtype_global} tumor_class: {tumor_class} subtype_tissue: {subtype_tissue}")
+                    continue
+
+                df_list_samples.append(df_samples)
+
+                df2 = df_samples[~df_samples.sample_type.str.contains("Blood", case=False, na=False)]
+                if df2.empty:
+                    print("No samples having non-blood types for PSI_ID:", psi_id)
+                    continue
+
+                barcode_sample_list = list(self.prepare_barcode_sample_list(df2.barcode_sample))
+                self.barcode_sample_list = barcode_sample_list
+
+                dff, _ = self.get_df_mut_transform_mutation_table(
+                    barcode_sample_list=barcode_sample_list,
+                    force=False,
+                    verbose=verbose,
+                )
+
+                if dff.empty:
+                    if verbose: print("Could not find mutations for :", self.s_case)
+                    continue
+
+                df_list_mutations.append(dff)
+
+        if len(df_list_cases) > 0:
+            df_all_cases = pd.concat(df_list_cases, ignore_index=True)
+            self.df_all_cases = df_all_cases
+            df_all_cases = df_all_cases.drop_duplicates()
+            df_all_cases = df_all_cases.reset_index(drop=True)
+        else:
+            df_all_cases = pd.DataFrame()
+
+        if len(df_list_clin_demo) > 0:
+            df_all_clin_demo = pd.concat(df_list_clin_demo, ignore_index=True)
+            self.df_all_clin_demo = df_all_clin_demo
+            df_all_clin_demo = df_all_clin_demo.drop_duplicates()
+            df_all_clin_demo = df_all_clin_demo.reset_index(drop=True)
+        else:
+            df_all_clin_demo = pd.DataFrame()
+
+        if len(df_list_samples) > 0:
+            df_all_samples = pd.concat(df_list_samples, ignore_index=True)
+            self.df_all_samples = df_all_samples
+            df_all_samples = df_all_samples.drop_duplicates()
+            df_all_samples = df_all_samples.reset_index(drop=True)
+        else:
+            df_all_samples = pd.DataFrame()
+
+        if len(df_list_mutations) > 0:
+            df_all_mutations = pd.concat(df_list_mutations, ignore_index=True)
+            self.df_all_mutations = df_all_mutations
+            df_all_mutations = df_all_mutations.drop_duplicates()
+            df_all_mutations = df_all_mutations.reset_index(drop=True)
+        else:
+            df_all_mutations = pd.DataFrame()
+
+        if not df_all_cases.empty:
+            _ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary, verbose=verbose)
+        if not df_all_clin_demo.empty:
+            _ = pdwritecsv(df_all_clin_demo, fname_all_clin_demo, self.root_summary, verbose=verbose)
+        if not df_all_samples.empty:
+            _ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary, verbose=verbose)
+        if not df_all_mutations.empty:
+                _ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary, verbose=verbose)
+
+        self.df_all_cases = df_all_cases
+        self.df_all_clin_demo = df_all_clin_demo
+        self.df_all_samples = df_all_samples
+        self.df_all_mutations = df_all_mutations
+
+        return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+
+    def get_filtered_tables(
+        self, 
+        sample_type_term: str = "Primary Tumor", 
+        verbose: bool = False
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+
+        df_cases, df_all_samples, df_all_mut, all_barcode_list = self.get_filtered_tables_subtypes(
+            sample_type_term=sample_type_term, do_filter=False, verbose=verbose
+        )
+
+        if verbose:
+            if df_cases.empty:
+                print("No cases found for primary site:", self.primary_site)
+
+            if df_all_samples.empty:
+                print("No samples found for primary site:", self.primary_site)
+
+            if df_all_mut.empty:
+                print("No mutations found for primary site:", self.primary_site)
+
+            if len(all_barcode_list) == 0:
+                print("No barcodes found for primary site:", self.primary_site)
+
+        return df_cases, df_all_samples, df_all_mut, all_barcode_list
+
+    def get_filtered_tables_subtypes(
+        self, sample_type_term: str = "Primary Tumor", do_filter: bool = True, verbose: bool = True
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+
+        self.df_cases = pd.DataFrame()
+        self.df_all_samples = pd.DataFrame()
+        self.df_all_mut = pd.DataFrame()
+        self.all_barcode_list = []
+
+        if not os.path.exists(self.filename_cases):
+            print("Error: could not find cases file:", self.filename_cases)
+            return self.df_cases, self.df_all_samples, self.df_all_mut, self.all_barcode_list
+
+        df_cases = pdreadcsv(self.fname_cases, self.root_disease, verbose=verbose)
+        if "pid" in df_cases.columns:
+            df_cases = df_cases.rename(columns={"pid": "psi_id"})
+            pdwritecsv(df_cases, self.fname_cases, self.root_disease, verbose=verbose)
+
+        if do_filter:
+            df_cases = self.apply_filter_cases(df_cases)
+
+        self.df_cases = df_cases
+
+        df_subt = self.groupby_case_by_subtypes(df_cases)
+
+        df_list_samples = []
+        df_list_mut = []
+        list_all_barcodes = []
+
+        for _, row in df_subt.iterrows():
+            subtype_global = row.subtype_global
+            tumor_class = row.tumor_class
+            subtype_tissue = row.subtype_tissue
+
+            self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+            df3 = df_cases[
+                (df_cases.subtype_global == subtype_global)
+                & (df_cases.tumor_class == tumor_class)
+                & (df_cases.subtype_tissue == subtype_tissue)
+            ]
+
+            if df3.empty:
+                print(f"No cases found for {subtype_global} {tumor_class} {subtype_tissue}")
+                continue
+
+            df3 = df3.copy().reset_index(drop=True)
+
+            case_id_list = np.unique(df3.case_id)
+
+            fname = self.fname_samples0 % (self.s_case)
+            fname = title_replace(fname)
+            filename = self.root_samples / fname
+
+            if not filename.exists():
+                if verbose:
+                    print("Error: could not find samples file:", filename)
+                continue
+
+            df_samples = pdreadcsv(fname, self.root_samples, verbose=verbose)
+
+            if df_samples.empty:
+                print("Error: could not read samples file:", filename)
+                continue
+
+            df_samples = df_samples[
+                (df_samples.case_id.isin(case_id_list))
+                & (df_samples.sample_type.str.contains(sample_type_term, case=False))
+            ]
+            self.df_samples = df_samples
+
+            if df_samples.empty:
+                if verbose:
+                    print(f"Warning: could not filter df_samples for {subtype_global} {tumor_class} {subtype_tissue}")
+                continue
+
+            df_samples = df_samples.copy().reset_index(drop=True)
+            self.barcode_list = self.prepare_barcode_sample_list(df_samples.barcode_sample.tolist())
+
+            self.set_mutation_filenames()
+
+            if os.path.exists(self.filename_mutsumm):
+                df_mut = pdreadcsv(self.fname_mut_anal, self.root_mutations, verbose=verbose)
+            else:
+                if verbose: print("No mutation analysis file found for:", self.s_case)
+                df_mut = pd.DataFrame()
+
+            df_list_samples.append(df_samples)
+            if not df_mut.empty:
+                df_list_mut.append(df_mut)
+            list_all_barcodes += list(self.barcode_list)
+
+        df_all_samples = (
+            pd.concat(df_list_samples, ignore_index=True) if df_list_samples else pd.DataFrame()
+        )
+
+        if df_all_samples.empty:
+            print("Warning: No samples found.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+
+        if self.memory_restriction:
+            df_all_samples = df_all_samples.head(200).copy()
+        
+        df_all_samples.reset_index(drop=True, inplace=True)
+
+        cases_ids = np.unique(df_all_samples.case_id)
+        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
+        df_cases.reset_index(drop=True, inplace=True)
+
+        self.df_all_samples = df_all_samples
+        self.df_cases = df_cases
+                
+        if len(df_list_mut) == 0:
+            df_all_mut = pd.DataFrame()
+            list_all_barcodes = []
+        else:
+            df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
+            list_all_barcodes = list(np.unique(list_all_barcodes))
+
+        return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
+
+    def prepare_barcode_sample_list(self, barcode_sample_list: list[str] | np.ndarray | pd.Series) -> list[str]:
+        """
+        if TCGA remove the last characters if len > 2
+        TCGA-OR-A5J2-01A -> TCGA-OR-A5J2-01
+        """
+
+        barcode_sample_list = [self.to_cbioportal_barcode_sample(x) for x in barcode_sample_list]
+        if not barcode_sample_list:
+            raise ValueError("barcode_sample_list is empty.")
+
+        # 01A, 01B, 01Z → all collapse to 01
+        barcode_sample_list = list(np.unique(barcode_sample_list))
+
+        return barcode_sample_list
+
+    def to_cbioportal_barcode_sample(self, x: str) -> str:
+        parts = x.split("-")
+
+        if len(parts) >= 4 and parts[0] == "TCGA":
+            sample_code = parts[3][:2]  # 01A -> 01, 11A -> 11
+            return "-".join([parts[0], parts[1], parts[2], sample_code])
+
+        return x
+
+    def build_pivot_table(
+        self, df_all_mut: pd.DataFrame, min_barcodes: int = 2, min_genes: int = 2
+    ) -> pd.DataFrame:
+        """
+        Build a barcode x gene binary mutation matrix (0/1).
+
+        Rows represent barcodes (samples), columns represent gene symbols.
+        A value of 1 indicates that at least one mutation was observed for that
+        barcode-gene pair.
+
+        Parameters
+        ----------
+        df_all_mut : pd.DataFrame
+                Input mutation table. Must contain at least:
+                - 'barcode': sample identifier
+                - 'symbol': gene symbol
+
+        Returns
+        -------
+        pd.DataFrame
+                Binary mutation matrix with:
+                - index   = barcode
+                - columns = gene symbol
+                - values  = 0 or 1
+
+                Returns an empty DataFrame if the input is empty or required columns
+                are missing.
+        """
+        if df_all_mut is None or df_all_mut.empty:
+            return pd.DataFrame()
+
+        required_cols = {"barcode", "symbol"}
+        missing_cols = required_cols - set(df_all_mut.columns)
+        if missing_cols:
+            raise ValueError(
+                f"build_pivot_table requires columns {sorted(required_cols)}, "
+                f"but is missing {sorted(missing_cols)}."
+            )
+
+        # Keep only the columns needed for the mutation matrix
+        dfa = df_all_mut.loc[:, ["barcode", "symbol"]].copy()
+        dfa["barcode"] = dfa["barcode"].astype(str).str.strip()
+        dfa["symbol"] = dfa["symbol"].astype(str).str.strip()
+
+        dfa = dfa[
+            (dfa["barcode"] != "")
+            & (dfa["symbol"] != "")
+            & (dfa["barcode"].str.lower() != "nan")
+            & (dfa["symbol"].str.lower() != "nan")
+        ]
+
+        if dfa.empty:
+            return pd.DataFrame()
+
+        # Mark presence of at least one mutation per barcode-gene pair
+        dfa["mutated"] = 1
+
+        dfpiv = dfa.pivot_table(
+            index="barcode",
+            columns="symbol",
+            values="mutated",
+            aggfunc="max",
+            fill_value=0,
+        ).astype(np.uint8)
+
+        # Remove empty samples and genes
+        dfpiv = dfpiv.loc[dfpiv.sum(axis=1) >= min_genes, :]
+
+        dfpiv = dfpiv.loc[:, dfpiv.sum(axis=0) >= min_barcodes]
+
+        if dfpiv.shape[0] < 3:
+            print("dfpiv has less than 3 samples.")
+            return pd.DataFrame()
+
+        if dfpiv.shape[1] < 3:
+            print("dfpiv has less than 3 genes.")
+            return pd.DataFrame()
+
+        """
+		It sorts your matrix in a consistent order:
+
+		axis=0 → sort rows (barcodes)
+		axis=1 → sort columns (genes)
+
+		So after this:
+			barcodes are alphabetically (or lexicographically) ordered
+			genes are alphabetically ordered
+		"""
+        dfpiv = dfpiv.sort_index(axis=0).sort_index(axis=1)
+
+        return dfpiv
+
+    def calc_HDBSCAN(
+        self, dfpiv: pd.DataFrame, min_cluster_size: int = 8, min_samples: int = 3
+    ) -> tuple[List, List, Any]:
+        """
+        Cluster with HDBSCAN, not KMeans
+        pairwise_distances with jaccard
+        Multidimensional Scaling (MDS)
+        If there are a few dense groups plus many ambiguous samples, HDBSCAN can work better.
+
+        In HDBSCAN:
+                min_cluster_size → minimum size of a cluster
+                min_samples → minimum local neighborhood density
+                A point is considered “core” if it has at least min_samples neighbors nearby.
+
+        input: dfpiv, min_cluster_size (minimum number of samples in a cluster)
+        output: embedding and labels
+        """
+
+        X = dfpiv.to_numpy(dtype=bool)
+
+        n_samples = X.shape[0]
+        n_genes = X.shape[1]
+
+        if n_samples < 3:
+            print("Need at least 3 non-empty samples to compute HDBSCAN + clustering.")
+            return [], [], None
+
+        if min_cluster_size > n_samples:
+            print(
+                f"min_cluster_size={min_cluster_size} is larger than number of samples ({X.shape[0]}). Using min_cluster_size={X.shape[0]}."
+            )
+            min_cluster_size = max(2, n_samples - 1)
+
+        if n_genes < 3:
+            print("Need at least 3 non-empty genes to compute HDBSCAN + clustering.")
+            return [], [], None
+
+        min_cluster_size = min(min_cluster_size, n_samples)
+
+        # print(">>> calc_HDBSCAN MIN_CLUSTER_SIZE", min_cluster_size)
+
+        # where distance_matrix is already your precomputed Jaccard dissimilarity matrix.
+        dist_matrix = pairwise_distances(X, metric="jaccard")
+
+        # metric is not exactly the same concept as dissimilarity="precomputed" in older versions.
+        # In current MDS, the distance matrix behavior is usually controlled by normalized_stress/input handling 
+        # and the API changes around dissimilarity can be confusing.
+        embedding = MDS(
+            n_components=2,
+            metric='precomputed',
+            n_init=1,
+            random_state=42,
+        ).fit_transform(dist_matrix)
+
+        if isinstance(embedding, tuple):
+            print("embedding return as a tuple")
+            embedding = embedding[0]
+
+        embedding = np.asarray(embedding)
+
+        if embedding.shape[0] < 3:
+            print("Too few valid embedded samples after filtering.")
+            return [], [], None
+
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples if min_samples is not None else min_cluster_size,
+            metric="euclidean",
+        )
+        labels = clusterer.fit_predict(embedding)
+
+        return embedding.tolist(), labels.tolist(), dist_matrix
+
+    def calc_UMAP(self, dfpiv: pd.DataFrame, k: int = 8) -> tuple[List, List]:
+        # Binary mutation matrix for Jaccard
+        # Force numeric/binary and remove bad values
+
+        X = dfpiv.to_numpy(dtype=np.uint8)
+
+        n_samples = X.shape[0]
+        n_genes = X.shape[1]
+
+        if n_samples < 3:
+            print("Need at least 3 non-empty samples to compute UMAP + clustering.")
+            return [], []
+
+        if k > n_samples:
+            print(f"k={k} is larger than number of samples ({X.shape[0]}). Using k={X.shape[0]}.")
+            k = max(2, n_samples - 1)
+
+        if n_genes < 3:
+            print("Need at least 3 non-empty genes to compute UMAP + clustering.")
+            return [], []
+
+        k = min(k, n_samples)
+
+        n_neighbors = min(15, n_samples - 1)
+        n_neighbors = max(2, n_neighbors)
+
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=0.1,
+            metric="jaccard",
+            random_state=42,
+            init="random",  # important
+            output_dens=False,  # avoid tuple output
+        )
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="umap")
+            embedding = reducer.fit_transform(X)
+
+        if isinstance(embedding, tuple):
+            print("embedding return as a tuple")
+            embedding = embedding[0]
+
+        embedding = np.asarray(embedding)
+
+        """
+		good = np.isfinite(embedding).all(axis=1)
+		embedding = embedding[good]
+		"""
+        if not np.isfinite(embedding).all():
+            print("UMAP embedding contains NaN or infinite values.")
+            return [], []
+
+        if embedding.shape[0] < 3:
+            print("Too few valid embedded samples after filtering.")
+            return [], []
+
+        labels = KMeans(
+            n_clusters=min(k, embedding.shape[0] - 1),
+            random_state=42,
+            n_init=10,
+        ).fit_predict(embedding)
+
+        return embedding.tolist(), labels.tolist()
+
+    def plot_UMAP(
+        self, dfpiv: pd.DataFrame, k: int = 8, figsize: tuple = (14, 10)
+    ) -> Tuple[Any, Any, Any]:
+
+        n_samples = dfpiv.shape[0]
+        n_genes = dfpiv.shape[1]
+
+        embedding, labels = self.calc_UMAP(dfpiv, k)
+        embedding = np.array(embedding)
+
+        if len(embedding) == 0 or len(labels) == 0:
+            print("No valid UMAP embedding or labels.")
+            return None, None, None
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # cmap = plt.cm.get_cmap("tab10", k)
+        plt.scatter(
+            embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
+        )
+
+        ax.set_title(
+            f"Clustering using UMAP mutation profiles: (k={k})\nPrimary Site: '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
+        )
+        ax.set_xlabel("UMAP1")
+        ax.set_ylabel("UMAP2")
+
+        counts = Counter(labels)
+
+        legend_handles = []
+
+        for cluster_id in sorted(counts.keys()):
+            color = self.colors[cluster_id]
+            n = counts[cluster_id]
+
+            patch = mpatches.Patch(color=color, label=f"Cluster {cluster_id} (n={n})")
+            legend_handles.append(patch)
+
+        ax.legend(handles=legend_handles, title="Groups", loc="best")
+
+        return fig, embedding, labels
+
+    def plot_HDBSCAN(
+        self,
+        dfpiv: pd.DataFrame,
+        min_cluster_size: int = 8,
+        min_samples: int = 3,
+        figsize: tuple = (14, 10),
+    ) -> Tuple[Any, Any, Any, Any]:
+
+        n_samples = dfpiv.shape[0]
+        n_genes = dfpiv.shape[1]
+
+        embedding, labels, d = self.calc_HDBSCAN(
+            dfpiv=dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples
+        )
+        embedding = np.array(embedding)
+
+        if len(embedding) == 0 or len(labels) == 0:
+            print("No valid HDBSCAN embedding or labels.")
+            return None, None, None, None
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        plt.scatter(
+            embedding[:, 0], embedding[:, 1], c=[self.colors[label] for label in labels], s=20
+        )
+
+        stri = "Clustering using HDBSCAN mutation profiles"
+        stri += f"\nPrimary Site: {self.prog_psi_id} - '{self.primary_site}' #{n_samples} samples and #{n_genes} genes"
+        stri += f"\nmin_cluster_size={min_cluster_size} and min_samples={min_samples}"
+        ax.set_title(stri)
+        ax.set_xlabel("embedding1")
+        ax.set_ylabel("embedding2")
+
+        counts = Counter(labels)
+
+        legend_handles = []
+
+        for cluster_id in sorted(counts.keys()):
+            color = self.colors[cluster_id]
+            n = counts[cluster_id]
+
+            patch = mpatches.Patch(color=color, label=f"Cluster {cluster_id} (n={n})")
+            legend_handles.append(patch)
+
+        ax.legend(handles=legend_handles, title="Groups", loc="best")
+
+        return fig, embedding, labels, d
+
+    def cluster_mutation_table(
+        self, dfpiv: pd.DataFrame, labels, cluster: int = 1, min_barcodes: int = 2
+    ) -> pd.DataFrame:
+
+        if len(labels) != dfpiv.shape[0]:
+            stri = "Error: build_pivot_table filter empty lines."
+            stri += "\nNumber of labels does not match number of samples. "
+            stri += "\n----------- stop execution -----------\n"
+            raise Exception(stri)
+
+        labels = pd.Series(labels, index=dfpiv.index)
+        sel_barcodes = labels[labels == cluster].index
+        dff = dfpiv.loc[sel_barcodes].copy()
+        dff = dff.loc[:, dff.sum(axis=0) >= min_barcodes]
+
+        return dff
+
+    def calc_shannon_entropy_from_dfstat(self, dfstat: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+
+        for (k, cluster), dfsub in dfstat.groupby(["k", "cluster"]):
+            deg_list = dfsub["degree"].to_list()
+
+            if len(deg_list) == 0:
+                H = np.nan
+                Hmax = np.nan
+                Hnorm = np.nan
+                n_genes = 0
+            else:
+                w = np.array(deg_list, dtype=float)
+                p = w / w.sum()
+                H = -np.sum(p * np.log2(p))
+                n_genes = len(p)
+                Hmax = np.log2(n_genes) if n_genes > 1 else 0.0
+                Hnorm = H / Hmax if Hmax > 0 else 0.0
+
+            rows.append(
+                {
+                    "k": k,
+                    "cluster": cluster,
+                    "n_genes": n_genes,
+                    "cluster_size": dfsub["cluster_size"].iloc[0],
+                    "entropy": H,
+                    "entropy_max": Hmax,
+                    "entropy_norm": Hnorm,
+                }
+            )
+
+        if rows == []:
+            return pd.DataFrame()
+
+        dfh = pd.DataFrame(rows)
+        dfh = dfh.sort_values("entropy_norm", ascending=True)
+
+        return dfh
+
+    def score_k_from_entropy_table(self, dfh: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+
+        for k, sub in dfh.groupby("k"):
+            total_n = sub["cluster_size"].sum()
+
+            weighted_mean_entropy = (
+                (sub["entropy_norm"] * sub["cluster_size"]).sum() / total_n
+                if total_n > 0
+                else np.nan
+            )
+
+            mean_entropy = sub["entropy_norm"].mean()
+            std_entropy = sub["entropy_norm"].std()
+            min_cluster_size = sub["cluster_size"].min()
+            max_cluster_size = sub["cluster_size"].max()
+            n_clusters = sub.shape[0]
+            n_small_clusters = (sub["cluster_size"] < 3).sum()
+
+            rows.append(
+                {
+                    "k": k,
+                    "n_clusters": n_clusters,
+                    "weighted_mean_hnorm": weighted_mean_entropy,
+                    "mean_hnorm": mean_entropy,
+                    "std_hnorm": std_entropy,
+                    "min_cluster_size": min_cluster_size,
+                    "max_cluster_size": max_cluster_size,
+                    "n_small_clusters_lt3": n_small_clusters,
+                }
+            )
+
+        return pd.DataFrame(rows).sort_values("weighted_mean_hnorm", ascending=True)
+
+    def entropy_analysis_for_primary_site(
+        self,
+        cluster_type: str,
+        sample_type_term: str = "Primary Tumor",
+        Kmin: int = 2,
+        Kmax: int = 10,
+        min_barcodes: int = 2,
+        min_genes: int = 2,
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+
+        _, _, df_all_mut, _ = self.get_filtered_tables(
+            sample_type_term=sample_type_term, verbose=verbose
+        )
+
+        dfempty = pd.DataFrame()
+
+        if df_all_mut.empty:
+            return dfempty, dfempty, dfempty, dfempty, dfempty
+
+        dfpiv = self.build_pivot_table(df_all_mut, min_barcodes=min_barcodes, min_genes=min_genes)
+        self.dfpiv = dfpiv
+
+        if dfpiv.shape[0] < 3 or dfpiv.shape[1] < 3:
+            return dfempty, dfempty, dfempty, dfpiv, df_all_mut
+
+        if Kmax >= dfpiv.shape[0]:
+            Kmax = dfpiv.shape[0] - 1
+
+        if Kmax <= 3:
+            return dfempty, dfempty, dfempty, dfpiv, df_all_mut
+
+        df_list = []
+        for k in range(Kmin, Kmax + 1):
+            if cluster_type == "UMAP":
+                _, labels = self.calc_UMAP(dfpiv, k)
+            elif cluster_type == "HDBSCAN":
+                _, labels, _ = self.calc_HDBSCAN(dfpiv, k)
+            else:
+                raise Exception(
+                    f"\n---------- Define the cluster_type like UMAP or HDBSCAN, got: {cluster_type}"
+                )
+
+            if labels is None or len(labels) == 0:
+                continue
+
+            for cluster in np.unique(labels):
+                dfc = self.cluster_mutation_table(
+                    dfpiv=dfpiv, labels=labels, cluster=cluster, min_barcodes=min_barcodes
+                )
+
+                n_clusters = dfc.shape[0]
+
+                if n_clusters < 3 or dfc.shape[1] < 3:
+                    continue
+
+                gene_degree = dfc.sum(axis=0).sort_values(ascending=False)
+                gene_freq = (gene_degree / n_clusters).sort_values(ascending=False)
+
+                df_cluster_stat = pd.DataFrame(
+                    {
+                        "k": k,
+                        "cluster": cluster,
+                        "gene": gene_degree.index,
+                        "degree": gene_degree.values,
+                        "cluster_size": n_clusters,
+                        "freq": gene_freq.values,
+                    }
+                )
+                df_list.append(df_cluster_stat)
+
+        if len(df_list) == 0:
+            return dfempty, dfempty, dfempty, dfpiv, df_all_mut
+
+        dfstat = pd.concat(df_list, ignore_index=True)
+
+        dfh = self.calc_shannon_entropy_from_dfstat(dfstat)
+
+        dfw = self.score_k_from_entropy_table(dfh)
+
+        cols = dfw.columns.to_list()
+
+        dfw["psi_id"] = self.psi_id
+        dfw["primary_site"] = self.primary_site
+        dfw["min_barcodes"] = min_barcodes
+        dfw["min_genes"] = min_genes
+
+        cols = ["psi_id", "primary_site", "min_barcodes", "min_genes"] + cols
+        dfw = dfw[cols]
+
+        return dfw, dfh, dfstat, dfpiv, df_all_mut
+
+    def buid_purity_table(self, dfpiv: pd.DataFrame, labels: list) -> pd.DataFrame:
+        lab_list = np.unique(labels)
+        pu_list = []
+        n_list = []
+        pairs = []
+
+        for idx, label in enumerate(lab_list):
+            # idx = labels == label
+            X = dfpiv[idx].to_numpy(dtype=bool)
+
+            n_bardodes = len(X)
+            n_list.append(n_bardodes)
+            pairs.append(n_bardodes * (n_bardodes - 1) / 2)
+
+            if len(X) > 1:
+                dist = pairwise_distances(X, metric="jaccard")
+                similarity = 1 - dist
+                purity = similarity[np.triu_indices_from(similarity, k=1)].mean()
+            else:
+                purity = 0
+
+            pu_list.append(np.round(purity, 3))
+
+        dfa = pd.DataFrame(
+            {"label": lab_list, "n_barcodes": n_list, "purity": pu_list, "n_pairs": pairs}
+        )
+
+        max_pairs = dfa["n_pairs"].max()
+        dfa["purity_norm"] = dfa["purity"] * (dfa["n_pairs"] / max_pairs)
+
+        dfa = dfa.sort_values(by="purity_norm", ascending=False)
+
+        return dfa
+
+    def plot_purity(
+        self, dfpur: pd.DataFrame, dfclu: pd.DataFrame, good_clusters: list, min_perc: float = 0.10
+    ):
+
+        # top_n_genes = 30
+
+        ngood = len(good_clusters)
+        nrows = int(np.ceil(ngood / 2))
+        height = 6 * nrows
+
+        fig, axes = plt.subplots(nrows, 2, figsize=(12, height))
+        axes = axes.flatten()
+
+        for ax, label in zip(axes, good_clusters):
+            if label == -1:
+                continue
+
+            dfb = dfclu[label]
+
+            dfb = dfb[dfb.values > min_perc]
+            dfb = dfb.sort_values(ascending=False)
+            # dfb = dfb.sort_values(ascending=False).head(top_n_genes)
+
+            ax.bar(dfb.index, dfb.values)
+
+            stri = f"Label {label} | purity_norm={dfpur.loc[dfpur['label'] == label].iloc[0].purity_norm:.3f}"
+
+            ax.set_title(stri)
+            ax.set_ylabel("Representative percentage")
+            ax.set_xlabel("Genes")
+            ax.tick_params(axis="x", rotation=70)
+
+            print(stri, ", ".join(dfb.index.to_list()))
+
+        plt.tight_layout()
+
+        return fig
+
+    def enrichment_test(self, sample_genes, subtype_genes, background_genes):
+        N = len(background_genes)
+        K = len(subtype_genes)
+        n = len(sample_genes)
+        overlap_genes = set(sample_genes) & set(subtype_genes)
+        overlap = len(overlap_genes)
+
+        # P(X >= k)
+        pval = hypergeom.sf(overlap - 1, N, K, n)
+
+        return pval, overlap_genes
+
+    def cluster_analysis(
+        self,
+        cluster_type: str,
+        sample_type_term: str,
+        k: int = 5,
+        Kmin: int = 2,
+        Kmax: int = 10,
+        min_barcodes: int = 3,
+        min_genes: int = 5,
+        pur_threshold: float = 0.05,
+        min_represent_perc=0.10,
+        verbose: bool = False,
+    ) -> Tuple[
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+        pd.DataFrame,
+    ]:
+        
+
+        dfw, dfh, dfstat, dfpiv, df_all_mut = self.entropy_analysis_for_primary_site(
+            cluster_type, sample_type_term, Kmin, Kmax, min_barcodes, min_genes, verbose
+        )
+
+        dfempty = pd.DataFrame()
+
+        if dfpiv.empty:
+            print("Did not define the pivot table")
+            return dfempty, dfempty, dfempty, dfempty, dfempty, dfempty, dfempty, dfempty
+
+        if cluster_type == "UMAP":
+            print(f"Chose {cluster_type} with k={k}")
+            _, labels = self.calc_UMAP(dfpiv, k)
+
+        elif cluster_type == "HDBSCAN":
+            min_cluster_size = 5
+            min_samples = 3
+            print(
+                f"Chose {cluster_type} with min_cluster_size={min_cluster_size} and min_samples={min_samples}"
+            )
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _, labels, _ = self.calc_HDBSCAN(
+                    dfpiv, min_cluster_size=min_cluster_size, min_samples=min_samples
+                )
+        else:
+            print("Did not defined the clustering method")
+            return dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+        # ----------- cluster ----------------
+        dfpiv2 = dfpiv.copy()
+        dfpiv2["cluster"] = labels
+        dfclu = dfpiv2.groupby("cluster").mean().T
+
+        dfpur = self.buid_purity_table(dfpiv, labels)
+        if dfpur.empty:
+            return dfempty, dfempty, dfempty, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+        good_clusters = dfpur.loc[dfpur["purity_norm"] >= pur_threshold, "label"]
+
+        # ------------ hypergeometric statistics ---------------------
+        background_genes = np.unique(df_all_mut.symbol.to_list())
+
+        dic = self.SUBTYPE_GENES.get(self.psi_id, {})
+
+        if dic == {}:
+            print(f"No subtype genes found for PSI ID: {self.prog_psi_id}")
+            return dfempty, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+        lista = []
+        for label in good_clusters:
+            purity_norm = dfpur.loc[dfpur["label"] == label].iloc[0].purity_norm
+
+            dfb = dfclu[label]
+
+            n_barcodes = len(dfpiv2[dfpiv2["cluster"] == label])
+
+            dfb = dfb[dfb.values > min_represent_perc]
+            # dfb = dfb.sort_values(ascending=False)
+
+            sample_genes = dfb.index.to_list()
+
+            for subtype, annotated_genes in dic.items():
+                pval, overlap_genes = self.enrichment_test(
+                    sample_genes, annotated_genes, background_genes
+                )
+                # print(f"Subtype: {subtype}, overlap: {overlap}, p-value: {pval}")
+
+                overlap = len(overlap_genes)
+
+                if overlap >= 2:
+                    mat = [
+                        cluster_type,
+                        k,
+                        n_barcodes,
+                        label,
+                        purity_norm,
+                        subtype,
+                        overlap,
+                        len(sample_genes),
+                        len(annotated_genes),
+                        len(background_genes),
+                        pval,
+                        overlap_genes,
+                    ]
+                    lista.append(mat)
+
+        if lista == []:
+            df = pd.DataFrame()
+        else:
+            df = pd.DataFrame(
+                lista,
+                columns=[
+                    "cluster_type",
+                    "k",
+                    "n_barcodes",
+                    "label",
+                    "purity_norm",
+                    "subtype",
+                    "overlap",
+                    "sample_genes",
+                    "annotated_genes",
+                    "background_genes",
+                    "pval",
+                    "overlap_genes",
+                ],
+            )
+            df["fdr"] = fdr(df["pval"])
+
+        return df, dfpur, dfclu, dfw, dfh, dfstat, dfpiv, df_all_mut
+
+    def get_VCF_file(self, case_id: str, sample_id_list: list, subtype_global: str, tumor_class: str, subtype_tissue: str, 
+                     timeout: int = 100, force: bool = False, verbose: bool = False,) -> pd.DataFrame:
+
+        df_vcf = pd.DataFrame()
+        self.df_vcf = df_vcf
+
+        self.set_s_case(subtype_global, tumor_class, subtype_tissue)
+
+        fname = self.fname_vcf_files0 % (case_id, sample_id_list[0], sample_id_list[-1]) 
+        fname = title_replace(fname)
+        filename = self.root_mutations / fname
+
+        if filename.exists() and not force:
+            df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
+            return df_vcf
+
+        df_samples = self.get_samples_for_subtypes(
+                        subtype_global=subtype_global,
+                        tumor_class=tumor_class,
+                        subtype_tissue=subtype_tissue,
+                        batch_size=200,
+                        force=False,
+                        verbose=verbose,
+                    )
+
+        if df_samples.empty:
+            print(f"No cases found while searching for '{self.s_case}'")
+            return df_vcf
+
+        df_samples = df_samples[df_samples.case_id == case_id]
+
+        if df_samples.empty:
+            print(f"No cases found while searching for case_id = '{case_id}'")
+            return df_vcf
+
+        sample_id_list = df_samples.sample_id.to_list()
+        N = len(df_samples)
+
+        # -------------------------- batch loop ---------------------------
+
+        filters = {
+            "op": "and",
+            "content": [
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "cases.samples.sample_id",
+                        "value": sample_id_list,
+                    },
+                },
+                {
+                    "op": "=",
+                    "content": {
+                        "field": "files.data_format",
+                        "value": "VCF",
+                    },
+                },
+                {
+                    "op": "in",
+                    "content": {
+                        "field": "files.data_type",
+                        "value": [
+                            "Raw Simple Somatic Mutation",
+                            "Masked Somatic Mutation",
+                        ],
+                    },
+                },
+            ],
+        }
+
+        fields = [
+            "file_id",
+            "file_name",
+            "data_type",
+            "data_format",
+            "access",
+            "analysis.workflow_type",
+            "cases.case_id",
+            "cases.submitter_id",
+            "cases.samples.sample_id",
+            "cases.samples.submitter_id",
+            "cases.samples.sample_type",
+        ]
+
+        params = {
+            "filters": json.dumps(filters),
+            "fields": ",".join(fields),
+            "format": "JSON",
+            "size": N,
+        }
+
+
+        res = requests.get(self.url_gdc_files, params=params, timeout=timeout)
+        res.raise_for_status()
+
+        response = res.json()
+
+        if "data" not in response:
+            print("No data returned from GDC.")
+            print(">>> response", response)
+            return pd.DataFrame()
+
+        hits = response.get("data", {}).get("hits", [])
+
+        if not hits:
+            print(f"No VCF files found for {len(sample_id_list)} sample_id(s) for case_id {case_id}.")
+            return pd.DataFrame()
+
+
+        records = []
+
+        for hit in hits:
+            file_id = hit.get("file_id")
+            file_name = hit.get("file_name")
+            data_type = hit.get("data_type")
+            data_format = hit.get("data_format")
+
+            analysis = hit.get("analysis") or {}
+            workflow_type = analysis.get("workflow_type")
+
+            for case in hit.get("cases", []):
+                case_submitter_id = case.get("submitter_id")
+
+                for sample in case.get("samples", []):
+                    records.append(
+                        {
+                            # case metadata
+                            "case_id": case_id,
+                            "case_submitter_id": case_submitter_id,
+
+                            # sample metadata
+                            "sample_id": sample.get("sample_id"),
+                            "barcode_sample": sample.get("submitter_id"),
+                            "sample_type": sample.get("sample_type"),
+
+                            # file metadata
+                            "file_id": file_id,
+                            "file_name": file_name,
+                            "data_type": data_type,
+                            "data_format": data_format,
+                            "workflow_type": workflow_type,
+
+                            # project/subtype metadata
+                            "psi_id": self.psi_id,
+                            "subtype_global": subtype_global,
+                            "tumor_class": tumor_class,
+                            "subtype_tissue": subtype_tissue,
+                        }
+                    )
+
+        df_vcf = pd.DataFrame(records)
+
+        if df_vcf.empty:
+            return df_vcf
+
+        cols = [
+            "psi_id",
+            "case_id",
+            "case_submitter_id",
+            "sample_id",
+            "barcode_sample",
+            "sample_type",
+            "subtype_global",
+            "tumor_class",
+            "subtype_tissue",
+            "file_id",
+            "file_name",
+            "data_type",
+            "data_format",
+            "workflow_type",
+        ]
+
+        cols = [c for c in cols if c in df_vcf.columns]
+        df_vcf = df_vcf[cols]
+        self.df_vcf = df_vcf
+
+        return df_vcf
+
+
+
+    def open_df_VCF(self, case_id, sample_id_list, verbose: bool = False) -> pd.DataFrame:
+
+        fname = self.fname_vcf_files0 % (case_id, sample_id_list[0], sample_id_list[-1])
+        fname = title_replace(fname)
+        filename = self.root_mutations / fname
+
+        if filename.exists():
+            df_vcf = pdreadcsv(fname, self.root_mutations, verbose=verbose)
+        else:
+            print(f"VCF file not found for case_id: {case_id}, sample_id: {sample_id_list[0]} to {sample_id_list[-1]}")
+            df_vcf = pd.DataFrame()
+
+        self.df_vcf = df_vcf
+        return df_vcf
+
+    def prepare_gtex(self, df_gtex_ctrl: pd.DataFrame) -> pd.DataFrame:
+
+        df_gtex_ctrl.rename(columns={"ensemblid": "geneid"}, inplace=True)
+        df_gtex_ctrl['geneid'] = [gene.split('.')[0] for gene in df_gtex_ctrl.geneid]
+
+        cols = list(df_gtex_ctrl.columns)[2:]
+
+        # df_gtex_ctrl["biotype"] = "protein_coding"
+        # _gtex_ctrl = df_gtex_ctrl[self.ANNOT_COLS + cols]
+
+        _ = [
+            df_gtex_ctrl.rename(columns={cols[i]: f"normal_{i + 1}"}, inplace=True)
+            for i in range(len(cols))
+        ]
+
+        return df_gtex_ctrl
+
+
+    def get_tumor_normal_tables(self, imax_tumor: int = 200, imax_normal: int = 100, force: bool = False,
+                                verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+        '''
+            df_tumor, df_normal, df_gtex_ctrl = calc_file_expression_tumor_normal_gtex()
+
+                dic_tumor, dic_normal = self.get_dic_expression_tumor_and_normal(verbose=verbose)
+                df_tumor, df_normal = self.prepare_normal_tumor_tables()
+        '''
+        
+        df_tumor, df_normal, df_gtex_ctrl = \
+            self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, force=force, verbose=verbose)
+
+        if df_tumor.empty:
+            msg = f"No tumor expression data found for {self.prog_psi_id}"
+            if verbose:
+                print(msg)
+            return pd.DataFrame(),pd.DataFrame(), msg
+
+        # geneid, symbol, biotype, samples
+        min_N_cols = 3 + 3
+        # df_gtex_ctrl - has no biotype
+        if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < (min_N_cols-1):
+            msg = "Error: Normal samples and GTEx control do not have enough samples."
+            if verbose:
+                print(msg)
+            return pd.DataFrame(),pd.DataFrame(), msg
+
+        df_normal = self.cdegs.deduplicate_by_max_reads(df_normal)
+
+        if df_normal.empty or df_normal.shape[1] < min_N_cols:
+            df_normal2 = self.prepare_gtex(df_gtex_ctrl)
+            df_normal2 = self.cdegs.deduplicate_by_max_reads(df_normal2)
+            msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
+            if verbose:
+                print(msg)
+        else:
+            msg = f"enough normal samples {df_normal.shape[1] - 3}."
+            if verbose:
+                print(msg)
+            df_normal2 = df_normal
+
+        self.df_normal2 = df_normal2
+
+        msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
+
+        df_tumor = self.cdegs.deduplicate_by_max_reads(df_tumor)
+        self.df_tumor = df_tumor
+
+        if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
+            msg = "Error: Tumor expression data has fewer than 3 samples."
+            return pd.DataFrame(),pd.DataFrame(), msg
+
+        if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
+            msg = "Error: Normal expression data has fewer than 3 samples."
+            return pd.DataFrame(),pd.DataFrame(), msg
+        
+        return df_tumor, df_normal2, msg
+
+
+    def calc_lfc_table(
+        self,
+        psi_id: str,
+        run_conda: bool = False,
+        method: str = "deseq2",
+        imax_tumor: int = 200, 
+        imax_normal: int = 100, 
+        verbose: bool = False,
+    ) -> tuple[pd.DataFrame, str]:
+
+        self.set_primary_site(psi_id=psi_id)
+
+        cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
+        self.cdegs = cdegs
+
+        df_tumor, df_normal, msg = self.get_tumor_normal_tables(imax_tumor=imax_tumor, imax_normal=imax_normal, force=False, verbose=verbose)
+
+        if df_tumor.empty:
+            return pd.DataFrame(), msg
+
+        if df_normal.empty:
+            return pd.DataFrame(), msg
+
+        df_lfc0 = cdegs.run_deg_rscript(
+            df_tumor=df_tumor,
+            df_normal=df_normal,
+            method=method,
+            manual_dispersion=0.1,
+            min_total_count=10,
+            merge_how="inner",
+            keep_temp=False,
+        )
+
+        cols = df_lfc0.columns.to_list()
+
+        commons =  ["geneid"]
+        tum_cols = self.ANNOT_COLS
+
+        # biotype can be loose: biotypes come from df_tumor
+        df_lfc0 = pd.merge(df_lfc0, df_tumor[tum_cols], on=commons, how="inner")
+
+        cols2 = self.ANNOT_COLS + cols[1:]
+        df_lfc0 = df_lfc0[cols2]
+
+        # print("\n-------------------------")
+        # print(df_lfc0.head(3))
+        # print("------------------------\n\n")
+
+        df_lfc0 = df_lfc0.rename(columns={"geneid": "ensembl_id", "log2FoldChange": "lfc", "pvalue": "pval", "padj": "fdr"})
+
+        return df_lfc0, msg
+
+
+    def calc_degs(
+        self,
+        prog_id: str,
+        psi_id: str,
+        ncluster: int,
+        df_tumor: pd.DataFrame,
+        df_normal: pd.DataFrame,
+        df_gtex_ctrl: pd.DataFrame,
+        root_src: Path = Path('.'),
+        run_conda: bool = False,
+        lfc_cutoff: float = 1.0,
+        fdr_cutoff: float = 0.05,
+        method: str = "deseq2",
+        force: bool = False,
+        verbose: bool = False,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
+        
+       
+        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+        ret = self.set_primary_site(psi_id = psi_id)
+
+        if not ret:
+            print(f"Error: failed to set primary site for {prog_id} {psi_id}")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
+
+        cdegs = CALC_DEGS(root_src=root_src, run_conda=run_conda)
+        self.cdegs = cdegs
+
+        if df_tumor.empty:
+            print(f"No tumor expression data found for {self.prog_psi_id}")
+            return pd.DataFrame(), pd.DataFrame(), "", ""
+
+        fname_lfc = self.fname_lfc % (self.disease_id, method, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.disease_id, method, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (self.disease_id, method, ncluster)
+        fname_msg = self.fname_msg % (self.disease_id, method, ncluster)
+
+        filename_lfc = self.root_mprog_lfc / fname_lfc
+        filename_lfc_ori = self.root_mprog_lfc / fname_lfc_ori
+        # filename_degs_txt = self.root_mprog_lfc / fname_degs_txt
+        # filename_sample_txt = self.root_mprog_lfc / fname_msg
+
+        if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_mprog_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, self.root_mprog_lfc, verbose=verbose)
+            
+            try:
+                degs_txt = read_txt(fname_degs_txt, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_txt = ''
+
+            try:
+                sample_txt = read_txt(fname_msg, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                sample_txt = ''
+
+            return df_lfc, df_lfc_ori, degs_txt, sample_txt
+
+
+        # geneid, symbol, biotype, samples
+        min_N_cols = 3 + 3
+
+        if df_gtex_ctrl.empty:
+            if df_normal.shape[1] < min_N_cols:
+                msg = "Error: Normal samples do not have enough samples."
+                return pd.DataFrame(), pd.DataFrame(), "", msg
+
+            df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+
+            msg = f"enough normal samples {df_normal.shape[1] - 3}."
+            df_normal2 = df_normal
+        else:
+            
+            if df_normal.shape[1] < min_N_cols and df_gtex_ctrl.shape[1] < min_N_cols:
+                msg = "Error: Normal samples and GTEx control do not have enough samples."
+                return pd.DataFrame(), pd.DataFrame(), "", msg
+
+            df_normal = cdegs.deduplicate_by_max_reads(df_normal)
+
+            if df_normal.empty or df_normal.shape[1] < min_N_cols:
+                df_normal2 = self.prepare_gtex(df_gtex_ctrl)
+                df_normal2 = cdegs.deduplicate_by_max_reads(df_normal2)
+                msg = f"not enough normal samples --> substituting with GTEx control {df_normal2.shape[1] - 3}."
+            else:
+                msg = f"enough normal samples {df_normal.shape[1] - 3}."
+                df_normal2 = df_normal
+
+        msg += f"\nThere are {df_tumor.shape[1] - 3} tumor samples; {msg}"
+
+        df_tumor = cdegs.deduplicate_by_max_reads(df_tumor)
+        self.df_tumor = df_tumor
+
+        has_error = False
+
+        if df_tumor.empty or df_tumor.shape[1] < min_N_cols:
+            msg += "\nError: Tumor expression data has fewer than 3 samples."
+            has_error = True
+
+        if df_normal2.empty or df_normal2.shape[1] < min_N_cols:
+            msg += "\nError: Normal expression data has fewer than 3 samples."
+            has_error = True
+
+        if has_error:
+            print(msg)
+            return pd.DataFrame(), pd.DataFrame(), "", msg
+
+        df_lfc_ori = cdegs.run_deg_rscript(
+            df_tumor=df_tumor,
+            df_normal=df_normal2,
+            method=method,
+            manual_dispersion=0.1,
+            min_total_count=10,
+            merge_how="inner",
+            keep_temp=False,
+        )
+
+        # print(">>> columns:", df_lfc_ori.columns.tolist())
+ 
+        df_lfc_ori = df_lfc_ori.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+
+        gene_cols = ['geneid', 'symbol', 'biotype']
+        df_gene = df_tumor[ gene_cols].copy()
+
+        cols = list(df_lfc_ori.columns)
+        df_lfc_ori = pd.merge(df_lfc_ori, df_gene, how="inner", on='geneid')
+
+        cols = gene_cols + cols[1:]
+        df_lfc_ori = df_lfc_ori[cols]
+        self.df_lfc_ori = df_lfc_ori
+
+        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc.reset_index(drop=True, inplace=True)
+        self.df_lfc = df_lfc
+
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_mprog_lfc)
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_mprog_lfc)
+
+        degs_txt = "\n".join(df_lfc.symbol)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_mprog_lfc)
+
+        _ = write_txt(msg, fname_msg, self.root_mprog_lfc)
+
+        return df_lfc, df_lfc_ori, degs_txt, msg
+
+    def calc_cpm_merge_turmor_and_normal_batch_correction(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
+                                                          perc_min_samples:float=0.25, top_n:int=10_000,
+                                                          force: bool = False, verbose: bool = False) -> pd.DataFrame:
+        
+        dfn, df_gene_annot = self.calc_cpm_merge_turmor_and_normal(dfn_tumor=dfn_tumor, dfn_normal=dfn_normal, 
+                                                                   perc_min_samples=perc_min_samples, top_n=top_n,
+                                                                   verbose=verbose)
+        self.dfn = dfn
+       
+        df_combat = self.calc_combat_input_dfn(
+            dfn=dfn,
+            df_gene_annot=df_gene_annot,
+            batch_col="dataset",
+            covariates=["condition_numeric"],
+            force=force,
+            verbose=verbose,
+        )
+
+        self.df_combat = df_combat
+
+        return df_combat
+        
+
+    def calc_cpm_merge_turmor_and_normal(self, dfn_tumor: pd.DataFrame, dfn_normal: pd.DataFrame, 
+                                         perc_min_samples:float=0.25, top_n:int=10_000,
+                                         verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+        '''
+            calc_cpm_merge_turmor_and_normal()
+                calc_expression_and_batch()
+                        calc_cpm_and_filter_data
+        '''
+
+        df_sel, df_cpm, df_gene_annot = self.calc_expression_and_batch(dfn_tumor=dfn_tumor, group='Tumor',
+                                                           perc_min_samples=perc_min_samples, top_n=top_n,
+                                                           force=False, verbose=verbose)
+        
+        self.df_sel = df_sel
+        self.df_cpm = df_cpm
+        self.df_gene_annot = df_gene_annot
+
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        dfn = df_sel.copy()
+        n_tumor_col = dfn.shape[1]
+        dfn.reset_index(inplace=True)
+
+        #---- normal or control -------------------------
+        #---- get all rows from df_gene_annot - top_n ---
+        dfn_normal2 = dfn_normal[dfn_normal.geneid.isin(df_gene_annot.geneid.to_list())].copy()
+        dfc_log_nor = self.normalize_all(dfn_normal2, n_tumor_col)
+ 
+        dfn = dfn.merge(dfc_log_nor, on="geneid", how="inner")
+        dfn.set_index("geneid", inplace=True)
+
+        dfall = self.dfall
+        if dfall.shape[1]-3 != dfn.shape[1]:
+            # get all rows from dfall
+            dfn_normal2 = dfn_normal[dfn_normal.geneid.isin(dfall.geneid.to_list())].copy()
+            dfc_log_nor = self.normalize_all(dfn_normal2, n_tumor_col)
+                
+            dfall = dfall.merge(dfc_log_nor, on="geneid", how="inner")
+            self.dfall = dfall
+            pdwritecsv(dfall, self.fname_cpm_all, self.root_mprog_lfc)
+
+        return dfn, df_gene_annot
+    
+    def normalize_all(self, df: pd.DataFrame, n_col_tumor: int) -> pd.DataFrame:
+
+        sample_cols = [c for c in df.columns if c not in self.ANNOT_COLS]
+
+        df_vals = (
+            df[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        library_sizes = df_vals.sum(axis=0)
+        df_cpm = df_vals.div(library_sizes, axis=1) * 1_000_000
+
+        dfc_log = np.log2(df_cpm + 1)
+        dfc_log.set_index(df.geneid, inplace=True)
+
+        n_col = dfc_log.shape[1]
+        new_cols_normal = np.arange(n_col_tumor+1, n_col_tumor+1+n_col)
+        dfc_log.columns = new_cols_normal
+       
+        return dfc_log
+
+
+
+    def open_metadata(self, verbose: bool=False, ) -> pd.DataFrame:
+
+        filename = self.root_mprog_lfc / self.fname_metadata
+
+        if filename.exists():
+            df_metadata = pdreadcsv(self.fname_metadata, self.root_mprog_lfc, verbose=verbose)
+            df_metadata.index = [x+1 for x in df_metadata.index]
+        else:
+            print("Warning: could not find file: {filename}")
+            df_metadata = pd.DataFrame()
+
+        self.df_metadata = df_metadata
+
+        return df_metadata
+        
+
+    def open_combat_input_log_cpm(self, verbose: bool=False, ) -> pd.DataFrame:
+
+        filename = self.root_mprog_lfc / self.fname_combat
+
+        if filename.exists():
+            df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+        else:
+            print("Warning: could not find file: {filename}")
+            df_combat = pd.DataFrame()
+
+
+        cols = df_combat.columns
+        cols = [int(x) if isint(x) else x for x in cols]
+
+        df_combat.columns = cols
+
+        return df_combat
+        
+
+    def calc_combat_input_dfn(self, 
+        dfn: pd.DataFrame,
+        df_gene_annot: pd.DataFrame,
+        batch_col="dataset",
+        covariates=None,
+        force: bool=False, verbose: bool=False,
+    ) -> pd.DataFrame:
+
+        filename = self.root_mprog / self.root_mprog_lfc
+
+        if filename.exists() and not force:
+            df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+
+            df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
+            return df_combat
+
+        df_metadata = self.df_metadata
+        covariates = covariates or []
+
+        original_columns = [int(x) for x in dfn.columns.to_list()]
+        metadata_index = [int(x) for x in df_metadata.index.to_list()]
+
+        missing_samples = dfn.columns.difference(metadata_index)
+
+        if len(missing_samples) > 0:
+            print(
+                f"Samples missing from df_metadata: "
+                f"{missing_samples[:10].tolist()}"
+            )
+            return pd.DataFrame()
+
+        df_metadata = df_metadata.loc[dfn.columns].copy()
+
+        dfn = dfn.apply(pd.to_numeric, errors="coerce")
+
+        if dfn.isna().any().any():
+            print( "Expression contains missing or non-numeric values." )
+            return pd.DataFrame()
+
+        keep_genes = dfn.var(axis=1) > 0
+        df_exp_filt = dfn.loc[keep_genes]
+
+        print(
+            f"ComBat input: {df_exp_filt.shape[0]:,} genes × {df_exp_filt.shape[1]:,} samples"
+        )
+        print(
+            f"Removed {(~keep_genes).sum():,} zero-variance genes."
+        )
+
+        adata = AnnData(
+            X=df_exp_filt.T.to_numpy(dtype=np.float64),
+            obs=df_metadata.copy(),
+            var=pd.DataFrame(index=df_exp_filt.index),
+        )
+
+        adata.obs[batch_col] = (
+            adata.obs[batch_col].astype("category")
+        )
+
+        for covariate in covariates:
+            if pd.api.types.is_numeric_dtype(
+                adata.obs[covariate]
+            ):
+                adata.obs[covariate] = (
+                    adata.obs[covariate].astype(float)
+                )
+
+        corrected_array = sc.pp.combat(
+            adata,
+            key=batch_col,
+            covariates=covariates or None,
+            inplace=False,
+        )
+
+        df_combat = pd.DataFrame(
+            corrected_array.T,
+            index=df_exp_filt.index,
+            columns=original_columns,
+        )
+
+        df_combat.columns = [int(x) for x in df_combat.columns]
+        df_combat.reset_index(inplace=True, names=['geneid'])
+        df_combat = pd.merge(df_gene_annot, df_combat, on='geneid', how='inner')
+
+        df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
+
+        _ = pdwritecsv(df_combat, self.fname_combat, self.root_mprog_lfc, verbose=verbose)
+
+        return df_combat
+    
+    def plot_boxplot_combat(self, df_combat: pd.DataFrame, 
+                            title: str = "ComBat Corrected Expression across samples", figsize=(16, 6)):
+        
+        fig, ax = plt.subplots(figsize=figsize)
+
+        df_combat.boxplot(
+            ax=ax,
+            grid=False,
+            showfliers=False,
+        )
+
+        ax.set_title(title)
+        ax.set_xlabel("Samples")
+        ax.set_ylabel("log2(expression + 1)")
+        ax.tick_params(axis="x", labelbottom=False)
+
+        plt.tight_layout()
+        plt.show()        
+
+
+    def plot_pca_expression(self, 
+        dfn: pd.DataFrame,
+        conditions: Any,
+        title:str,
+        figsize:tuple=(12,8)
+    ):
+
+        sample_cols = [c for c in dfn.columns if c not in self.ANNOT_COLS]
+        dfn = dfn[sample_cols].copy()
+
+        metadata_aligned = self.df_metadata.loc[dfn.columns].copy()
+
+        X = dfn.T.to_numpy()
+        coordinates = PCA(n_components=2).fit_transform(X)
+
+        _, ax = plt.subplots(figsize=figsize)
+
+        if isinstance(conditions, list) and len(conditions) > 1:
+            for group0 in metadata_aligned[conditions[0]].unique():
+                for group1 in metadata_aligned[conditions[1]].unique():
+
+                    mask = metadata_aligned[conditions[0]].eq(group0) & metadata_aligned[conditions[1]].eq(group1)
+
+                    if np.sum(mask==True) == 0: continue
+
+                    ax.scatter(
+                        coordinates[mask, 0],
+                        coordinates[mask, 1],
+                        label=str(group0 + " - " + group1),
+                        alpha=0.7,
+                        s=35,
+                    )
+        else:
+            if isinstance(conditions, list):
+                col = conditions[0]
+            else:
+                col = conditions
+
+            for group in metadata_aligned[col].unique():
+
+                mask = metadata_aligned[col].eq(group)
+
+                ax.scatter(
+                    coordinates[mask, 0],
+                    coordinates[mask, 1],
+                    label=str(group),
+                    alpha=0.7,
+                    s=35,
+                )
+
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
+        ax.set_title(title)
+        ax.legend(title=f"Conditions {conditions}", bbox_to_anchor=(1.02, 1))
+        plt.tight_layout()
+        plt.show()
+
+    
+    def calc_limma_inmoose(self, prog_id: str, psi_id: str, ncluster: int,
+                           lfc_cutoff: float = 1.0, fdr_cutoff: float = 0.05,
+                           force: bool = False, verbose: bool = False
+                           ) -> tuple[pd.DataFrame, pd.DataFrame, str, str, str, str]:
+        '''
+        input: given a number of the many clusters
+
+        df_hca is table having smaplex x cluster
+        therefore, one can obtain the many desired samples for this cluster
+
+        control samples can be recovered using df_metadata
+        df_metadata is compatible with df_combat and df_hca
+
+        '''
+
+        method = "limma_inmoose"
+
+        _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+        ret = self.set_primary_site(psi_id = psi_id)
+
+        if not ret:
+            msg = f"Error: failed to set primary site for {prog_id} {psi_id}"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+
+        fname_lfc = self.fname_lfc % (self.disease_id, method, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.disease_id, method, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (self.disease_id, method, ncluster)
+        fname_degs2000 = self.fname_degs2000 % (self.disease_id, method, ncluster)
+        fname_text_AI = self.fname_text_AI % (self.disease_id, method, ncluster)
+        fname_msg = self.fname_msg % (self.disease_id, method, ncluster)
+
+
+        filename_lfc = self.root_mprog_lfc / fname_lfc
+        filename_lfc_ori = self.root_mprog_lfc / fname_lfc_ori
+        # filename_degs_txt = self.root_mprog_lfc / fname_degs_txt
+        # filename_sample_txt = self.root_mprog_lfc / fname_msg
+
+        if filename_lfc.exists() and filename_lfc_ori.exists() and not force:
+            df_lfc_ori = pdreadcsv(fname_lfc_ori, self.root_mprog_lfc, verbose=verbose)
+            df_lfc = pdreadcsv(fname_lfc, self.root_mprog_lfc, verbose=verbose)
+            
+            try:
+                degs_txt = read_txt(fname_degs_txt, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_txt = ''
+
+            try:
+                degs_first2000 = read_txt(fname_degs2000, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_first2000 = ''
+
+            try:
+                degs_for_AI_analysis = read_txt(fname_text_AI, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                degs_for_AI_analysis = ''
+
+            try:
+                msg = read_txt(fname_msg, self.root_mprog_lfc, verbose=verbose)
+            except ValueError:
+                msg = ''
+
+            return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
+        
+        msg = f'Starting calc_limma_inmoose, date-time {datetime.now()}'
+
+        dfa = self.df_hca[self.df_hca.cluster == ncluster]
+        if dfa.empty:
+            msg = f"Error: {ncluster} has no samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+
+        normal_samples = self.df_metadata[self.df_metadata.condition == 'normal'].index.to_list()
+
+        sample_list = dfa['sample']
+        sample_list = [x for x in sample_list if x not in normal_samples]
+
+        if sample_list == []:
+            msg = f"Error: {ncluster} has only control samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+        
+        if len(sample_list) < 3:
+            msg = f"Error: {ncluster} has only {len(sample_list)} samples"
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
+
+        msg += f"\nCluster {ncluster} has {len(sample_list)} samples"
+
+        sel_cols = list(sample_list) + list(normal_samples)
+
+        df_combat_nclu = self.df_combat[sel_cols].copy()
+        df_combat_nclu.index = self.df_combat.geneid
+
+        df_meta_exp = pd.DataFrame(
+            {
+                "group": (
+                    ["Tumor"] * len(sample_list) +
+                    ["Normal"] * len(normal_samples)
+                )
+            },
+            index=list(sample_list) + list(normal_samples),
+        )
+
+        df_meta_exp = df_meta_exp.loc[df_combat_nclu.columns]
+
+        # Intercept + binary tumor coefficient
+        # Normal is the reference condition
+        design = pd.DataFrame(
+            {
+                "Intercept": 1.0,
+                "Tumor_vs_Normal": (
+                    df_meta_exp["group"].eq("Tumor").astype(float)
+                ),
+            },
+            index=df_meta_exp.index,
+        )
+
+        assert df_combat_nclu.columns.equals(design.index)
+
+        fit = lmFit(df_combat_nclu, design)
+
+        # InMoose supports trend=True for logCPM-like data and calculates moderated statistics through empirical-Bayes variance shrinkage.
+        coefficient_names = ["Intercept", "Tumor_vs_Normal"]
+
+        fit.coefficients.columns = coefficient_names
+        fit.stdev_unscaled.columns = coefficient_names
+
+        fit_bayes = eBayes(
+            fit,
+            trend=True,
+            robust=False,
+        )
+
+        results = topTable(
+            fit_bayes,
+            coef="Tumor_vs_Normal",
+            number=df_combat_nclu.shape[0],
+            adjust_method="fdr_bh",
+            sort_by="P",
+        )
+
+        df_lfc_ori = pd.DataFrame(
+            data=results.to_numpy(copy=True),
+            index=results.index.copy(),
+            columns=results.columns.copy(),
+        )
+
+        df_lfc_ori = pd.merge(df_lfc_ori, self.df_combat[self.ANNOT_COLS], how="inner", on='geneid')
+
+        cols = ['geneid', 'lfc', 'lfcSE', 'ave_expr', 'stat', 'pvalue', 'fdr', 'B', 'symbol', 'biotype']
+        df_lfc_ori.columns = cols
+
+        cols = ['geneid', 'symbol', 'biotype', 'lfc', 'abs_lfc', 'lfcSE', 'pvalue', 'fdr', 'ave_expr', 'stat', 'B']
+        df_lfc_ori['abs_lfc'] = df_lfc_ori['lfc'].abs()
+        df_lfc_ori = df_lfc_ori[cols]
+
+        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc.reset_index(drop=True, inplace=True)
+        self.df_lfc = df_lfc
+
+        _ = pdwritecsv(df_lfc_ori, fname_lfc_ori, self.root_mprog_lfc)
+        _ = pdwritecsv(df_lfc, fname_lfc, self.root_mprog_lfc)
+
+        degs_txt = "\n".join(df_lfc.symbol)
+        _ = write_txt(degs_txt, fname_degs_txt, self.root_mprog_lfc)
+
+        df_degs_2000 = df_lfc[ (~df_lfc.biotype.isin(self.remove_biotype_list)) ]
+        lista = df_degs_2000.symbol.to_list()[:2000]
+        degs_first2000 = "\n".join(lista)
+        write_txt(degs_first2000, fname_degs2000, self.root_mprog_lfc)
+
+        header_lfc = 'ensemblid\t(symbol)\tlfc\n'
+
+        lista = [f"{row['geneid']}\t({row.symbol})\t{row['lfc']:.3f}" for i, row in df_lfc.iterrows()]
+        degs_for_AI_analysis = header_lfc + "\n".join(lista)
+
+        write_txt(degs_for_AI_analysis, fname_text_AI, self.root_mprog_lfc)
+
+        _ = write_txt(msg, fname_msg, self.root_mprog_lfc)
+
+        return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
+
+
+    def read_GTEx_table(self, verbose: bool = False) -> pd.DataFrame:
+        """
+        read self.fname_gtex_table = 'tcga_primary_site_to_gtex_ids.tsv'
+        output: df_gdc_to_gtex
+        """
+
+        filename = self.root_gtex / self.fname_gtex_table
+
+        if not filename.exists():
+            print(f"GTEx to TCGA table not found in {self.root_gtex}.")
+            return pd.DataFrame()
+
+        self.df_gdc_to_gtex = pdreadcsv(self.fname_gtex_table, self.root_gtex, verbose=verbose)
+
+        return self.df_gdc_to_gtex
+
+    def find_GTEx(self, verbose: bool = False) -> Tuple[str, str]:
+
+        self.gtex_id = ""
+        self.gtex_tissue_ids = ""
+
+        if self.df_gdc_to_gtex.empty:
+            df_gdc_to_gtex = self.read_GTEx_table(verbose=verbose)
+
+            if df_gdc_to_gtex.empty:
+                    print("GTEx to TCGA table is empty.")
+                    return "", ""
+
+        if self.is_tcga:
+            dfa = self.df_gdc_to_gtex[self.df_gdc_to_gtex.tcga_project_id == self.psi_id]
+        else:
+            dfa = self.df_gdc_to_gtex[self.df_gdc_to_gtex.disease_id  == self.disease_id]
+
+        if len(dfa) == 1:
+            row = dfa.iloc[0]
+
+            self.gtex_id = row.preferred_gtex_id
+            self.gtex_tissue_ids = row.gtex_tissue_site_detail_ids
+
+            if verbose:
+                print(f"Found '{self.gtex_id}' tissue '{self.gtex_tissue_ids}'")
+
+        elif len(dfa) == 0:
+            if verbose:
+                print("GTEx metada was not found")
+        else:
+            print("Multiple matches found")
+            for i, row in dfa.iterrows():
+                gtex_id = row.preferred_gtex_id
+                gtex_tissue_ids = row.gtex_tissue_site_detail_ids
+
+                print(f"{row.tcga_project_id} -> '{gtex_id}' tissue '{gtex_tissue_ids}'")
+
+        return self.gtex_id, self.gtex_tissue_ids
+
+
+    def calc_cpm_and_filter_data(self, dfn_tumor: pd.DataFrame, perc_min_samples: float = 0.25, 
+                                 top_n: int = 5_000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        ### Data treatment
+
+        1. get raw dfc
+        2. filter low-expression genes
+        3. normalize for library size
+        4. variance-stabilizing transformation
+        5. select most variable genes
+
+
+        A low-expression gene can be biologically important and even differentially expressed, especially if it is a transcription factor, cytokine, receptor, lncRNA, or rare-cell marker.
+
+        But for unsupervised tumor clustering, we usually do not want thousands of genes with mostly zero/very low counts because they add noise and unstable distances.        
+        """
+
+        sample_cols = [c for c in dfn_tumor.columns if c not in self.ANNOT_COLS]
+
+        dfc = (
+            dfn_tumor[sample_cols]
+            .apply(pd.to_numeric, errors="coerce")  # non-numeric -> NaN
+            .fillna(0)                              # NaN -> 0
+        ).copy()
+
+        df_gene_annot = dfn_tumor[self.ANNOT_COLS].copy()
+
+        dfc.index = dfn_tumor["geneid"]
+
+        # filter low-count genes
+        min_samples = int(perc_min_samples * len(sample_cols))
+
+        print(f"sample_cols {len(sample_cols)} and min_samples")
+
+        keep = list ((dfc >= 10).sum(axis=1) >= min_samples)
+
+        dfc_filt = dfc.loc[keep]
+        df_gene_annot = df_gene_annot.loc[keep]
+
+        # normalize by library size
+        library_sizes = dfc_filt.sum(axis=0)
+        df_cpm = dfc_filt.div(library_sizes, axis=1) * 1_000_000
+        self.df_cpm = df_cpm
+
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        #- new to write the log-transformed data - to Prometheus
+        dfall = dfc_log.reset_index()
+        dfall = df_gene_annot.merge(dfall, on="geneid", how="inner")
+        self.dfall = dfall
+        pdwritecsv(dfall, self.fname_cpm_all, self.root_mprog_lfc)
+
+        # Select most variable genes
+        gene_var = dfc_log.var(axis=1)
+
+        top_genes = (
+            gene_var
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index
+        )
+
+        df_sel = dfc_log.loc[top_genes].copy()
+        df_gene_annot.set_index("geneid", inplace=True)
+        df_gene_annot = df_gene_annot.loc[top_genes].copy()
+        df_gene_annot.reset_index(inplace=True)
+
+        df_sel.index = df_gene_annot.geneid
+
+        return df_sel, df_cpm, df_gene_annot
+    
+
+    def calc_PCA(self, df_scaled: np.ndarray, n_components: int = 10, verbose: bool = False) -> pd.DataFrame:
+        pca = PCA(n_components=n_components, random_state=42)
+
+        df_pca = pca.fit_transform(df_scaled)
+
+        df_pca = pd.DataFrame(
+            df_pca[:, :3],
+            index=self.dfn.columns.to_list(),
+            columns=["PC1", "PC2", "PC3"]
+        )
+
+        if verbose:
+            print(pca.explained_variance_ratio_[:5])   
+
+        return df_pca
+    
+    def calc_best_cluster(self, df_pca: pd.DataFrame, min_clusters: int = 3, max_clusters: int = 8) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+        cluster_results = []
+
+        for k in range(min_clusters, max_clusters + 1):
+            model = KMeans(n_clusters=k, random_state=42, n_init="auto")
+            labels = model.fit_predict(df_pca)
+
+            sil = silhouette_score(df_pca, labels)
+
+            cluster_results.append({
+                "k": k,
+                "silhouette": sil,
+                "labels": labels
+            })
+
+        df_eval = pd.DataFrame([
+            {"k": r["k"], "silhouette": r["silhouette"]}
+            for r in cluster_results
+        ])
+
+        # Choose best k
+        best = max(cluster_results, key=lambda x: x["silhouette"])
+
+        df_samp_clusters = pd.DataFrame({
+            "sample": self.dfn.columns.to_list(),
+            "cluster": best["labels"] + 1
+        })
+
+        return df_eval, df_samp_clusters
+
+
+    def plot_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', figsize : tuple = (6, 5)):
+        plt.figure(figsize=figsize)
+        plt.scatter(df_pca["PC1"], df_pca["PC2"], s=80)
+
+        for sample in df_pca.index:
+            plt.text(x=df_pca.loc[sample, "PC1"], y=df_pca.loc[sample, "PC2"], s=sample, fontsize=8)
+
+        plt.xlabel("PC1")
+        plt.ylabel("PC2")
+        plt.title(f"PCA of {group} samples")
+        plt.tight_layout()
+        plt.show()
+
+             
+    def calc_PCA_UMAP(self, df_pca: pd.DataFrame, df_samp_clusters: pd.DataFrame, n_neighbors: int = 5, 
+                      min_dist: float = 0.2, metric: str = "euclidean") -> pd.DataFrame:
+
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            metric=metric,
+            random_state=42
+        )
+
+        X_umap = reducer.fit_transform(df_pca)
+
+        df_umap = pd.DataFrame(
+            X_umap,
+            index=self.dfn.columns.to_list(),
+            columns=["UMAP1", "UMAP2"]
+        )
+
+        df_umap = df_umap.merge(
+            df_samp_clusters,
+            left_index=True,
+            right_on="sample",
+            how="left"
+        )
+
+        return df_umap
+
+    def plot_PCA_UMAP(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, group: str = 'Tumor', figsize : tuple = (6, 5)):
+        plt.figure(figsize=figsize)
+        plt.scatter(df_umap["UMAP1"], df_umap["UMAP2"], s=80)
+
+        for sample in df_umap.index:
+            plt.text(x=df_umap.loc[sample, "UMAP1"], y=df_umap.loc[sample, "UMAP2"], s=sample, fontsize=8)
+
+        plt.xlabel("UMAP1")
+        plt.ylabel("UMAP2")
+        plt.title(f"UMAP of {group} samples (n_neighbors={n_neighbors}, min_dist={min_dist})")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_HCA_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', method: str = "ward", figsize : tuple = (6, 5)):
+        Z = linkage(df_pca, method=method)
+
+        plt.figure(figsize=figsize)
+        dendrogram(Z, labels=self.dfn.columns.to_list(), leaf_rotation=90)
+        plt.title(f"PCA Hierarchical clustering of {group} samples")
+        plt.tight_layout()
+        plt.show()
+
+    def cut_HCA_PCA(self, df_pca: pd.DataFrame, n_clusters: int = 3, 
+                    method: str = "ward", criterion="maxclust", verbose:bool = True) -> pd.DataFrame:
+
+        Z = linkage(df_pca, method=method)
+        hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
+
+        df_samp_clust_hc = pd.DataFrame({
+            "sample": self.dfn.columns.to_list(),
+            "cluster": hc_labels
+        })
+
+        if verbose:
+            print( df_samp_clust_hc.groupby("cluster").size() )
+
+        return df_samp_clust_hc
+
+
+    def plot_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, method: str = "ward", group: str = 'Tumor', figsize : tuple = (6, 5)):
+        df2 = df_umap[ ['sample', 'UMAP1', 'UMAP2'] ]
+        df2.set_index('sample', inplace=True)
+
+        Z = linkage(df2, method=method)
+
+        plt.figure(figsize=figsize)
+        dendrogram(Z, labels=df2.index.tolist(), leaf_rotation=90)
+        plt.title(f"PCA-UMAP Hierarchical clustering of {group} samples")
+        plt.tight_layout()
+        plt.show()
+
+
+    def cut_HCA_PCA_UMAP(self, df_umap: pd.DataFrame, n_clusters: int = 3, 
+                    method: str = "ward", criterion="maxclust", verbose:bool = True) -> pd.DataFrame:
+        
+        df2 = df_umap[ ['sample', 'UMAP1', 'UMAP2'] ]
+        df2.set_index('sample', inplace=True)
+
+        Z = linkage(df2, method=method)
+
+        hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
+
+        df_samp_clust_hc = pd.DataFrame({
+            "sample": self.dfn.columns.to_list(),
+            "cluster": hc_labels
+        })
+
+        if verbose:
+            print( df_samp_clust_hc.groupby("cluster").size() )
+
+        return df_samp_clust_hc
+    
+
+    def find_cluster_signature_genes(self, 
+        df_mat: pd.DataFrame,
+        df_samp_clusters: pd.DataFrame,
+        df_gene_annot: pd.DataFrame,
+        sample_col: str = "sample",
+        cluster_col: str = "cluster",
+        lfc_cutoff: float = 1.0,
+        fdr_cutoff: float = 0.05,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Find marker/signature genes for each cluster.
+
+        df_mat:
+            genes x samples matrix, log2(CPM + 1)
+
+        df_samp_clusters:
+            dataframe with columns: sample, cluster
+
+        df_gene_annot:
+            optional dataframe with geneid, symbol
+        """
+
+        df_list = []
+
+        lista = np.unique(df_samp_clusters[cluster_col])
+        for cluster_id in lista:
+
+            in_samples  = np.array(df_samp_clusters.loc[df_samp_clusters[cluster_col] == cluster_id, sample_col])
+            out_samples = np.array(df_samp_clusters.loc[df_samp_clusters[cluster_col] != cluster_id, sample_col])
+
+            # keep only samples present in expression matrix
+            in_samples  = [s for s in in_samples  if s in df_mat.index.to_list()]
+            out_samples = [s for s in out_samples if s in df_mat.index.to_list()]
+
+            if len(in_samples) < 2 or len(out_samples) < 2:
+                print(f"Skipping cluster {cluster_id}: too few samples")
+                continue
+
+            df_mean_in = df_mat.loc[in_samples].mean(axis=0)
+            df_mean_out = df_mat.loc[out_samples].mean(axis=0)
+
+            df_lfc_ori = df_mean_in - df_mean_out
+
+            pvals = []
+
+            for geneid in df_mat.columns.tolist():
+                _, p = ttest_ind(
+                    df_mat.loc[in_samples, geneid],
+                    df_mat.loc[out_samples, geneid],
+                    equal_var=False,
+                    nan_policy="omit",
+                )
+                pvals.append(p)
+
+            fdr = multipletests(pvals, method="fdr_bh")[1]
+
+            df_res = pd.DataFrame({
+                "geneid": df_mat.columns.tolist(),
+                "cluster": cluster_id,
+                "n_in": len(in_samples),
+                "n_out": len(out_samples),
+                "mean_in": df_mean_in.values,
+                "mean_out": df_mean_out.values,
+                "lfc": df_lfc_ori.values,
+                "pvalue": pvals,
+                "fdr": fdr,
+            })
+
+            if self.df_gene_annot is not None:
+                df_res = df_res.merge(self.df_gene_annot, on="geneid", how="left")
+
+            df_res = df_res.sort_values(
+                ["lfc", "fdr"],
+                ascending=[False, True]
+            )
+
+            df_list.append(df_res)
+
+        dfall = pd.concat(df_list, ignore_index=True)
+
+        dfsig = (
+            dfall
+            .query("lfc >= @lfc_cutoff and fdr <= @fdr_cutoff")
+            .sort_values(["cluster", "lfc", "fdr"], ascending=[True, False, True])
+            .reset_index(drop=True)
+        )
+
+        return dfall, dfsig
+
+
+    def write_clusters(self, dfall: pd.DataFrame, dfsig: pd.DataFrame,
+                       n_clusters: int, LFC_cutoff: float = 1.00, FDR_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
+    
+        lista = np.unique(dfall.cluster)
+        dic = {}; icount=-1
+
+        for ncluster in lista:
+            df2 = dfsig[dfsig.cluster == ncluster]
+            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+            
+            s_genes = '\n'.join(df2.symbol)
+
+            icount += 1
+            dic[icount] = {}
+            dic2 = dic[icount]
+            dic2['n_clusters'] = n_clusters
+            dic2['ncluster'] = ncluster
+            dic2['ngenes'] = len(df2)
+            dic2['genes'] = np.unique(df2.symbol)
+
+            fname = f"cluster_{ncluster}_from_{n_clusters}_{self.disease_id}_signature_genes_using_LFC_{LFC_cutoff:.3f}_FDR_{FDR_cutoff:.3e}.txt"
+            write_txt(s_genes, fname, self.root_mprog_lfc)
+
+            if verbose:
+                print(f"Cluster {ncluster} -> {len(df2)} signatures: {s_genes}")
+
+        df = pd.DataFrame(dic).T
+
+        fname = f"clusters_{len(df)}_signatures_for_{self.disease_id}.txt"
+        _ = pdwritecsv(df, fname, self.root_mprog_lfc, verbose=verbose)
+
+        return df
+
+    def add_entropy(self, df, read_limit: int = 50, min_read: int = 200, n_quantiles: int = 10):
+        # select tumor columns
+        cols = [c for c in df.columns if c.startswith("tumor_")]
+
+        def row_entropy(values):
+            values = np.asarray(values, dtype=float)
+
+            # remove NaNs
+            values = values[np.isfinite(values)]
+
+            if len(values) == 0:
+                return np.nan
+
+            # all equal → entropy = 0
+            if np.allclose(values, values[0]):
+                return 0.0
+
+            # shift to positive (important if negative values exist)
+            values = values - values.min()
+
+            # avoid all zeros
+            if np.allclose(values.sum(), 0):
+                return 0.0
+
+            probs = values / values.sum()
+
+            # avoid log(0)
+            probs = probs[probs > 0]
+
+            entropy = -np.sum(probs * np.log2(probs))
+            return entropy
+
+        min_cols = int(len(cols) * 0.4)
+        good = (df[cols] < read_limit).sum(axis=1) <= min_cols
+        df = df[good].copy()
+
+        df["total_sum"] = df[cols].sum(axis=1)
+
+        df = df[df.total_sum > len(cols) * min_read]
+
+        df["entropy"] = df[cols].apply(lambda row: row_entropy(row.values), axis=1)
+
+        df["entropy_q"] = pd.qcut(df["entropy"], q=n_quantiles, labels=False, duplicates="drop")
+
+        return df
+
+    def select_top_entropy(self, df: pd.DataFrame, q: float = 0.1):
+
+        df = df[df.entropy_q <= q].copy()
+        df = df.sort_values("entropy", ascending=True)
+        df.reset_index(drop=True, inplace=True)
+
+        return df
+
+    def resolve_gtex_gencode_id(
+        self, gene_id: str, datasetId: str = "gtex_v8", timeout: int = 60
+    ) -> str:
+        gene_base = str(gene_id).split(".")[0]
+
+        url = f"{self.GTEX_API}/reference/gene"
+
+        params = {
+            "geneId": gene_base,
+            "datasetId": datasetId,
+        }
+
+        r = requests.get(url, params=params, timeout=timeout)
+        r.raise_for_status()
+
+        data = r.json().get("data", [])
+
+        if not data:
+            return ""
+
+        return data[0].get("gencodeId")
+
+    def get_gtex_TPM_expression_for_geneid_list(
+        self,
+        geneid_list: List[str],
+        datasetId: str = "gtex_v8",
+        page_size: int = 1000,
+        sleep: float = 0.1,
+        timeout: int = 60,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Download GTEx normal tissue expression for selected genes.
+        Returns long-format dataframe:
+        geneSymbol | gencodeId | tissueSiteDetailId | sampleId | tpm | log2Tpm
+        """
+
+        fname = self.fname_tpm_exp % (self.gtex_id)
+        filename = self.root_gtex / fname
+
+        if filename.exists() and not force:
+            return pdreadcsv(fname, self.root_gtex)
+
+        all_rows = []
+
+        print(">>>", len(geneid_list))
+        for i, geneid in enumerate(geneid_list):
+            page = 0
+
+            while True:
+                gencode_id = self.resolve_gtex_gencode_id(geneid)
+                print(">>>", gencode_id, end=" ")
+
+                if gencode_id is None:
+                    print("?")
+                    if verbose:
+                        print(f"Nothing found for {geneid}")
+                    break
+
+                url = f"{self.GTEX_API}/expression/geneExpression"
+
+                params = {
+                    "datasetId": datasetId,
+                    "gencodeId": gencode_id,
+                    "tissueSiteDetailId": self.gtex_id,
+                    "page": page,
+                    "itemsPerPage": page_size,
+                }
+
+                r = requests.get(url, params=params, timeout=timeout)
+                r.raise_for_status()
+
+                js = r.json()
+                data = js.get("data", [])
+
+                if not data:
+                    print("x")
+                    if verbose:
+                        print(
+                            f"Error: could not retrieve data for {self.gtex_id} for geneid '{geneid}'"
+                        )
+                    break
+
+                print("Ok")
+
+                all_rows.extend(data)
+
+                paging = js.get("paging_info", {})
+                n_pages = paging.get("numberOfPages", 1)
+
+                page += 1
+                if page >= n_pages:
+                    break
+
+                time.sleep(sleep)
+
+        print("")
+        df_gtex = pd.DataFrame(all_rows)
+
+        df_gtex.reset_index(drop=True, inplace=True)
+
+        _ = pdwritecsv(df_gtex, fname, self.root_gtex, verbose=verbose)
+
+        return df_gtex
+
+    def read_GTEx_counts_pheno_meta(self, verbose: bool = False):
+        # load matrix'1
+
+        if self.df_gtex_counts.empty:
+            print("Reading GTEx count table... be patient.")
+            df_gtex_counts = pdreadcsv(self.fname_GTEx_counts, self.root_gtex, skiprows=2, verbose=verbose)
+            self.df_gtex_counts = df_gtex_counts
+
+        if self.df_gtex_pheno.empty:
+            _ = self.read_GTEx_table_pheno(verbose=verbose)
+
+        if self.df_gtex_meta.empty:
+            _ = self.read_GTEx_table_metadata(verbose=verbose)
+
+        return self.df_gtex_counts
+
+    def read_GTEx_table_pheno(self, verbose: bool = False):
+        # load phenotype
+        df_gtex_pheno = pdreadcsv(self.fname_GTEx_pheno, self.root_gtex, verbose=verbose)
+        self.df_gtex_pheno = df_gtex_pheno
+        return df_gtex_pheno
+
+    def read_GTEx_table_metadata(self, verbose: bool = False):
+        # load metadata
+        df_gtex_meta = pdreadcsv(self.fname_GTEx_meta, self.root_gtex, verbose=verbose)
+        self.df_gtex_meta = df_gtex_meta
+        return df_gtex_meta
+
+    def get_gtex_control(self, force: bool = False, verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        self.df_gtex_ctrl = pd.DataFrame()
+        self.df_meta_prep = pd.DataFrame()
+
+        gtex_id, _ = self.find_GTEx(verbose=verbose)
+        self.gtex_id = gtex_id
+
+        if gtex_id == "":
+            print(f"Error: could not find GTEx ID for {self.prog_id} ID '{self.prog_psi_id}'")
+            return pd.DataFrame(), pd.DataFrame()
+
+        # prepare metadata
+        df_meta_prep = self.prepare_gtex_df_meta()
+
+        # get all GTEx samples for self.psi_id
+        df_gtex_ctrl = self.prepare_gtex_count_table(force=force, verbose=verbose)
+
+        self.df_gtex_ctrl = df_gtex_ctrl
+        self.df_meta_prep = df_meta_prep
+
+        return df_gtex_ctrl, df_meta_prep
+
+    def prepare_gtex_df_meta(self) -> pd.DataFrame:
+        """
+        1. Filter for Tissue
+        2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
+          . DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
+        3. Sort by RIN score (SMRIN) to get the best preserved RNA - Then take the top 15
+
+        Test:
+            gtex_id = 'Skin_Sun_Exposed_Lower_leg'
+            gtex_id = 'Muscle_Skeletal'
+            gtex_id = 'Colon_Transverse'
+            gtex_id = 'Brain'
+            gtex_id = 'Whole Blood'
+
+            print(gtex_id)
+            term = " - ".join(gtex_id.split('_')[:2])
+            print("term", term)
+            df_gtex_meta = mtd.self.df_gtex_meta
+
+            df2 = df_gtex_meta[df_gtex_meta["SMTSD"].str.startswith(term)]
+            print(len(df2))
+            df2
+
+        output: df_meta_prep
+        """
+
+        print("Preparing GTEx metadata...")
+
+        if self.df_gtex_meta.empty:
+            self.read_GTEx_table_metadata()
+
+            if self.df_gtex_meta.empty:
+                print("Metadata DataFrame is empty.")
+                return pd.DataFrame()
+
+        if self.df_gtex_pheno.empty:
+            self.read_GTEx_table_pheno()
+
+            if self.df_gtex_pheno.empty:
+                print("Phenotype DataFrame is empty.")
+                return pd.DataFrame()
+
+        # 1. Filter for Tissue
+        # df_meta_prep is df_gtex_meta filtered by gtex_id
+        # 'Colon_Transverse' --> 'Colon - Transverse'
+
+        if self.gtex_id == 'Adrenal_Gland' or self.gtex_id == 'Whole_Blood':
+            term = self.gtex_id.replace('_', ' ')
+        else:
+            term = " - ".join(self.gtex_id.split('_')[:2])
+        df_meta_prep = self.df_gtex_meta[self.df_gtex_meta["SMTSD"].str.startswith(term)].copy()
+        df_meta_prep.reset_index(drop=True, inplace=True)
+
+        self.df_meta_prep = df_meta_prep
+
+        if df_meta_prep.empty:
+            print(f"Error: could not find metadata for gtex_id '{self.gtex_id}' to term ''")
+            return pd.DataFrame()
+
+        if len(df_meta_prep) < 3:
+            print(f"Warning: could not find enough metadata for gtex_id '{self.gtex_id}' to term '{term}'")
+
+
+        lista = df_meta_prep["SAMPID"].str.split("-").str[:2].str.join("-")
+        df_meta_prep.loc[:, "SUBJID"] = lista
+        df_meta_prep = df_meta_prep.merge(self.df_gtex_pheno, on="SUBJID", how="left")
+
+        # 2. Filter for high quality (Hardy Scale 1 or 2 are 'fast' deaths, less stress)
+        # DTHHRDY: 1 = Ventilator, 2 = Fast death of natural causes
+        df_meta_prep = df_meta_prep[df_meta_prep["DTHHRDY"].isin([1, 2])]
+
+        # 3. Sort by RIN score (SMRIN) to get the best preserved RNA
+        # Then take the top 15
+        df_meta_prep = df_meta_prep.sort_values("SMRIN", ascending=False)
+        df_meta_prep.reset_index(drop=True, inplace=True)
+
+        self.df_meta_prep = df_meta_prep
+        print(f"GTEx metadata prepared on df_meta_prep length: {len(df_meta_prep)}")
+
+        return df_meta_prep
+
+    def running_on_render(self) -> bool:
+        return "RENDER_SERVICE_ID" in os.environ
+
+    def prepare_gtex_count_table(self, force: bool = False, verbose: bool = False) -> pd.DataFrame:
+
+        fname = self.fname_gtex_exp_counts % (self.gtex_id)
+        filename = self.root_gtex / fname
+
+        if filename.exists() and not force:
+            df_gtex_normal = pdreadcsv(fname, self.root_gtex, verbose=verbose)
+            self.df_gtex_normal = df_gtex_normal            
+            return df_gtex_normal
+
+        if self.df_gtex_counts.empty:
+            # Reading GTEx count super-file
+            # to big, do not store in Render
+            if not self.running_on_render():
+                _ = self.read_GTEx_counts_pheno_meta(verbose=verbose)
+
+            if self.df_gtex_counts.empty:
+                print("Count DataFrame is empty.")
+                return pd.DataFrame()
+
+        self.df_meta_prep = self.df_meta_prep.sort_values("SMRIN", ascending=False)
+        samples = self.df_meta_prep["SAMPID"].to_list()
+
+        cols = list(samples)
+        good_cols = [x for x in cols if x in self.df_gtex_counts.columns]
+        good_cols = ["Name", "Description"] + good_cols
+
+        df_gtex_normal = self.df_gtex_counts.loc[:, good_cols].copy()
+        df_gtex_normal.rename(columns={"Name": "ensemblid", "Description": "symbol"}, inplace=True)
+        df_gtex_normal.reset_index(drop=True, inplace=True)
+
+        self.df_gtex_normal = df_gtex_normal
+
+        _ = pdwritecsv(df_gtex_normal, fname, self.root_gtex, verbose=verbose)
+
+        return df_gtex_normal
+
+    def download_file(self, url: str, filename_out: str):
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+
+            try:
+                with open(filename_out, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            except Exception as e:
+                print(f"Error: as writing file {filename_out}: {e}")
+
+
+    def build_df_exp_and_filter(self,
+        df_counts: pd.DataFrame,
+        df_gtex_meta: pd.DataFrame,
+        # gene_col: str = "geneid",
+        condition_col: str = "condition",
+        sample_col: str = "sample",
+        tumor_label: str = "tumor",
+        normal_label: str = "normal",
+        equal_var: bool = False,   # False = Welch t-test, safer when n differs
+    ) -> tuple[pd.DataFrame, list, list]:
+        
+        df = df_counts.copy()
+
+        # Samples by condition
+        normal_samples = df_gtex_meta.loc[
+            df_gtex_meta[condition_col] == normal_label, sample_col
+        ].tolist()
+
+        tumor_samples = df_gtex_meta.loc[
+            df_gtex_meta[condition_col] == tumor_label, sample_col
+        ].tolist()
+
+        # Keep only samples present in df_counts
+        normal_samples = [s for s in normal_samples if s in df.columns]
+        tumor_samples = [s for s in tumor_samples if s in df.columns]
+
+        sample_cols = normal_samples + tumor_samples
+
+        ncols_normal = len(normal_samples)
+        ncols_tumor  = len(tumor_samples)
+
+        nmin_cols = min(ncols_normal, ncols_tumor)
+
+        df["total"] = df[sample_cols].sum(axis=1)
+
+        df = df.loc[
+            df["total"] > nmin_cols * 25
+        ].reset_index(drop=True, inplace=False)
+
+
+
+        # Convert counts to numeric
+        df[normal_samples + tumor_samples] = df[normal_samples + tumor_samples].apply(
+            pd.to_numeric, errors="coerce"
+        )
+
+        # Optional but recommended for RNA-seq counts:
+        # log-transform before t-test
+        normal_mat = np.log2(df[normal_samples] + 1)
+        tumor_mat = np.log2(df[tumor_samples] + 1)
+
+        # Row-wise t-test: tumor vs normal
+        t_stat, pval = ttest_ind(
+            tumor_mat,
+            normal_mat,
+            axis=1,
+            equal_var=equal_var,
+            nan_policy="omit",
+        )
+
+        df["t_stat"] = t_stat
+        df["pval"] = pval
+
+        # Useful summaries
+        df["mean_normal"] = normal_mat.mean(axis=1)
+        df["mean_tumor"] = tumor_mat.mean(axis=1)
+        df["lfc"] = df["mean_tumor"] - df["mean_normal"]
+        df["abs_lfc"] = df["lfc"].abs()
+
+        # Order by p-value
+        df = df.sort_values("pval", ascending=True)
+
+        # Keep the 40% lowest p-values
+        df = df[df.lfc < 0.01]
+        df.reset_index(drop=True, inplace=True)
+
+        return df, normal_samples, tumor_samples
+
+
+    def plot_heatmap_expression(self, dff: pd.DataFrame, normal_samples: list, tumor_samples: list, 
+                                title0: str = "", figsize: tuple = (14, 10)):
+        cols = ['geneid'] + normal_samples + tumor_samples
+
+        dff2 = dff[cols].copy()
+        dff2.set_index('geneid', inplace=True)
+
+        title = 'Hierarchical Clustering of Expression Data'
+        if title0 != '':
+            title += '\n' + title0
+
+        # numeric matrix
+        dff2 = dff2.apply(pd.to_numeric, errors="coerce").fillna(0)
+        mat = np.log2(dff2 + 1)
+
+        # gene-wise z-score using pandas/numpy
+        row_mean = mat.mean(axis=1)
+        row_std = mat.std(axis=1)
+
+        mat_z = mat.sub(row_mean, axis=0).div(row_std.replace(0, np.nan), axis=0)
+        mat_z = mat_z.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        cg = sns.clustermap(
+            mat_z,
+            metric="correlation",
+            method="average",
+            figsize=figsize,
+            cmap="viridis",
+            cbar=True,
+        )
+
+        title = "Hierarchical Clustering of Expression Data"
+        cg.figure.suptitle(title, y=1.02)
+
+        return cg
+
+
+    def plot_umap_expression(
+        self,
+        dff: pd.DataFrame,
+        samples: list,
+        which_samples: str = 'Tumor',
+        title: str = "",
+        figsize: tuple = (8, 6),
+        n_neighbors: int = 10,
+        min_dist: float = 0.2,
+        n_clusters: int = 3,
+        random_state: int = 42,
+    ):
+        # ------------------------------------------------------------
+        # 1. Use only tumor samples
+        # ------------------------------------------------------------
+        cols = ["geneid"] + samples
+
+        dff2 = dff[cols].copy()
+        dff2.set_index("geneid", inplace=True)
+
+        # numeric matrix
+        dff2 = dff2.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+        # log transform
+        mat = np.log2(dff2 + 1)
+
+        # ------------------------------------------------------------
+        # 2. Gene-wise z-score across tumor samples only
+        # ------------------------------------------------------------
+        row_mean = mat.mean(axis=1)
+        row_std = mat.std(axis=1)
+
+        mat_z = mat.sub(row_mean, axis=0).div(row_std.replace(0, np.nan), axis=0)
+        mat_z = mat_z.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        # ------------------------------------------------------------
+        # 3. UMAP uses samples x genes
+        # ------------------------------------------------------------
+        X_umap = mat_z.T.copy().T
+
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            metric="correlation",
+            random_state=random_state,
+        )
+
+        emb = reducer.fit_transform(X_umap)
+
+        # ------------------------------------------------------------
+        # 4. Cluster tumor samples
+        # ------------------------------------------------------------
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+        )
+
+        clusters = kmeans.fit_predict(emb)
+
+        df_umap = pd.DataFrame(
+            {
+                "sample": X_umap.index,
+                "UMAP1": emb[:, 0],
+                "UMAP2": emb[:, 1],
+                "cluster": clusters.astype(str),
+            }
+        )
+
+        # ------------------------------------------------------------
+        # 5. Plot UMAP colored by tumor cluster
+        # ------------------------------------------------------------
+        if not title:
+            title = f"UMAP expression clustering using {which_samples} samples"
+        else:
+            title += f" using {which_samples} samples"
+
+        fig_umap, ax_umap = plt.subplots(figsize=figsize)
+
+        sns.scatterplot(
+            data=df_umap,
+            x="UMAP1",
+            y="UMAP2",
+            hue="cluster",
+            s=80,
+            ax=ax_umap,
+        )
+
+        ax_umap.set_title(title)
+        ax_umap.set_xlabel("UMAP1")
+        ax_umap.set_ylabel("UMAP2")
+        ax_umap.legend(title="Tumor cluster")
+
+        fig_umap.tight_layout()
+
+        return fig_umap, ax_umap, df_umap
+    
+
+    def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
+                                  force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+
+        df_psi = self.open_primary_sites_cbio(verbose=False)
+
+        df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
+        dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
+
+        for ipsi, row in dfa.iterrows():
+            prog_id = row.prog_id
+
+            if prog_id in exclude_prog_list:
+                continue
+
+            psi_id = row.psi_id
+            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+            ret = self.set_primary_site(psi_id = psi_id)
+            break
+
+        filename_tumor = self.root_mprog_lfc / self.fname_tumor  
+        filename_normal = self.root_mprog_lfc / self.fname_normal
+        filename_gtex = self.root_mprog_lfc / self.fname_gtex
+        filename_summ = self.root_mprog_lfc / self.fname_summ
+        filename_meta = self.root_mprog_lfc / self.fname_metadata
+
+        if filename_tumor.exists() and filename_normal.exists() and \
+           filename_gtex.exists() and filename_summ.exists() and filename_meta.exists() and not force:
+            
+            dfn_tumor = pdreadcsv(self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
+            dfn_normal = pdreadcsv(self.fname_normal, self.root_mprog_lfc, verbose=verbose)
+
+            df_gtex_ctrl = pdreadcsv(self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
+            df_summ = pdreadcsv(self.fname_summ, self.root_mprog_lfc, verbose=verbose)
+
+            _ = self.open_metadata()
+
+            return dfn_tumor, dfn_normal, df_gtex_ctrl, df_summ
+
+        dic = {}
+        dfn_tumor, dfn_normal = pd.DataFrame(), pd.DataFrame()
+        cols = ['symbol', 'biotype']
+
+        df_gtex_ctrl = pd.DataFrame()
+
+        for ipsi, row in dfa.iterrows():
+            prog_id = row.prog_id
+
+            if prog_id in exclude_prog_list:
+                continue
+
+            psi_id = row.psi_id
+            disease_id = row.disease_id
+            primary_site = row.primary_site
+
+            _ = self.get_primary_sites(prog_id=prog_id, verbose=verbose)
+
+            ret = self.set_primary_site(psi_id = psi_id)
+
+            print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id} - {self.root_lfc}", end=" ")
+
+            if not ret:
+                print(f"Error: failed to set primary site for {prog_id} {psi_id}")
+                continue
+
+            df_tumor, df_normal, df_gtex_ctrl = self.calc_file_expression_tumor_normal_gtex(imax_tumor=imax_tumor, imax_normal=imax_normal, verbose=verbose)
+            print(f"df_tumor {df_tumor.shape}")
+
+            if dfn_tumor.empty:
+                if not df_tumor.empty:
+                    dfn_tumor = df_tumor
+            else:
+                if not df_tumor.empty:
+                    dfn_tumor = pd.merge(dfn_tumor, df_tumor.drop(columns=cols), on='geneid', how='inner')
+
+            if dfn_normal.empty:
+                if not df_normal.empty:
+                    dfn_normal = df_normal
+            else:
+                if not df_normal.empty:
+                    dfn_normal = pd.merge(dfn_normal, df_normal.drop(columns=cols), on='geneid', how='inner')
+
+            if not df_tumor.empty:
+                dic[ipsi] ={}
+
+                dic[ipsi]['prog_id'] = prog_id
+                dic[ipsi]['psi_id'] = psi_id
+                dic[ipsi]['disease_id'] = disease_id
+                dic[ipsi]['primary_site'] = primary_site
+                dic[ipsi]['n_tumors'] = df_tumor.shape[1] - 3
+                dic[ipsi]['n_normals'] = df_normal.shape[1] - 3
+
+                print(">>>", psi_id, df_tumor.shape, df_normal.shape)
+
+        stri = f"There are {dfn_tumor.shape[1]-3} tumor samples and {dfn_normal.shape[1]-3} control samples merging studies"
+        print(stri)
+
+        #-------------- tumor ------------------
+        cols = dfn_tumor.columns.tolist()
+        nsamp = len(cols)-3
+
+        cols = cols[:3] + list(np.arange(1, nsamp + 1))
+        dfn_tumor.columns = cols
+
+        #-------------- normal ------------------
+        cols = dfn_normal.columns.tolist()
+        nsamp = len(cols)-3
+
+        cols = cols[:3] + list(np.arange(1, nsamp + 1))
+        dfn_normal.columns = cols
+
+        #-- controls must be homogeneous
+        dfn_normal2 = self.remove_to_big_bad_cols_expression(dfn_normal.copy(), nstd=3, msg='Normal')
+        dfn_normal2 = self.remove_to_little_bad_cols_expression(dfn_normal2, nstd=3, msg='Normal')
+
+        cols_normal_ini  = set(dfn_normal.columns.tolist()[3:])
+        cols_normal2_ini = set(dfn_normal2.columns.tolist()[3:])
+
+        del_normal_list = list(cols_normal_ini-cols_normal2_ini)
+
+        dfn_normal2.columns = dfn_normal2.columns.tolist()[:3] + list(np.arange(1, dfn_normal2.shape[1]-2))
+
+        pdwritecsv(dfn_tumor, self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
+        pdwritecsv(dfn_normal2, self.fname_normal, self.root_mprog_lfc, verbose=verbose)
+        pdwritecsv(df_gtex_ctrl, self.fname_gtex, self.root_mprog_lfc, verbose=verbose)
+
+        df_summ = pd.DataFrame(dic).T
+        pdwritecsv(df_summ, self.fname_summ, self.root_mprog_lfc, verbose=verbose)
+
+        #----------- build metadata -------------------
+        _ = self.build_metadata(dic, del_normal_list, verbose=verbose)        
+
+        return dfn_tumor, dfn_normal2, df_gtex_ctrl, df_summ
+
+
+    def build_metadata(self, dic: dict, del_normal_list: list=[], verbose: bool=False) -> pd.DataFrame:
+        total_tumor_count = 0
+        total_normal_count = 0
+        psi_tumor_list = []
+        psi_normal_list = []
+
+        ini = 1
+        for _, dic2 in dic.items():
+            tumor_count = dic2['n_tumors']
+            normal_count = dic2['n_normals']
+
+            end = ini + normal_count
+
+            psi_id = dic2['psi_id']
+
+            if tumor_count > 0:
+                total_tumor_count += tumor_count
+                psi_tumor_list += [psi_id] * tumor_count
+
+            if normal_count > 0:
+                lista = np.arange(ini, end)
+
+                how_many_in = [x for x in del_normal_list if x in lista]
+
+                if how_many_in != []:
+                    normal_count -= len(how_many_in)
+
+                if normal_count > 0:
+                    total_normal_count += normal_count
+                    psi_normal_list += [psi_id] * normal_count
+
+            
+            ini = end
+
+        # print(">>> total", total_tumor_count, len(psi_tumor_list), total_normal_count, len(psi_normal_list))
+        df_metadata = pd.DataFrame(
+            {
+                "condition": (
+                    ["tumor"] * total_tumor_count +
+                    ["normal"] * total_normal_count
+                ),
+                "dataset": (
+                    psi_tumor_list +
+                    psi_normal_list
+                ),
+            },
+            index=[int(x) for x in np.arange(1, total_tumor_count + total_normal_count + 1)],
+        )
+
+        df_metadata["condition_numeric"] = (
+            df_metadata["condition"].eq("tumor").astype(float)
+        )
+    
+        _ = pdwritecsv(df_metadata, self.fname_metadata, self.root_mprog_lfc, verbose=verbose)   
+        self.df_metadata = df_metadata
+
+        return df_metadata
+
+    def remove_to_big_bad_cols_expression(self, df: pd.DataFrame, nstd: int=2, msg: str=""):
+        cols = list(df.columns)
+        cols = cols[3: ]
+
+        mus_all = df[cols].mean(axis=0)
+
+        mu = np.mean(mus_all)
+        std = np.std(mus_all)
+
+        lista = np.array(mus_all > mu+nstd*std)
+        # columns start on 1
+        bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+
+        if bad_cols:
+            print(f"{msg}: Removing {len(bad_cols)} columns with values > {mu+nstd*std} -> {bad_cols}")
+            df = df.drop(columns=bad_cols)
+
+        return df
+
+    def remove_to_little_bad_cols_expression(self, df: pd.DataFrame, nstd: int=2, msg: str=""):
+        cols = list(df.columns)
+        cols = cols[3: ]
+
+        mus_all = df[cols].mean(axis=0)
+
+        mu = np.mean(mus_all)
+        std = np.std(mus_all)
+
+        inf_lim = mu-nstd*std
+
+        if inf_lim > 0:
+            lista = np.array(mus_all < inf_lim)
+            # columns start on 1
+            bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+
+            if bad_cols:
+                print(f"{msg}: Removing {len(bad_cols)} columns with values < {mu-nstd*std} -> {bad_cols}")
+                df = df.drop(columns=bad_cols)
+
+        return df
+
+
+    def calc_expression_and_batch(self, dfn_tumor: pd.DataFrame, group: str, 
+                                      perc_min_samples: float = 0.25, 
+                                      top_n: int = 10_000, force: bool = False, 
+                                      verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        
+        fname_sel_log = self.fname_sel_log % (group, top_n)
+        fname_log_cpm = self.fname_log_cpm % (group)
+        fname_gene_annot = self.fname_gene_annot % (group, top_n)
+
+        filename_sel_log = self.root_mprog_lfc /fname_sel_log
+        filename_log_cpm = self.root_mprog_lfc /fname_log_cpm
+        filename_log_filt = self.root_mprog_lfc /fname_gene_annot
+
+        if filename_sel_log.exists() and filename_log_cpm.exists() and \
+           filename_log_filt.exists() and  not force:
+
+            df_sel = pdreadcsv(fname_sel_log, self.root_mprog_lfc, verbose=verbose)
+            df_sel.set_index('geneid', inplace=True)
+            df_sel.columns = [int(x) for x in df_sel.columns]
+
+            df_cpm = pdreadcsv(fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
+            df_cpm.set_index('geneid', inplace=True)
+            df_cpm.columns = [int(x) for x in df_cpm.columns]
+
+            df_gene_annot  = pdreadcsv(fname_gene_annot, self.root_mprog_lfc, verbose=verbose)
+
+            self.df_sel = df_sel
+            self.df_cpm = df_cpm
+            self.df_gene_annot = df_gene_annot
+
+            #------------- calc CPM ------------------
+            dfc_log = np.log2(df_cpm + 1)
+            self.dfc_log = dfc_log
+
+            #-------------- dfall for Prometheus ---------------
+            dfall = pdreadcsv(self.fname_cpm_all, self.root_mprog_lfc, verbose=verbose)            
+            self.dfall = dfall
+
+            return df_sel, df_cpm, df_gene_annot
+           
+        print(f"Transforming expression data for group: {group} ...")
+        df_sel, df_cpm, df_gene_annot = self.calc_cpm_and_filter_data(dfn_tumor, perc_min_samples, top_n)
+
+        #------------- calc CPM ------------------
+        dfc_log = np.log2(df_cpm + 1)
+        self.dfc_log = dfc_log
+
+        self.df_sel = df_sel
+        self.df_cpm = df_cpm
+        self.df_gene_annot = df_gene_annot
+        
+        _ = pdwritecsv(df_sel, fname_sel_log, self.root_mprog_lfc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_cpm, fname_log_cpm, self.root_mprog_lfc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_gene_annot, fname_gene_annot, self.root_mprog_lfc, verbose=verbose)
+
+        return df_sel, df_cpm, df_gene_annot
+
+
+    def cluster_PCA_HCA_UMAP(self, df_combat: pd.DataFrame, group: str, n_clusters:int, 
+                            n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
+                            n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
+                            method_hca:str = "ward", hca_criterion:str = "maxclust",
+                            LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
+                            force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        
+        fname_pca = self.fname_pca % (n_clusters, self.disease_id, group)
+        fname_umap = self.fname_umap % (n_clusters, self.disease_id, group)
+        fname_hca = self.fname_hca % (n_clusters, self.disease_id, group)
+        fname_all_sign = self.fname_all_sign % (n_clusters, self.disease_id, group)
+        fname_sig_sign = self.fname_sig_sign % (n_clusters, self.disease_id, group)
+        fname_best_eval = self.fname_best_eval % (n_clusters, self.disease_id, group)
+        fname_cluster = self.fname_cluster % (n_clusters, self.disease_id, group, LFC_cutoff, FDR_cutoff)
+
+        filename_pca = self.root_mprog_lfc /fname_pca
+        filename_umap = self.root_mprog_lfc /fname_umap
+        filename_hca = self.root_mprog_lfc /fname_hca
+        filename_all_sign = self.root_mprog_lfc / fname_all_sign
+        filename_sig_sign = self.root_mprog_lfc / fname_sig_sign
+
+        filename_cluster = self.root_mprog_lfc / fname_cluster
+
+
+        if filename_pca.exists() and filename_umap.exists() and filename_hca.exists() and \
+        filename_all_sign.exists() and filename_sig_sign.exists() and \
+        filename_cluster.exists() and not force:
+
+            df_pca = pdreadcsv(fname_pca, self.root_mprog_lfc, verbose=verbose)  
+            df_umap = pdreadcsv(fname_umap, self.root_mprog_lfc, verbose=verbose)  
+            df_hca = pdreadcsv(fname_hca, self.root_mprog_lfc, verbose=verbose)
+            df_all_sign = pdreadcsv(fname_all_sign, self.root_mprog_lfc, verbose=verbose)
+            df_sig_sign = pdreadcsv(fname_sig_sign, self.root_mprog_lfc, verbose=verbose)
+
+            self.df_pca = df_pca
+            self.df_umap = df_umap
+            self.df_hca = df_hca
+            self.df_all_sign = df_all_sign
+            self.df_sig_sign = df_sig_sign
+
+            df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
+            self.df_eval = df_eval
+            self.df_samp_clusters = df_samp_clusters
+
+            df_cluster = pdreadcsv(fname_cluster, self.root_mprog_lfc, verbose=verbose)
+            self.df_cluster = df_cluster
+
+            return df_cluster, df_pca, df_umap
+        
+        df_mat = df_combat.set_index('geneid').drop(columns=(['symbol', 'biotype']) ).T
+        self.df_mat = df_mat
+        df_scaled = StandardScaler().fit_transform(df_mat)
+
+        print(f"Calc PCA ...")
+        df_pca = self.calc_PCA(df_scaled, n_components=n_components, verbose=verbose)
+        self.df_pca = df_pca
+        _ = pdwritecsv(df_pca, fname_pca, self.root_mprog_lfc, verbose=verbose)
+
+        print(f"Calc best cluster ...")
+        df_eval, df_samp_clusters = self.calc_best_cluster(df_pca=df_pca, min_clusters = min_clusters, max_clusters = max_clusters)
+        self.df_eval = df_eval
+        self.df_samp_clusters = df_samp_clusters
+        _ = pdwritecsv(df_eval, fname_best_eval, self.root_mprog_lfc, verbose=verbose)        
+
+        print(f"Calc PCA-UMAP ...")
+        df_umap = self.calc_PCA_UMAP(df_pca=df_pca, df_samp_clusters=df_samp_clusters, n_neighbors=n_umap_neighbors, min_dist=min_umap_dist, metric=umap_metric)
+        self.df_umap = df_umap
+        _ = pdwritecsv(df_umap, fname_umap, self.root_mprog_lfc, verbose=verbose)        
+
+        df_hca = self.cut_HCA_PCA(df_pca=df_pca, method=method_hca, n_clusters=n_clusters, criterion=hca_criterion, verbose=verbose)
+        self.df_hca = df_hca
+        _ = pdwritecsv(df_hca, fname_hca, self.root_mprog_lfc, verbose=verbose)
+
+        print(f"Find clusters' signature genes ...")
+        df_all_sign, df_sig_sign = self.find_cluster_signature_genes(df_mat=self.df_mat, df_samp_clusters=df_hca, df_gene_annot=self.df_gene_annot)
+        self.df_all_sign = df_all_sign
+        self.df_sig_sign = df_sig_sign
+
+        pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc)
+        pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc)
+
+        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, n_clusters=n_clusters, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+        self.df_cluster = df_cluster
+
+        #-------------------- genes and  unique genes ------------------------
+        print(f"Unique signature genes ...")
+        cluster_list = np.unique(df_all_sign.cluster)
+
+        dic = {}
+
+        for ncluster in cluster_list:
+            df2 = df_sig_sign[df_sig_sign.cluster == ncluster]
+            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+
+            symbols = np.unique(df2.symbol)
+
+            dic[ncluster] = set(symbols)
+
+            print(f"Cluster {ncluster}: {len(symbols)} signature genes")
+
+            fname = f"cluster_{ncluster}-{n_clusters}_{group}_signature_genes.txt"
+            filename = self.root_mprog_lfc / fname
+
+            write_txt('\n'.join(symbols), filename, verbose=verbose)
+
+
+        df_cluster['n_unique_genes']  = 0
+        df_cluster['unique_genes'] = None
+
+        for nclu in cluster_list:
+            set0 = dic[nclu]
+
+            for key, setx in dic.items():
+                if key != nclu:
+                    set0 = set0 - dic[key]
+
+            uniq_list = np.unique(list(set0))
+
+            # LFC and DEGs only after clusterization
+            df_cluster.loc[df_cluster['ncluster'] == nclu, 'n_unique_genes'] = len(uniq_list)
+            df_cluster.loc[df_cluster['ncluster'] == nclu, 'unique_genes'] = "; ".join(uniq_list)
+
+        self.df_cluster = df_cluster
+        _ = pdwritecsv(df_cluster, fname_cluster, self.root_mprog_lfc, verbose=verbose)
+
+        print(f"\n-------------- end ------------------\n")
+
+        return df_cluster, df_pca, df_umap
+
+
+    def plot_histogram(self, data:List, title:str="Distribution of DEG log2 Fold Changes", bins:int=50,
+                       xlabel:str = "log2 Fold Change", ylabel:str = "Number of genes",
+                       figsize: tuple = (9, 5)):
+        
+        plt.figure(figsize=figsize)
+        plt.hist(data, bins=bins, edgecolor="black", alpha=0.8)
+        plt.axvline(0, linestyle="--", linewidth=1)
+        plt.axvline(-1, linestyle=":", linewidth=1)
+        plt.axvline(1, linestyle=":", linewidth=1)
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.tight_layout()
+        plt.show()
+
+
