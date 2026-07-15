@@ -1502,7 +1502,9 @@ class cBioPortal(object):
             print(f"No valid expression data found for {self.prog_psi_id}.")
             return {}, {}
 
-        print("Downloading normal files:", end=" ")
+        N = len(dff_normal)
+
+        print(f"Downloading {N} normal files:", end=" ")
         cols = ["geneid", "symbol", "biotype", "counts"]
 
         dic_normal = {}
@@ -1541,7 +1543,9 @@ class cBioPortal(object):
         if verbose:
             print(f" -> {len(dff_normal)}")
 
-        print("Downloading tumor files:", end=" ")
+        N = len(dff_tumor)
+
+        print(f"Downloading {N} tumor files:", end=" ")
         dic_tumor = {}
         for i, row in dff_tumor.iterrows():
             if i % 10 == 0:
