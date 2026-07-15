@@ -383,7 +383,7 @@ class cBioPortal(object):
         self.gdc_project_id = row.gdc_project_id
         self.cbioportal_study_id = row.cbioportal_study_id
 
-        self.root_mprog_disease = create_dir(self.root_mprog, self.disease_id)
+        self.root_mprog_disease = create_dir(self.root_mprog, self.disease_cd)
         self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
 
         #------------- create dirs ------------------
@@ -4057,12 +4057,6 @@ class cBioPortal(object):
             print("Warning: could not find file: {filename}")
             df_combat = pd.DataFrame()
 
-
-        cols = df_combat.columns
-        cols = [int(x) if isint(x) else x for x in cols]
-
-        df_combat.columns = cols
-
         return df_combat
         
 
@@ -4078,15 +4072,12 @@ class cBioPortal(object):
 
         if filename.exists() and not force:
             df_combat = pdreadcsv(self.fname_combat, self.root_mprog_lfc, verbose=verbose)
-
-            df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
             return df_combat
 
         df_metadata = self.df_metadata
         covariates = covariates or []
 
-        original_columns = [int(x) for x in dfn.columns.to_list()]
-        metadata_index = [int(x) for x in df_metadata.index.to_list()]
+        metadata_index = df_metadata.index.to_list()
 
         missing_samples = dfn.columns.difference(metadata_index)
 
@@ -4143,14 +4134,12 @@ class cBioPortal(object):
         df_combat = pd.DataFrame(
             corrected_array.T,
             index=df_exp_filt.index,
-            columns=original_columns,
+            columns=dfn.columns,
         )
 
         df_combat.columns = [int(x) for x in df_combat.columns]
         df_combat.reset_index(inplace=True, names=['geneid'])
         df_combat = pd.merge(df_gene_annot, df_combat, on='geneid', how='inner')
-
-        df_combat.columns = [int(x) if isint(x) else x for x in df_combat.columns]
 
         _ = pdwritecsv(df_combat, self.fname_combat, self.root_mprog_lfc, verbose=verbose)
 
@@ -5471,14 +5460,18 @@ class cBioPortal(object):
                 dic[ipsi]['psi_id'] = psi_id
                 dic[ipsi]['disease_id'] = disease_id
                 dic[ipsi]['primary_site'] = primary_site
-                dic[ipsi]['n_tumors'] = df_tumor.shape[1] - 3
-                dic[ipsi]['n_normals'] = df_normal.shape[1] - 3
+
+                cols = df_tumor.columns.to_list()
+                dic[ipsi]['col_tumors'] = cols[3:]
+                cols = df_normal.columns.to_list()
+                dic[ipsi]['col_normals'] = cols[3:]
 
                 print(">>>", psi_id, df_tumor.shape, df_normal.shape)
 
         stri = f"There are {dfn_tumor.shape[1]-3} tumor samples and {dfn_normal.shape[1]-3} control samples merging studies"
         print(stri)
 
+        '''
         #-------------- tumor ------------------
         cols = dfn_tumor.columns.tolist()
         nsamp = len(cols)-3
@@ -5492,6 +5485,7 @@ class cBioPortal(object):
 
         cols = cols[:3] + list(np.arange(1, nsamp + 1))
         dfn_normal.columns = cols
+        '''
 
         #-- controls must be homogeneous
         dfn_normal2 = self.remove_to_big_bad_cols_expression(dfn_normal.copy(), nstd=3, msg='Normal')
@@ -5502,7 +5496,9 @@ class cBioPortal(object):
 
         del_normal_list = list(cols_normal_ini-cols_normal2_ini)
 
+        '''
         dfn_normal2.columns = dfn_normal2.columns.tolist()[:3] + list(np.arange(1, dfn_normal2.shape[1]-2))
+        '''
 
         pdwritecsv(dfn_tumor, self.fname_tumor, self.root_mprog_lfc, verbose=verbose)
         pdwritecsv(dfn_normal2, self.fname_normal, self.root_mprog_lfc, verbose=verbose)
@@ -5518,52 +5514,45 @@ class cBioPortal(object):
 
 
     def build_metadata(self, dic: dict, del_normal_list: list=[], verbose: bool=False) -> pd.DataFrame:
-        total_tumor_count = 0
-        total_normal_count = 0
+        total_tumor_cols = []
+        total_normal_cols = []
         psi_tumor_list = []
         psi_normal_list = []
 
         ini = 1
         for _, dic2 in dic.items():
-            tumor_count = dic2['n_tumors']
-            normal_count = dic2['n_normals']
-
-            end = ini + normal_count
+            tumor_cols = dic2['col_tumors']
+            normal_cols = dic2['col_normals']
 
             psi_id = dic2['psi_id']
 
-            if tumor_count > 0:
-                total_tumor_count += tumor_count
-                psi_tumor_list += [psi_id] * tumor_count
+            if tumor_cols:
+                total_tumor_cols += tumor_cols
+                psi_tumor_list += [psi_id] * len(tumor_cols)
 
-            if normal_count > 0:
-                lista = np.arange(ini, end)
+            if normal_cols > 0:
+                if del_normal_list:
+                    normal_cols = [col for col in normal_cols if col not in del_normal_list]
 
-                how_many_in = [x for x in del_normal_list if x in lista]
-
-                if how_many_in != []:
-                    normal_count -= len(how_many_in)
-
-                if normal_count > 0:
-                    total_normal_count += normal_count
-                    psi_normal_list += [psi_id] * normal_count
+                if normal_cols:
+                    total_normal_cols += normal_cols
+                    psi_normal_list += [psi_id] * len(normal_cols)
 
             
-            ini = end
 
-        # print(">>> total", total_tumor_count, len(psi_tumor_list), total_normal_count, len(psi_normal_list))
+        # print(">>> total", total_tumor_cols, len(psi_tumor_list), total_normal_cols, len(psi_normal_list))
         df_metadata = pd.DataFrame(
             {
                 "condition": (
-                    ["tumor"] * total_tumor_count +
-                    ["normal"] * total_normal_count
+                    ["tumor"] * len(total_tumor_cols) +
+                    ["normal"] * len(total_normal_cols)
                 ),
                 "dataset": (
                     psi_tumor_list +
                     psi_normal_list
                 ),
             },
-            index=[int(x) for x in np.arange(1, total_tumor_count + total_normal_count + 1)],
+            index= total_tumor_cols + total_normal_cols,
         )
 
         df_metadata["condition_numeric"] = (
@@ -5586,7 +5575,7 @@ class cBioPortal(object):
 
         lista = np.array(mus_all > mu+nstd*std)
         # columns start on 1
-        bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+        bad_cols = [cols[i] for i in np.arange(len(lista)) if lista[i]]
 
         if bad_cols:
             print(f"{msg}: Removing {len(bad_cols)} columns with values > {mu+nstd*std} -> {bad_cols}")
@@ -5608,7 +5597,7 @@ class cBioPortal(object):
         if inf_lim > 0:
             lista = np.array(mus_all < inf_lim)
             # columns start on 1
-            bad_cols = [i+1 for i in np.arange(len(lista)) if lista[i]]
+            bad_cols = [cols[i] for i in np.arange(len(lista)) if lista[i]]
 
             if bad_cols:
                 print(f"{msg}: Removing {len(bad_cols)} columns with values < {mu-nstd*std} -> {bad_cols}")
@@ -5635,11 +5624,9 @@ class cBioPortal(object):
 
             df_sel = pdreadcsv(fname_sel_log, self.root_mprog_lfc, verbose=verbose)
             df_sel.set_index('geneid', inplace=True)
-            df_sel.columns = [int(x) for x in df_sel.columns]
 
             df_cpm = pdreadcsv(fname_log_cpm, self.root_mprog_lfc, verbose=verbose)
             df_cpm.set_index('geneid', inplace=True)
-            df_cpm.columns = [int(x) for x in df_cpm.columns]
 
             df_gene_annot  = pdreadcsv(fname_gene_annot, self.root_mprog_lfc, verbose=verbose)
 
