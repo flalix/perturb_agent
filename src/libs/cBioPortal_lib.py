@@ -98,6 +98,7 @@ class cBioPortal(object):
         # primary_site
         self.fname_cases0 = "cases_for_%s.tsv"
         self.fname_demo0 = 'clinical_and_demographics_for_%s.tsv'
+        self.fname_case_bar0 = "case_barcode_for_%s.tsv"
         self.fname_subtype0 = "subtype_for_%s.tsv"
         self.fname_samples0 = "samples_for_%s.tsv"
         self.fname_vcf_files0 = "vcf_files_for_case_%s_sample_%s_to_%s.tsv"
@@ -173,10 +174,11 @@ class cBioPortal(object):
         self.clean_gdc_files()
 
 
-        self.fname_all_cases = "%s_summ_cases.tsv"
-        self.fname_all_clin_demo = "%s_summ_clin_demo.tsv"
-        self.fname_all_samples = "%s_summ_samples.tsv"
-        self.fname_all_mutations = "%s_summ_mutations.tsv"
+        self.fname_all_cases = "%s_all_cases.tsv"
+        self.fname_all_clin_demo = "%s_all_clin_demo.tsv"
+        self.fname_all_case_bar = "%s_all_case_x_barcode.tsv"
+        self.fname_all_samples = "%s_all_samples.tsv"
+        self.fname_all_mutations = "%s_all_mutations.tsv"
 
         self.fname_lfc_ori = "lfc_ori_for_%s_method_%s_cluster_%d.tsv"
         self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d.tsv"
@@ -321,6 +323,9 @@ class cBioPortal(object):
         else:
             df_psi = pdreadcsv(fname, self.root0_data, verbose=verbose)
             self.prog_list = np.unique(df_psi.prog_id)
+
+            df_psi = df_psi[df_psi.active == True]
+            df_psi.reset_index(drop=True, inplace=True)
             self.df_psi = df_psi
 
         return df_psi
@@ -350,6 +355,8 @@ class cBioPortal(object):
 
         self.fname_cases, self.filename_cases = '', Path()
         self.fname_subt, self.filename_subt = '', Path()
+        self.fname_demo, self.filename_demo = '', Path()
+        self.fname_case_bar, self.filename_case_bar = '', Path()
 
         if isinstance(psi_id, str) and psi_id != "":
             dfa = self.df_psi[(self.df_psi.prog_id == self.prog_id) & (self.df_psi.psi_id == psi_id)]
@@ -425,6 +432,9 @@ class cBioPortal(object):
         self.fname_demo = self.fname_demo0 % self.cbioportal_study_id
         self.filename_demo = self.root_disease / self.fname_demo
 
+        self.fname_case_bar = self.fname_case_bar0 % self.cbioportal_study_id
+        self.filename_case_bar = self.root_disease / self.fname_case_bar
+
     def apply_filter_cases(self, df_cases: pd.DataFrame) -> pd.DataFrame:
         df_cases = df_cases[df_cases.validity == "valid"].copy()
         df_cases = df_cases[df_cases["consistency"] == "ok"]
@@ -438,13 +448,33 @@ class cBioPortal(object):
 
         return df_cases
 
+
+    def build_case_barcode(self, df_cases: pd.DataFrame, df_clin_demo: pd.DataFrame) -> pd.DataFrame:
+        df2 = df_cases[df_cases.barcode_case.isin(df_clin_demo.barcode_case)]
+
+        if df2.empty:
+            df_clin_demo['barcode_case'] = [x[1:] if x.startswith('X') else x for x in df_clin_demo.barcode_case]
+            df2 = df_cases[df_cases.barcode_case.isin(df_clin_demo.barcode_case)]
+
+            if not df2.empty:
+                # to save the correct file
+                self.df_clin_demo = df_clin_demo
+
+        cols = ['case_id', 'barcode_case']
+        df_case_bar = df2[cols].copy()
+        df_case_bar.reset_index(drop=True, inplace=True)
+        self.df_case_bar = df_case_bar
+    
+        return df_case_bar
+        
+
     def get_cases_and_subtypes(
         self,
         batch_size: int = 200,
-        do_filter: bool = True,
+        # do_filter: bool = True,
         force: bool = False,
         verbose: bool = False,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         calc all subtypes, given and psi_id --> df_cases
         group by ["subtype_global", "subtype_tissue", "stage"] --> df_subt
@@ -476,7 +506,14 @@ class cBioPortal(object):
             self.df_subt = df_subt
             self.df_clin_demo = df_clin_demo
 
-            return df_cases, df_subt, df_clin_demo
+            df_case_bar = self.build_case_barcode(df_cases, df_clin_demo)
+
+            if not self.filename_case_bar.exists():
+                _ = pdwritecsv(self.df_clin_demo, self.fname_demo, self.root_disease, verbose=verbose)
+                _ = pdwritecsv(df_case_bar, self.fname_case_bar, self.root_disease, verbose=verbose)
+
+
+            return df_cases, df_subt, df_clin_demo, df_case_bar
 
         def build_tcga_ontology(df):
             """
@@ -646,6 +683,7 @@ class cBioPortal(object):
         self.df_cases = pd.DataFrame()
         self.df_subt = pd.DataFrame()
         self.df_clin_demo = pd.DataFrame()
+        self.df_case_bar = pd.DataFrame()
 
         df_cases = pd.DataFrame()
 
@@ -676,7 +714,7 @@ class cBioPortal(object):
                 if "data" not in response.keys():
                     print(f"No data found while searching for '{self.prog_psi_id}'")
                     print(">>> response", response)
-                    return self.df_cases, self.df_subt, self.df_clin_demo
+                    return self.df_cases, self.df_subt, self.df_clin_demo, self.df_case_bar
 
                 hits = response.get("data", {}).get("hits", [])
 
@@ -694,7 +732,7 @@ class cBioPortal(object):
             if all_hits == []:
                 print(f"No subtypes found for {self.prog_psi_id} - filter value: {self.gdc_project_id}")
                 self.save_case_files(verbose=verbose)
-                return self.df_cases, self.df_subt, self.df_clin_demo
+                return self.df_cases, self.df_subt, self.df_clin_demo, self.df_case_bar
 
             # ------------ lost data? ------------------
             N = len(all_hits)
@@ -755,7 +793,7 @@ class cBioPortal(object):
             self.df_clin_demo = pd.DataFrame()
 
             self.save_case_files(verbose=verbose)
-            return self.df_cases, self.df_subt, self.df_clin_demo
+            return self.df_cases, self.df_subt, self.df_clin_demo, self.df_case_bar
 
         # if do_filter:
         #     df_cases = self.apply_filter_cases(df_cases)
@@ -766,14 +804,17 @@ class cBioPortal(object):
         self.df_subt = df_subt
         self.df_clin_demo = df_clin_demo
 
+        df_case_bar = self.build_case_barcode(df_cases, df_clin_demo)        
+
         self.save_case_files(verbose=verbose)
 
-        return df_cases, df_subt, df_clin_demo
+        return df_cases, df_subt, df_clin_demo, df_case_bar
 
     def save_case_files(self, verbose: bool = False):
         _ = pdwritecsv(self.df_cases, self.fname_cases, self.root_disease, verbose=verbose)
         _ = pdwritecsv(self.df_subt, self.fname_subt, self.root_disease, verbose=verbose)
         _ = pdwritecsv(self.df_clin_demo, self.fname_demo, self.root_disease, verbose=verbose)
+        _ = pdwritecsv(self.df_case_bar, self.fname_case_bar, self.root_disease, verbose=verbose)
 
 
     def get_clin_demo_data(self, 
@@ -1005,9 +1046,7 @@ class cBioPortal(object):
 
         self.df_samples = pd.DataFrame()
 
-        df_cases, _, _ = self.get_cases_and_subtypes(
-            batch_size=batch_size, do_filter=False, force=False, verbose=verbose
-        )
+        df_cases, _, _, _ = self.get_cases_and_subtypes( batch_size=batch_size, force=False, verbose=verbose)
 
         self.df_cases = df_cases
 
@@ -2345,7 +2384,7 @@ class cBioPortal(object):
 
     def loop_program_psi_get_cases_samples_mut(
         self, prog_id: str = "TCGA", force: bool = False, verbose: bool = False
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
             input: prog_id
 
@@ -2356,7 +2395,7 @@ class cBioPortal(object):
                 df_all_samples ->  self.get_samples_for_subtypes(subtype_global=subtype_global, tumor_class=tumor_class, subtype_tissue=subtype_tissue, )
                 df_all_mutations -> for each subtype get from samples the barcode_sample_list -> self.get_df_mut_transform_mutation_table()
 
-            output: df_all_cases, df_all_samples, df_all_mutations
+            output: df_all_cases, df_all_clin_demo, df_all_case_bar, df_all_samples, df_all_mutations
         """
 
         df_psi2 = self.get_primary_sites(prog_id=prog_id)
@@ -2369,27 +2408,32 @@ class cBioPortal(object):
         fname_all_clin_demo = self.fname_all_clin_demo % (self.prog_id)
         filename_clin_demo = self.root_summary / fname_all_clin_demo
 
+        fname_all_case_bar = self.fname_all_case_bar % (self.prog_id)
+        filename_case_bar = self.root_summary / fname_all_case_bar
+
         fname_all_samples = self.fname_all_samples % (self.prog_id)
         filename_samples = self.root_summary / fname_all_samples
 
         fname_all_mutations = self.fname_all_mutations % (self.prog_id)
         filename_mutations = self.root_summary / fname_all_mutations
 
-        if filename_cases.exists() and filename_clin_demo.exists() and \
+        if filename_cases.exists() and filename_clin_demo.exists() and filename_case_bar.exists() and \
            filename_samples.exists() and filename_mutations.exists() and not force:
             df_all_cases = pdreadcsv(fname_all_cases, self.root_summary, verbose=verbose)
             df_all_clin_demo = pdreadcsv(fname_all_clin_demo, self.root_summary, verbose=verbose)
+            df_all_case_bar = pdreadcsv(fname_all_case_bar, self.root_summary, verbose=verbose)
             df_all_samples = pdreadcsv(fname_all_samples, self.root_summary, verbose=verbose)
             df_all_mutations = pdreadcsv(fname_all_mutations, self.root_summary, verbose=verbose)
 
             self.df_all_cases = df_all_cases
             self.df_all_clin_demo = df_all_clin_demo
+            self.df_all_case_bar = df_all_case_bar
             self.df_all_samples = df_all_samples
             self.df_all_mutations = df_all_mutations
 
-            return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+            return df_all_cases, df_all_clin_demo, df_all_case_bar, df_all_samples, df_all_mutations
 
-        df_list_cases, df_list_clin_demo, df_list_samples, df_list_mutations = [], [], [], []
+        df_list_cases, df_list_clin_demo, df_list_samples, df_list_mutations, df_list_case_bar = [], [], [], [], []
 
         # loop for all primary sites in df_psi
         for ipsi, row in df_psi2.iterrows():
@@ -2401,7 +2445,7 @@ class cBioPortal(object):
 
             print(f"\t{ipsi}) {psi_id} - {primary_site}")
 
-            df_cases, df_subt, df_clin_demo = self.get_cases_and_subtypes(batch_size=200, do_filter=True, force=False, verbose=verbose)
+            df_cases, df_subt, df_clin_demo, df_case_bar = self.get_cases_and_subtypes(batch_size=200, force=False, verbose=verbose)
 
             if df_cases.empty:
                 if verbose: print("No cases found for PSI_ID:", psi_id)
@@ -2413,6 +2457,7 @@ class cBioPortal(object):
 
             df_list_cases.append(df_cases)
             df_list_clin_demo.append(df_clin_demo)
+            df_list_case_bar.append(df_case_bar)
 
             for isubt, row in df_subt.iterrows():
                 subtype_global = row.subtype_global
@@ -2473,6 +2518,12 @@ class cBioPortal(object):
         else:
             df_all_clin_demo = pd.DataFrame()
 
+        if len(df_list_case_bar) > 0:
+            df_all_case_bar = pd.concat(df_list_case_bar, ignore_index=True)
+            self.df_all_case_bar = df_all_case_bar
+        else:
+            df_all_case_bar = pd.DataFrame()
+
         if len(df_list_samples) > 0:
             df_all_samples = pd.concat(df_list_samples, ignore_index=True)
             self.df_all_samples = df_all_samples
@@ -2489,17 +2540,20 @@ class cBioPortal(object):
             _ = pdwritecsv(df_all_cases, fname_all_cases, self.root_summary, verbose=verbose)
         if not df_all_clin_demo.empty:
             _ = pdwritecsv(df_all_clin_demo, fname_all_clin_demo, self.root_summary, verbose=verbose)
+        if not df_all_case_bar.empty:
+            _ = pdwritecsv(df_all_case_bar, fname_all_case_bar, self.root_summary, verbose=verbose)
         if not df_all_samples.empty:
             _ = pdwritecsv(df_all_samples, fname_all_samples, self.root_summary, verbose=verbose)
         if not df_all_mutations.empty:
                 _ = pdwritecsv(df_all_mutations, fname_all_mutations, self.root_summary, verbose=verbose)
-
+ 
         self.df_all_cases = df_all_cases
         self.df_all_clin_demo = df_all_clin_demo
+        self.df_all_case_bar = df_all_case_bar
         self.df_all_samples = df_all_samples
         self.df_all_mutations = df_all_mutations
 
-        return df_all_cases, df_all_clin_demo, df_all_samples, df_all_mutations
+        return df_all_cases, df_all_clin_demo, df_all_case_bar, df_all_samples, df_all_mutations
 
     def get_filtered_tables(
         self, 
@@ -5306,13 +5360,13 @@ class cBioPortal(object):
         return fig_umap, ax_umap, df_umap
     
 
-    def get_all_data_from_disease(self, disease_id:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
+    def get_all_data_from_disease(self, disease_cd:str, imax_tumor:int=250, imax_normal:int=50, exclude_prog_list:list=[], 
                                   force:bool=False, verbose:bool=False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
         df_psi = self.open_primary_site(verbose=False)
 
-        df_psi = df_psi[ (df_psi.disease_id == disease_id) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
-        dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'primary_site', 'cbioportal_study_id']).size().reset_index()
+        df_psi = df_psi[ (df_psi.disease_cd == disease_cd) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
+        dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'disease_cd', 'primary_site', 'cbioportal_study_id']).size().reset_index()
 
         for ipsi, row in dfa.iterrows():
             prog_id = row.prog_id
