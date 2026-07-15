@@ -497,12 +497,9 @@ class cBioPortal(object):
 
             self.df_cases = df_cases
 
-            # df_cases = self.apply_filter_cases(df_cases)
-
             df_subt = self.groupby_case_by_subtypes(df_cases)
             df_clin_demo = self.get_clin_demo_data(barcode_cases = df_cases.barcode_case, verbose=verbose)
 
-            self.df_cases = df_cases
             self.df_subt = df_subt
             self.df_clin_demo = df_clin_demo
 
@@ -1502,6 +1499,8 @@ class cBioPortal(object):
     def get_dic_expression_tumor_and_normal(self, verbose: bool = False) -> Tuple[dict, dict]:
 
         #----------- tumor --------------------------------------------------
+        # df_cases, df_all_samples, df_all_mut, all_barcode_list
+
         _, df_tumor_samples, _, _ = self.get_filtered_tables(
             sample_type_term="Primary Tumor", verbose=verbose
         )
@@ -1510,29 +1509,31 @@ class cBioPortal(object):
             sample_type_term="Solid Tissue Normal", verbose=verbose
         )
 
-        if df_tumor_samples.empty:
-            if verbose:
-                print(f"No tumor expression data found for {self.prog_psi_id}.")
-            return {}, {}
-
         if df_normal_samples.empty:
             if verbose:
                 print(f"No normal expression data found for {self.prog_psi_id}.")
             return {}, {}
 
+        if df_tumor_samples.empty:
+            if verbose:
+                print(f"No tumor expression data found for {self.prog_psi_id}.")
+            return {}, {}
+
         self.file_type_list = np.unique(df_tumor_samples.data_type)
 
         dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
+        dff_normal = dff_normal.drop_duplicates('case_id')
         dff_normal.reset_index(drop=True, inplace=True)
         self.dff_normal = dff_normal
 
         dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
+        dff_tumor = dff_tumor.drop_duplicates('case_id')
         dff_tumor.reset_index(drop=True, inplace=True)
         self.dff_tumor = dff_tumor
 
         # raise ValueError("\n\n------------ stop --------------\n\n")
 
-        if verbose:
+        if verbose or 3==3:
             print(
                 f"There are {len(dff_tumor)} tumor and {len(dff_normal)} normal Gene Expression tables"
             )
@@ -1572,11 +1573,24 @@ class cBioPortal(object):
             try:
                 dfexp = dfexp[cols]
             except Exception as e:
-                print(f"Error occurred while processing normal file {filename_normal}: {e}")
-                print(dfexp.shape)
-                print(dfexp.columns)
+                if verbose:
+                    print(f"Error occurred while processing normal file {filename_normal}: {e}")
+                    print("\n------------------------------\n")
+                    print(dfexp)
+                    print("\n------------------------------\n")
                 continue
-            dic_normal[f"normal_{file_id}"] = dfexp
+
+            dfa = self.df_cases[self.df_cases.case_id == case_id]
+            if dfa.empty:
+                print(f"Error occurred while processing normal case_id {case_id}")
+                continue
+
+            barcode_case = dfa.iloc[0].barcode_case
+
+            key = f"normal_{file_id}"
+            dic_normal[key] = {}
+            dic_normal[key]['expression'] = dfexp
+            dic_normal[key]['barcode_case'] = barcode_case
 
         print("")
         if verbose:
@@ -1609,11 +1623,24 @@ class cBioPortal(object):
             try:
                 dfexp = dfexp[cols]
             except Exception as e:
-                print(f"Error occurred while processing tumor file {filename_tumor}: {e}")
-                print(dfexp.shape)
-                print(dfexp.columns)
+                if verbose:
+                    print(f"Error occurred while processing tumor file {filename_tumor}: {e}")
+                    print("\n------------------------------\n")
+                    print(dfexp)
+                    print("\n------------------------------\n")
                 continue
-            dic_tumor[f"tumor_{file_id}"] = dfexp
+
+            dfa = self.df_cases[self.df_cases.case_id == case_id]
+            if dfa.empty:
+                print(f"Error occurred while processing tumor case_id {case_id}")
+                continue
+
+            barcode_case = dfa.iloc[0].barcode_case
+
+            key = f"tumor_{file_id}"
+            dic_tumor[key] = {}
+            dic_tumor[key]['expression'] = dfexp
+            dic_tumor[key]['barcode_case'] = barcode_case
 
         print("")
         if verbose:
@@ -1714,7 +1741,7 @@ class cBioPortal(object):
 
         for ikey in isel_list:
             key = keys[ikey]
-            dfa = dic_tum_norm[key]
+            dfa = dic_tum_norm[key]['expression']
 
             if dfa is None or dfa.empty:
                 continue
@@ -1783,7 +1810,8 @@ class cBioPortal(object):
                 i=0
                 for ikey in isel_normal_list:
                     key = keys[ikey]
-                    dfa = dic_normal[key]
+                    dfa = dic_normal[key]['expression']
+                    barcode_case = dic_normal[key]['barcode_case']
 
                     if "gene_id" in dfa.columns:
                         dfa = dfa.rename(columns={"gene_id": "geneid"})
@@ -1800,7 +1828,7 @@ class cBioPortal(object):
                         continue
 
                     i+=1
-                    dfa = dfa.rename(columns={"counts": f"normal_{i}"})
+                    dfa = dfa.rename(columns={"counts": "N-" + barcode_case})
 
                     dfa = dfa[dfa.geneid.isin(common_gene_list)]
                     if dfa.empty:
@@ -1833,8 +1861,9 @@ class cBioPortal(object):
             i=0
             for ikey in isel_tumor_list:
                 key = keys[ikey]
-                dfa = dic_tumor[key]
-
+                dfa = dic_tumor[key]['expression']
+                barcode_case = dic_tumor[key]['barcode_case']
+                
                 if dfa is None or dfa.empty:
                     continue
 
@@ -1853,7 +1882,7 @@ class cBioPortal(object):
                     continue
 
                 i+=1
-                dfa = dfa.rename(columns={"counts": f"tumor_{i}"})
+                dfa = dfa.rename(columns={"counts": "T-" + barcode_case})
 
                 dfa = dfa[dfa.geneid.isin(common_gene_list)]
                 if dfa.empty:
@@ -2562,7 +2591,7 @@ class cBioPortal(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
         df_cases, df_all_samples, df_all_mut, all_barcode_list = self.get_filtered_tables_subtypes(
-            sample_type_term=sample_type_term, do_filter=False, verbose=verbose
+            sample_type_term=sample_type_term, verbose=verbose
         )
 
         if verbose:
@@ -2581,7 +2610,7 @@ class cBioPortal(object):
         return df_cases, df_all_samples, df_all_mut, all_barcode_list
 
     def get_filtered_tables_subtypes(
-        self, sample_type_term: str = "Primary Tumor", do_filter: bool = True, verbose: bool = True
+        self, sample_type_term: str = "Primary Tumor", verbose: bool = True
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
 
         self.df_cases = pd.DataFrame()
@@ -2685,12 +2714,7 @@ class cBioPortal(object):
         
         df_all_samples.reset_index(drop=True, inplace=True)
 
-        cases_ids = np.unique(df_all_samples.case_id)
-        df_cases = df_cases[df_cases["case_id"].isin(cases_ids)].copy()
-        df_cases.reset_index(drop=True, inplace=True)
-
         self.df_all_samples = df_all_samples
-        self.df_cases = df_cases
                 
         if len(df_list_mut) == 0:
             df_all_mut = pd.DataFrame()
@@ -2699,7 +2723,7 @@ class cBioPortal(object):
             df_all_mut = pd.concat(df_list_mut, ignore_index=True) if df_list_mut else pd.DataFrame()
             list_all_barcodes = list(np.unique(list_all_barcodes))
 
-        return self.df_cases, df_all_samples, df_all_mut, list_all_barcodes
+        return df_cases, df_all_samples, df_all_mut, list_all_barcodes
 
     def prepare_barcode_sample_list(self, barcode_sample_list: list[str] | np.ndarray | pd.Series) -> list[str]:
         """
@@ -3146,6 +3170,7 @@ class cBioPortal(object):
         verbose: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
+        # df_cases, df_all_samples, df_all_mut, all_barcode_list
         _, _, df_all_mut, _ = self.get_filtered_tables(
             sample_type_term=sample_type_term, verbose=verbose
         )
