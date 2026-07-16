@@ -4332,7 +4332,7 @@ class cBioPortal(object):
         sample_list = [col for col in sample_list if not col.startswith('N-') ]
 
         if len(sample_list) == 0:
-            msg = f"\n\nError: cluster {nclu} has no valid samples"
+            msg = f"\n\nWarning: cluster {nclu} has no valid samples, may be is a control group."
             print(msg)
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
