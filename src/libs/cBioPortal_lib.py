@@ -6,6 +6,7 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
+from duckdb import df
 import numpy as np
 import pandas as pd
 import requests
@@ -4217,8 +4218,41 @@ class cBioPortal(object):
         plt.tight_layout()
         plt.show()
 
+
+    def remove_bad_cols(self, disease_cd:str, age_cutoff:float = 60, bmi_cutoff:float = 32) -> list:
+
+        df_psi = self.open_primary_site(verbose=False)
+
+        df_psi = df_psi[ (df_psi.disease_cd == disease_cd) & (~pd.isnull(df_psi.primary_site)) & (~pd.isnull(df_psi.cbioportal_study_id)) ]
+        dfa = df_psi.groupby(['prog_id', 'psi_id', 'disease_id', 'disease_cd', 'primary_site', 'cbioportal_study_id']).size().reset_index()
+
+        bad_list = []
+
+        for i, row in dfa.iterrows():
+
+            _ = self.set_program_and_primary_site(prog_id=row.prog_id, psi_id=row.psi_id)
+
+            fname_demo = self.fname_demo0 % row.cbioportal_study_id
+            filename_demo = self.root_disease / self.fname_demo
+
+            print(i, row.psi_id, self.psi_id, row.cbioportal_study_id, "-->", filename_demo)
+
+
+            if not filename_demo.exists():
+                print(f"Could not find demo for {filename_demo}")
+                continue
+
+            df_demo = pdreadcsv(fname_demo, self.root_disease, verbose=True)
+            df_bad = df_demo[ (df_demo.age >= age_cutoff) | (df_demo.bmi >= bmi_cutoff) ]
+            df_bad = ['N-'+x for x in df_bad.barcode_case]
+            bad_list += df_bad
+
+        return bad_list
+
+
     
-    def calc_limma_inmoose(self, prog_id: str, psi_id: str, ncluster: int,
+    def calc_limma_inmoose(self, df_combat:pd.DataFrame, ncluster: int, disease_cd:str, 
+                           age_cutoff:float = 60, bmi_cutoff:float = 32,
                            lfc_cutoff: float = 1.0, fdr_cutoff: float = 0.05,
                            force: bool = False, verbose: bool = False
                            ) -> tuple[pd.DataFrame, pd.DataFrame, str, str, str, str]:
@@ -4235,18 +4269,12 @@ class cBioPortal(object):
 
         method = "limma_inmoose"
 
-        df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id)
-
-        if df_psi2.empty:
-            msg = f"Error: failed to set primary site for {prog_id} {psi_id}"
-            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
-
-        fname_lfc = self.fname_lfc % (self.disease_id, method, ncluster)
-        fname_lfc_ori = self.fname_lfc_ori % (self.disease_id, method, ncluster)
-        fname_degs_txt = self.fname_degs_txt % (self.disease_id, method, ncluster)
-        fname_degs2000 = self.fname_degs2000 % (self.disease_id, method, ncluster)
-        fname_text_AI = self.fname_text_AI % (self.disease_id, method, ncluster)
-        fname_msg = self.fname_msg % (self.disease_id, method, ncluster)
+        fname_lfc = self.fname_lfc % (disease_cd, method, ncluster)
+        fname_lfc_ori = self.fname_lfc_ori % (disease_cd, method, ncluster)
+        fname_degs_txt = self.fname_degs_txt % (disease_cd, method, ncluster)
+        fname_degs2000 = self.fname_degs2000 % (disease_cd, method, ncluster)
+        fname_text_AI = self.fname_text_AI % (disease_cd, method, ncluster)
+        fname_msg = self.fname_msg % (disease_cd, method, ncluster)
 
 
         filename_lfc = self.root_mprog_lfc / fname_lfc
@@ -4261,22 +4289,22 @@ class cBioPortal(object):
             try:
                 degs_txt = read_txt(fname_degs_txt, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
-                degs_txt = ''
+                degs_txt = 'Could not find degs_txt'
 
             try:
                 degs_first2000 = read_txt(fname_degs2000, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
-                degs_first2000 = ''
+                degs_first2000 = 'Could not find degs_first2000'
 
             try:
                 degs_for_AI_analysis = read_txt(fname_text_AI, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
-                degs_for_AI_analysis = ''
+                degs_for_AI_analysis = 'Could not find AI analysis file.'
 
             try:
                 msg = read_txt(fname_msg, self.root_mprog_lfc, verbose=verbose)
             except ValueError:
-                msg = ''
+                msg = 'Could not find message file.'
 
             return df_lfc, df_lfc_ori, degs_txt, degs_first2000, degs_for_AI_analysis, msg
         
@@ -4286,26 +4314,26 @@ class cBioPortal(object):
         if dfa.empty:
             msg = f"Error: {ncluster} has no samples"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
-
-        normal_samples = self.df_metadata[self.df_metadata.condition == 'normal'].index.to_list()
-
-        sample_list = dfa['sample']
-        sample_list = [x for x in sample_list if x not in normal_samples]
-
-        if sample_list == []:
-            msg = f"Error: {ncluster} has only control samples"
-            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
         
-        if len(sample_list) < 3:
-            msg = f"Error: {ncluster} has only {len(sample_list)} samples"
+        if len(dfa) < 3:
+            msg = f"Error: {ncluster} has only {len(dfa)} samples"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
-        msg += f"\nCluster {ncluster} has {len(sample_list)} samples"
+        #---------- sample cols -------------------
+        sample_list = dfa['sample'].to_list()
+        sample_list = [col for col in sample_list if not col.startswith('N-') ]
 
-        sel_cols = list(sample_list) + list(normal_samples)
 
-        df_combat_nclu = self.df_combat[sel_cols].copy()
-        df_combat_nclu.index = self.df_combat.geneid
+        #--------- removing bad cols from normal_samples ---------------
+        normal_samples = [col for col in df_combat.columns.to_list()[3:] if col.startswith('N-') ]
+        bad_cols = self.remove_bad_cols(disease_cd=disease_cd, age_cutoff=age_cutoff, bmi_cutoff=bmi_cutoff)
+        normal_samples = [col for col in normal_samples if col not in bad_cols]
+
+        msg += f"\nCluster {ncluster} has {len(sample_list)} samples and {len(normal_samples)} controls."
+        sel_cols = sample_list + normal_samples
+
+        df_combat_nclu = df_combat.loc[:, sel_cols].copy()
+        df_combat_nclu.index = df_combat.geneid
 
         df_meta_exp = pd.DataFrame(
             {
@@ -4314,11 +4342,8 @@ class cBioPortal(object):
                     ["Normal"] * len(normal_samples)
                 )
             },
-            index=list(sample_list) + list(normal_samples),
+            index=sel_cols,
         )
-
-        df_meta_exp = df_meta_exp.loc[df_combat_nclu.columns]
-
         # Intercept + binary tumor coefficient
         # Normal is the reference condition
         design = pd.DataFrame(
@@ -4328,10 +4353,21 @@ class cBioPortal(object):
                     df_meta_exp["group"].eq("Tumor").astype(float)
                 ),
             },
-            index=df_meta_exp.index,
+            index=sel_cols,
         )
 
         assert df_combat_nclu.columns.equals(design.index)
+
+        # Explicit diagnostic
+        design_rank = np.linalg.matrix_rank(design.to_numpy())
+
+        if design_rank < design.shape[1]:
+            msg += (
+                "\n\nError: singular design matrix. "
+                f"Groups: {df_meta_exp['group'].value_counts().to_dict()}; "
+                f"rank={design_rank}/{design.shape[1]}."
+            )
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
         fit = lmFit(df_combat_nclu, design)
 
@@ -4533,7 +4569,7 @@ class cBioPortal(object):
 
         df_pca = pd.DataFrame(
             df_pca[:, :3],
-            index=self.dfn.columns.to_list(),
+            index=self.all_columns,
             columns=["PC1", "PC2", "PC3"]
         )
 
@@ -4567,7 +4603,7 @@ class cBioPortal(object):
         best = max(cluster_results, key=lambda x: x["silhouette"])
 
         df_samp_clusters = pd.DataFrame({
-            "sample": self.dfn.columns.to_list(),
+            "sample": self.all_columns,
             "cluster": best["labels"] + 1
         })
 
@@ -4602,7 +4638,7 @@ class cBioPortal(object):
 
         df_umap = pd.DataFrame(
             X_umap,
-            index=self.dfn.columns.to_list(),
+            index=self.all_columns,
             columns=["UMAP1", "UMAP2"]
         )
 
@@ -4632,7 +4668,7 @@ class cBioPortal(object):
         Z = linkage(df_pca, method=method)
 
         plt.figure(figsize=figsize)
-        dendrogram(Z, labels=self.dfn.columns.to_list(), leaf_rotation=90)
+        dendrogram(Z, labels=self.all_columns, leaf_rotation=90)
         plt.title(f"PCA Hierarchical clustering of {group} samples")
         plt.tight_layout()
         plt.show()
@@ -4644,7 +4680,7 @@ class cBioPortal(object):
         hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
 
         df_samp_clust_hc = pd.DataFrame({
-            "sample": self.dfn.columns.to_list(),
+            "sample": self.all_columns,
             "cluster": hc_labels
         })
 
@@ -4678,7 +4714,7 @@ class cBioPortal(object):
         hc_labels = fcluster(Z, t=n_clusters, criterion=criterion)
 
         df_samp_clust_hc = pd.DataFrame({
-            "sample": self.dfn.columns.to_list(),
+            "sample": self.all_columns,
             "cluster": hc_labels
         })
 
@@ -5642,6 +5678,10 @@ class cBioPortal(object):
                             method_hca:str = "ward", hca_criterion:str = "maxclust",
                             LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
                             force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        
+        self.all_columns = df_combat.columns.to_list()[3:]
+        self.tumor_cols = [col for col in self.all_columns if col.startswith('T-')]
+        self.normal_cols = [col for col in self.all_columns if col.startswith('N-')]
         
         fname_pca = self.fname_pca % (n_clusters, self.disease_id, group)
         fname_umap = self.fname_umap % (n_clusters, self.disease_id, group)
