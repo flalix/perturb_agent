@@ -182,7 +182,7 @@ class cBioPortal(object):
         self.fname_all_mutations = "%s_all_mutations.tsv"
 
         self.fname_lfc_ori = "lfc_ori_for_%s_method_%s_cluster_%d_max_%d.tsv"
-        self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d'_max_'%d.tsv"
+        self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d_max_%d.tsv"
         self.fname_degs_txt = "degs_for_%s_method_%s_cluster_%d_max_%d.txt"
         self.fname_degs2000 = "degs_first_2000_for_%s_method_%s_cluster_%d_max_%d_biotype_filter.txt"
         self.fname_text_AI = "anlysis_degs_for_%s_method_%s_cluster_%d_max_%d.txt"
