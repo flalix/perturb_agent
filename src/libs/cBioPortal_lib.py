@@ -181,12 +181,12 @@ class cBioPortal(object):
         self.fname_all_samples = "%s_all_samples.tsv"
         self.fname_all_mutations = "%s_all_mutations.tsv"
 
-        self.fname_lfc_ori = "lfc_ori_for_%s_method_%s_cluster_%d.tsv"
-        self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d.tsv"
-        self.fname_degs_txt = "degs_for_%s_method_%s_cluster_%d.txt"
-        self.fname_degs2000 = "degs_first_2000_for_%s_method_%s_cluster_%d_biotype_filter.txt"
-        self.fname_text_AI = "anlysis_degs_for_%s_method_%s_cluster_%d.txt"        
-        self.fname_msg = "message_for_%s_method_%s_cluster_%d.txt"
+        self.fname_lfc_ori = "lfc_ori_for_%s_method_%s_cluster_%d_max_%d.tsv"
+        self.fname_lfc = "lfc_for_%s_method_%s_cluster_%d'_max_'%d.tsv"
+        self.fname_degs_txt = "degs_for_%s_method_%s_cluster_%d_max_%d.txt"
+        self.fname_degs2000 = "degs_first_2000_for_%s_method_%s_cluster_%d_max_%d_biotype_filter.txt"
+        self.fname_text_AI = "anlysis_degs_for_%s_method_%s_cluster_%d_max_%d.txt"
+        self.fname_msg = "message_for_%s_method_%s_cluster_%d_max_%d.txt"
 
         ctx = load_project_context( )
 
@@ -3803,6 +3803,7 @@ class cBioPortal(object):
         prog_id: str,
         psi_id: str,
         ncluster: int,
+        max_cluster: int,
         df_tumor: pd.DataFrame,
         df_normal: pd.DataFrame,
         df_gtex_ctrl: pd.DataFrame,
@@ -3829,10 +3830,10 @@ class cBioPortal(object):
             print(f"No tumor expression data found for {self.prog_psi_id}")
             return pd.DataFrame(), pd.DataFrame(), "", ""
 
-        fname_lfc = self.fname_lfc % (self.disease_id, method, ncluster)
-        fname_lfc_ori = self.fname_lfc_ori % (self.disease_id, method, ncluster)
-        fname_degs_txt = self.fname_degs_txt % (self.disease_id, method, ncluster)
-        fname_msg = self.fname_msg % (self.disease_id, method, ncluster)
+        fname_lfc = self.fname_lfc % (self.disease_id, method, ncluster, max_cluster)
+        fname_lfc_ori = self.fname_lfc_ori % (self.disease_id, method, ncluster, max_cluster)
+        fname_degs_txt = self.fname_degs_txt % (self.disease_id, method, ncluster, max_cluster)
+        fname_msg = self.fname_msg % (self.disease_id, method, ncluster, max_cluster)
 
         filename_lfc = self.root_mprog_lfc / fname_lfc
         filename_lfc_ori = self.root_mprog_lfc / fname_lfc_ori
@@ -4219,7 +4220,7 @@ class cBioPortal(object):
         plt.show()
 
 
-    def remove_bad_cols(self, disease_cd:str, age_cutoff:float = 60, bmi_cutoff:float = 32) -> list:
+    def remove_bad_cols(self, disease_cd:str, age_cutoff:float = 60, bmi_cutoff:float = 32, verbose:bool = False) -> list:
 
         df_psi = self.open_primary_site(verbose=False)
 
@@ -4235,14 +4236,13 @@ class cBioPortal(object):
             fname_demo = self.fname_demo0 % row.cbioportal_study_id
             filename_demo = self.root_disease / self.fname_demo
 
-            print(i, row.psi_id, self.psi_id, row.cbioportal_study_id, "-->", filename_demo)
-
+            if verbose:print(i, row.psi_id, self.psi_id, row.cbioportal_study_id, "-->", filename_demo)
 
             if not filename_demo.exists():
                 print(f"Could not find demo for {filename_demo}")
                 continue
 
-            df_demo = pdreadcsv(fname_demo, self.root_disease, verbose=True)
+            df_demo = pdreadcsv(fname_demo, self.root_disease, verbose=verbose)
             df_bad = df_demo[ (df_demo.age >= age_cutoff) | (df_demo.bmi >= bmi_cutoff) ]
             df_bad = ['N-'+x for x in df_bad.barcode_case]
             bad_list += df_bad
@@ -4251,7 +4251,7 @@ class cBioPortal(object):
 
 
     
-    def calc_limma_inmoose(self, df_combat:pd.DataFrame, ncluster: int, disease_cd:str, 
+    def calc_limma_inmoose(self, df_combat:pd.DataFrame, nclu: int, max_cluster:int, disease_cd:str, 
                            age_cutoff:float = 60, bmi_cutoff:float = 32,
                            lfc_cutoff: float = 1.0, fdr_cutoff: float = 0.05,
                            force: bool = False, verbose: bool = False
@@ -4265,16 +4265,24 @@ class cBioPortal(object):
         control samples can be recovered using df_metadata
         df_metadata is compatible with df_combat and df_hca
 
+        
+        run first:
+            df_cluster, df_pca, df_umap = cbio.cluster_PCA_HCA_UMAP(df_combat2, group=group, n_clusters=n_clusters, 
+                                                    n_components=n_components, min_clusters=min_clusters, max_clusters=n_clusters+2,
+                                                    n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
+                                                    method_hca=method_hca, hca_criterion=hca_criterion,
+                                                    LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
+                                                    force=force, verbose=verbose)
         '''
 
         method = "limma_inmoose"
 
-        fname_lfc = self.fname_lfc % (disease_cd, method, ncluster)
-        fname_lfc_ori = self.fname_lfc_ori % (disease_cd, method, ncluster)
-        fname_degs_txt = self.fname_degs_txt % (disease_cd, method, ncluster)
-        fname_degs2000 = self.fname_degs2000 % (disease_cd, method, ncluster)
-        fname_text_AI = self.fname_text_AI % (disease_cd, method, ncluster)
-        fname_msg = self.fname_msg % (disease_cd, method, ncluster)
+        fname_lfc = self.fname_lfc % (disease_cd, method, nclu, max_cluster)
+        fname_lfc_ori = self.fname_lfc_ori % (disease_cd, method, nclu, max_cluster)
+        fname_degs_txt = self.fname_degs_txt % (disease_cd, method, nclu, max_cluster)
+        fname_degs2000 = self.fname_degs2000 % (disease_cd, method, nclu, max_cluster)
+        fname_text_AI = self.fname_text_AI % (disease_cd, method, nclu, max_cluster)
+        fname_msg = self.fname_msg % (disease_cd, method, nclu, max_cluster)
 
 
         filename_lfc = self.root_mprog_lfc / fname_lfc
@@ -4310,26 +4318,30 @@ class cBioPortal(object):
         
         msg = f'Starting calc_limma_inmoose, date-time {datetime.now()}'
 
-        dfa = self.df_hca[self.df_hca.cluster == ncluster]
+        dfa = self.df_hca[self.df_hca.cluster == nclu]
         if dfa.empty:
-            msg = f"Error: {ncluster} has no samples"
+            msg = f"Error: {nclu} has no samples"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
         
         if len(dfa) < 3:
-            msg = f"Error: {ncluster} has only {len(dfa)} samples"
+            msg = f"Error: {nclu} has only {len(dfa)} samples"
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
         #---------- sample cols -------------------
         sample_list = dfa['sample'].to_list()
         sample_list = [col for col in sample_list if not col.startswith('N-') ]
 
+        if len(sample_list) == 0:
+            msg = f"\n\nError: cluster {nclu} has no valid samples"
+            print(msg)
+            return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
         #--------- removing bad cols from normal_samples ---------------
         normal_samples = [col for col in df_combat.columns.to_list()[3:] if col.startswith('N-') ]
-        bad_cols = self.remove_bad_cols(disease_cd=disease_cd, age_cutoff=age_cutoff, bmi_cutoff=bmi_cutoff)
+        bad_cols = self.remove_bad_cols(disease_cd=disease_cd, age_cutoff=age_cutoff, bmi_cutoff=bmi_cutoff, verbose=verbose)
         normal_samples = [col for col in normal_samples if col not in bad_cols]
 
-        msg += f"\nCluster {ncluster} has {len(sample_list)} samples and {len(normal_samples)} controls."
+        msg += f"\nCluster {nclu} has {len(sample_list)} samples and {len(normal_samples)} controls."
         sel_cols = sample_list + normal_samples
 
         df_combat_nclu = df_combat.loc[:, sel_cols].copy()
@@ -4367,6 +4379,7 @@ class cBioPortal(object):
                 f"Groups: {df_meta_exp['group'].value_counts().to_dict()}; "
                 f"rank={design_rank}/{design.shape[1]}."
             )
+            print(msg)
             return pd.DataFrame(), pd.DataFrame(), "", "", "", msg
 
         fit = lmFit(df_combat_nclu, design)
@@ -5679,6 +5692,7 @@ class cBioPortal(object):
                             LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
                             force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
+        
         self.all_columns = df_combat.columns.to_list()[3:]
         self.tumor_cols = [col for col in self.all_columns if col.startswith('T-')]
         self.normal_cols = [col for col in self.all_columns if col.startswith('N-')]
@@ -5754,8 +5768,8 @@ class cBioPortal(object):
         self.df_all_sign = df_all_sign
         self.df_sig_sign = df_sig_sign
 
-        pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc)
-        pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc)
+        pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc, verbose=verbose)
+        pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc, verbose=verbose)
 
         df_cluster = self.write_clusters(df_all_sign, df_sig_sign, n_clusters=n_clusters, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
         self.df_cluster = df_cluster
