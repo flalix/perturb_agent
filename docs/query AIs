@@ -1,0 +1,13 @@
+Having clustered the normalized expression data for Pancreas Cancer (PAAD)
+we tried N-clustering, where N =  3, 4, 5 to 10
+For each clustering, there are up to N groups (subclusters) with m DEGs (up- and down-regulated)
+We believe that each group represents a cancer subtype + TME (tumor microenvironment).
+Please analyze each group and clustering.
+Choose the simplest and most informative one.
+
+Then, perform a deeper analysis for each group, classifying the cancer subtypes
+At the end, try to identify the lncRNAs and miRNAs according to possible functions.
+
+Tables are uploaded (txt) - the names are
+all_cluster_degs_for_{N}_clusterization.txt
+where N is the clusterization number

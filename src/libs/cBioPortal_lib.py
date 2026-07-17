@@ -3914,9 +3914,12 @@ class cBioPortal(object):
             keep_temp=False,
         )
 
+        df_lfc_ori['abs_lfc'] = df_lfc_ori['lfc'].abs()
+
         # print(">>> columns:", df_lfc_ori.columns.tolist())
  
         df_lfc_ori = df_lfc_ori.rename(columns={"log2FoldChange": "lfc", "padj": "fdr"})
+        df_lfc_ori['abs_lfc'] = df_lfc_ori.lfc.abs()
 
         gene_cols = ['geneid', 'symbol', 'biotype']
         df_gene = df_tumor[ gene_cols].copy()
@@ -3928,7 +3931,7 @@ class cBioPortal(object):
         df_lfc_ori = df_lfc_ori[cols]
         self.df_lfc_ori = df_lfc_ori
 
-        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc = df_lfc_ori[(df_lfc_ori.abs_lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
         df_lfc.reset_index(drop=True, inplace=True)
         self.df_lfc = df_lfc
 
@@ -4271,7 +4274,7 @@ class cBioPortal(object):
                                                     n_components=n_components, min_clusters=min_clusters, max_clusters=n_clusters+2,
                                                     n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
                                                     method_hca=method_hca, hca_criterion=hca_criterion,
-                                                    LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff,
+                                                    lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff,
                                                     force=force, verbose=verbose)
         '''
 
@@ -4419,7 +4422,7 @@ class cBioPortal(object):
         df_lfc_ori['abs_lfc'] = df_lfc_ori['lfc'].abs()
         df_lfc_ori = df_lfc_ori[cols]
 
-        df_lfc = df_lfc_ori[(df_lfc_ori.lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
+        df_lfc = df_lfc_ori[(df_lfc_ori.abs_lfc >= lfc_cutoff) & (df_lfc_ori.fdr < fdr_cutoff)].copy()
         df_lfc.reset_index(drop=True, inplace=True)
         self.df_lfc = df_lfc
 
@@ -4816,10 +4819,11 @@ class cBioPortal(object):
             df_list.append(df_res)
 
         dfall = pd.concat(df_list, ignore_index=True)
+        dfall['abs_lfc'] = dfall['lfc'].abs()
 
         dfsig = (
             dfall
-            .query("lfc >= @lfc_cutoff and fdr <= @fdr_cutoff")
+            .query("abs_lfc >= @lfc_cutoff and fdr < @fdr_cutoff")
             .sort_values(["cluster", "lfc", "fdr"], ascending=[True, False, True])
             .reset_index(drop=True)
         )
@@ -4828,14 +4832,14 @@ class cBioPortal(object):
 
 
     def write_clusters(self, dfall: pd.DataFrame, dfsig: pd.DataFrame,
-                       n_clusters: int, LFC_cutoff: float = 1.00, FDR_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
+                       n_clusters: int, lfc_cutoff: float = 1.00, fdr_cutoff: float = 0.05, verbose: bool = True) -> pd.DataFrame:
     
         lista = np.unique(dfall.cluster)
         dic = {}; icount=-1
 
         for ncluster in lista:
             df2 = dfsig[dfsig.cluster == ncluster]
-            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+            df2 = df2[ (df2['abs_lfc'] >= lfc_cutoff) & (df2['fdr'] < fdr_cutoff) ]
             
             s_genes = '\n'.join(df2.symbol)
 
@@ -4847,7 +4851,7 @@ class cBioPortal(object):
             dic2['ngenes'] = len(df2)
             dic2['genes'] = np.unique(df2.symbol)
 
-            fname = f"cluster_{ncluster}_from_{n_clusters}_{self.disease_id}_signature_genes_using_LFC_{LFC_cutoff:.3f}_FDR_{FDR_cutoff:.3e}.txt"
+            fname = f"cluster_{ncluster}_from_{n_clusters}_{self.disease_id}_signature_genes_using_LFC_{lfc_cutoff:.3f}_FDR_{fdr_cutoff:.3e}.txt"
             write_txt(s_genes, fname, self.root_mprog_lfc)
 
             if verbose:
@@ -5689,7 +5693,7 @@ class cBioPortal(object):
                             n_components: int = 10, min_clusters: int = 6, max_clusters: int = 12,
                             n_umap_neighbors:int=5, min_umap_dist:float=0.2, umap_metric:str="euclidean",
                             method_hca:str = "ward", hca_criterion:str = "maxclust",
-                            LFC_cutoff: float = 1, FDR_cutoff: float = 0.05,
+                            lfc_cutoff: float = 1., fdr_cutoff: float = 0.05,
                             force: bool = False, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         
         
@@ -5703,7 +5707,7 @@ class cBioPortal(object):
         fname_all_sign = self.fname_all_sign % (n_clusters, self.disease_id, group)
         fname_sig_sign = self.fname_sig_sign % (n_clusters, self.disease_id, group)
         fname_best_eval = self.fname_best_eval % (n_clusters, self.disease_id, group)
-        fname_cluster = self.fname_cluster % (n_clusters, self.disease_id, group, LFC_cutoff, FDR_cutoff)
+        fname_cluster = self.fname_cluster % (n_clusters, self.disease_id, group, lfc_cutoff, fdr_cutoff)
 
         filename_pca = self.root_mprog_lfc /fname_pca
         filename_umap = self.root_mprog_lfc /fname_umap
@@ -5771,7 +5775,7 @@ class cBioPortal(object):
         pdwritecsv(df_all_sign, fname_all_sign, self.root_mprog_lfc, verbose=verbose)
         pdwritecsv(df_sig_sign, fname_sig_sign, self.root_mprog_lfc, verbose=verbose)
 
-        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, n_clusters=n_clusters, LFC_cutoff=LFC_cutoff, FDR_cutoff=FDR_cutoff, verbose=verbose)
+        df_cluster = self.write_clusters(df_all_sign, df_sig_sign, n_clusters=n_clusters, lfc_cutoff=lfc_cutoff, fdr_cutoff=fdr_cutoff, verbose=verbose)
         self.df_cluster = df_cluster
 
         #-------------------- genes and  unique genes ------------------------
@@ -5782,7 +5786,7 @@ class cBioPortal(object):
 
         for ncluster in cluster_list:
             df2 = df_sig_sign[df_sig_sign.cluster == ncluster]
-            df2 = df2[ (df2['lfc'].abs() > LFC_cutoff) & (df2['fdr'] < FDR_cutoff) ]
+            df2 = df2[ (df2['abs_lfc'] >= lfc_cutoff) & (df2['fdr'] < fdr_cutoff) ]
 
             symbols = np.unique(df2.symbol)
 
