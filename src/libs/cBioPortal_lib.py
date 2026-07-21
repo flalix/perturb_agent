@@ -45,7 +45,7 @@ from statsmodels.stats.multitest import multipletests
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import plotly.graph_objects as go
 
 from libs.Basic import create_dir, isint, pdreadcsv, pdwritecsv, read_txt, title_replace, write_txt
 from libs.calc_degs_lib import CALC_DEGS
@@ -4679,6 +4679,8 @@ class cBioPortal(object):
         plt.title(f"UMAP of {group} samples (n_neighbors={n_neighbors}, min_dist={min_dist})")
         plt.tight_layout()
         plt.show()
+
+   def plot_PCA_UMAP_plotly(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, group: str = 'Tumor', figsize : tuple = (6, 5)):
 
     def plot_HCA_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', method: str = "ward", figsize : tuple = (6, 5)):
         Z = linkage(df_pca, method=method)
