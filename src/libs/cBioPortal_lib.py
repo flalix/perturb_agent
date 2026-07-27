@@ -116,6 +116,7 @@ class cBioPortal(object):
         self.fname_gtex = f"expression_gtex_controls_counts.tsv"
         self.fname_summ = f"expression_summary.tsv"
 
+
         self.fname_sel_log = f"%s_expression_sel_log_CPM_top_%d_genes_all_samples.tsv"
         self.fname_log_cpm = f"%s_expression_log_CPM_all_samples.tsv"
         self.fname_gene_annot = f"%s_expression_gene_annot_top_%d_genes_all_samples.tsv"
@@ -128,6 +129,9 @@ class cBioPortal(object):
         self.fname_sig_sign = f"sig_sign_%d_clusters_for_%s_%s_signatures_up_down_DEGs.tsv"
         self.fname_best_eval = f"best_eval_%d_clusters_for_%s_%s.tsv"
         self.fname_cluster = f"cluster_%d_for_%s_%s_samples_LFC_%.3f_FDR_%.2e.tsv"
+
+        self.fname_sig = "clusters_%d_signatures_for_%s.txt"
+        self.fname_sig_group = "cluster_%d_from_%d_for_%s_signature_genes_using_LFC_%.3f_FDR_%.3e.txt"
 
         self.fname_combat = 'combat_log_exp_tumor_and_normal.tsv'
         self.fname_metadata = 'metadata_tumor_and_normal.tsv'
@@ -197,6 +201,19 @@ class cBioPortal(object):
         self.HISTOLOGY = ctx.HISTOLOGY
         self.SITE_MAP = ctx.SITE_MAP
         self.colors = ctx.colors
+
+        self.umap_colors = [
+            "red",
+            "blue",
+            "green",
+            "orange",
+            "purple",
+            "yellow",
+            "cyan",
+            "magenta",
+            "black",
+            "gray",
+        ]        
 
     def clean_gdc_files(self):
 
@@ -4680,7 +4697,71 @@ class cBioPortal(object):
         plt.tight_layout()
         plt.show()
 
-   def plot_PCA_UMAP_plotly(self, df_umap: pd.DataFrame, n_neighbors: int, min_dist: float, group: str = 'Tumor', figsize : tuple = (6, 5)):
+
+
+    def plot_PCA_UMAP_plotly(self, df_umap: pd.DataFrame, df_hca: pd.DataFrame, dic_groups: dict, 
+                             n_neighbors: int, min_dist: float, width:int=800, height:int=600) -> go.Figure:
+
+        fig = go.Figure()
+
+        maxi = np.max(df_hca.cluster)
+
+        max_color = 0
+        for nclu in np.arange(1, maxi+1):
+
+            s_class = dic_groups.get(nclu, 'Unknown')
+            icolor = nclu
+
+            if s_class == 'Control':
+                icolor = 0
+                text = f"1: Control"
+            else:
+                max_color += 1
+                icolor = max_color
+                text = f"{nclu}: {s_class}"
+
+            color = self.umap_colors[icolor]
+            samp_list = df_hca[df_hca["cluster"] == nclu]['sample']
+            
+            df2 = df_umap[df_umap["sample"].isin(samp_list)]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=df2["UMAP1"],
+                    y=df2["UMAP2"],
+                    mode="markers+text",
+                    name=text,
+                    text="",
+                    textposition="middle right",
+                    textfont=dict(size=11),
+                    marker=dict(
+                        size=10,
+                        color=color,
+                    ),
+                    customdata=df2["sample"],
+                    hovertemplate=(
+                        "<b>%{customdata}</b><br>"
+                        f"{text}<br>"
+                        "UMAP1: %{x:.3f}<br>"
+                        "UMAP2: %{y:.3f}"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+
+        fig.update_layout(
+            title=f"UMAP of {icolor+1} groups "
+                f"(n_neighbors={n_neighbors}, min_dist={min_dist})",
+            xaxis_title="UMAP1",
+            yaxis_title="UMAP2",
+            width=width,
+            height=height,
+            template="plotly_white",
+            hovermode="closest",
+        )
+
+        return fig
+
 
     def plot_HCA_PCA(self, df_pca: pd.DataFrame, group: str = 'Tumor', method: str = "ward", figsize : tuple = (6, 5)):
         Z = linkage(df_pca, method=method)
@@ -4839,8 +4920,8 @@ class cBioPortal(object):
         lista = np.unique(dfall.cluster)
         dic = {}; icount=-1
 
-        for ncluster in lista:
-            df2 = dfsig[dfsig.cluster == ncluster]
+        for nclu in lista:
+            df2 = dfsig[dfsig.cluster == nclu]
             df2 = df2[ (df2['abs_lfc'] >= lfc_cutoff) & (df2['fdr'] < fdr_cutoff) ]
             
             s_genes = '\n'.join(df2.symbol)
@@ -4849,19 +4930,19 @@ class cBioPortal(object):
             dic[icount] = {}
             dic2 = dic[icount]
             dic2['n_clusters'] = n_clusters
-            dic2['ncluster'] = ncluster
+            dic2['ncluster'] = nclu
             dic2['ngenes'] = len(df2)
             dic2['genes'] = np.unique(df2.symbol)
 
-            fname = f"cluster_{ncluster}_from_{n_clusters}_{self.disease_id}_signature_genes_using_LFC_{lfc_cutoff:.3f}_FDR_{fdr_cutoff:.3e}.txt"
-            write_txt(s_genes, fname, self.root_mprog_lfc)
+            fname = self.fname_sig_group%(nclu, n_clusters, self.primary_site, lfc_cutoff, fdr_cutoff)
+            write_txt(s_genes, fname, self.root_mprog_lfc, verbose=verbose)
 
             if verbose:
-                print(f"Cluster {ncluster} -> {len(df2)} signatures: {s_genes}")
+                print(f"Cluster {nclu} -> {len(df2)} signatures: {s_genes}")
 
         df = pd.DataFrame(dic).T
 
-        fname = f"clusters_{len(df)}_signatures_for_{self.disease_id}.txt"
+        fname = self.fname_sig%(len(df), self.primary_site)
         _ = pdwritecsv(df, fname, self.root_mprog_lfc, verbose=verbose)
 
         return df
@@ -5545,7 +5626,9 @@ class cBioPortal(object):
         all_tumor_cols = []
         all_normal_cols = []
         psi_tumor_list = []
+        prog_tumor_list = []
         psi_normal_list = []
+        prog_normal_list = []
 
         ini = 1
         for _, dic2 in dic.items():
@@ -5553,10 +5636,12 @@ class cBioPortal(object):
             normal_cols = dic2['col_normals']
 
             psi_id = dic2['psi_id']
+            prog_id = dic2['prog_id']
 
             if tumor_cols:
                 all_tumor_cols += tumor_cols
                 psi_tumor_list += [psi_id] * len(tumor_cols)
+                prog_tumor_list += [prog_id] * len(tumor_cols)
 
             if normal_cols:
                 if del_normal_list:
@@ -5565,6 +5650,7 @@ class cBioPortal(object):
                 if normal_cols:
                     all_normal_cols += normal_cols
                     psi_normal_list += [psi_id] * len(normal_cols)
+                    prog_normal_list += [prog_id] * len(normal_cols)
 
         # print(">>> total", all_tumor_cols, len(psi_tumor_list), all_normal_cols, len(psi_normal_list))
         df_metadata = pd.DataFrame(
@@ -5573,7 +5659,10 @@ class cBioPortal(object):
                     ["tumor"] * len(all_tumor_cols) +
                     ["normal"] * len(all_normal_cols)
                 ),
-                "dataset": (
+                "program": (
+                    prog_tumor_list + prog_normal_list
+                ),
+               "dataset": (
                     psi_tumor_list + psi_normal_list
                 ),
                 'cols': (
@@ -5703,13 +5792,13 @@ class cBioPortal(object):
         self.tumor_cols = [col for col in self.all_columns if col.startswith('T-')]
         self.normal_cols = [col for col in self.all_columns if col.startswith('N-')]
         
-        fname_pca = self.fname_pca % (n_clusters, self.disease_id, group)
-        fname_umap = self.fname_umap % (n_clusters, self.disease_id, group)
-        fname_hca = self.fname_hca % (n_clusters, self.disease_id, group)
-        fname_all_sign = self.fname_all_sign % (n_clusters, self.disease_id, group)
-        fname_sig_sign = self.fname_sig_sign % (n_clusters, self.disease_id, group)
-        fname_best_eval = self.fname_best_eval % (n_clusters, self.disease_id, group)
-        fname_cluster = self.fname_cluster % (n_clusters, self.disease_id, group, lfc_cutoff, fdr_cutoff)
+        fname_pca = self.fname_pca % (n_clusters, self.primary_site, group)
+        fname_umap = self.fname_umap % (n_clusters, self.primary_site, group)
+        fname_hca = self.fname_hca % (n_clusters, self.primary_site, group)
+        fname_all_sign = self.fname_all_sign % (n_clusters, self.primary_site, group)
+        fname_sig_sign = self.fname_sig_sign % (n_clusters, self.primary_site, group)
+        fname_best_eval = self.fname_best_eval % (n_clusters, self.primary_site, group)
+        fname_cluster = self.fname_cluster % (n_clusters, self.primary_site, group, lfc_cutoff, fdr_cutoff)
 
         filename_pca = self.root_mprog_lfc /fname_pca
         filename_umap = self.root_mprog_lfc /fname_umap
