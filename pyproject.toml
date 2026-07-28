@@ -53,6 +53,7 @@ dependencies = [
     "combat",
     "scanpy",
     "anndata",
+    "pyranges",
     "inmoose",
 
     # Plotting
