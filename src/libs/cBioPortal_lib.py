@@ -1285,7 +1285,7 @@ class cBioPortal(object):
             print("No file_id defined.")
 
             self.df_table = pd.DataFrame()
-            return self.df_table
+            return pd.DataFrame(), 'undefined'
 
         file_type = file_type.strip()
 
@@ -1317,22 +1317,29 @@ class cBioPortal(object):
             if is_expression:
                 df_table = pdreadcsv(fname, root, verbose=verbose)
 
+                cols = list(df_table.columns)
+
                 changed = False
-                if "gene_id" in df_table.columns:
-                    df_table = df_table.rename(columns={"gene_id": "geneid"})
+                if "gene_id" in cols:
+                    df_table.rename(columns={"gene_id": "geneid"}, inplace=True)
                     changed = True
-                if "gene_type" in df_table.columns:
-                    df_table = df_table.rename(columns={"gene_type": "biotype"})
+                if "gene_type" in cols:
+                    df_table.rename(columns={"gene_type": "biotype"}, inplace=True)
                     changed = True
 
+                if cols[-1] != 'counts':
+                    if 'counts' in cols:
+                        df_table.rename(columns={'counts': 'stranded_first'}, inplace=True)
+                        changed = True
+
                 if changed:
-                    _ = pdwritecsv(df_table, fname, root, verbose=verbose)
+                    _ = pdwritecsv(df_table, fname, self.root_lfc, verbose=verbose)
 
 
                 self.df_table = df_table
-                return df_table, filename
+                return df_table, fname
             else:
-                return filename, filename
+                return filename, fname
 
         if verbose:
             print("Downloading: ", end="")
@@ -1348,7 +1355,7 @@ class cBioPortal(object):
                         print("Preview:", r.text[:500])
                     except Exception:
                         print("Could not decode error body as text for file:", file_id)
-                    return None, filename
+                    return None, fname
 
                 with open(filename, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -1361,11 +1368,11 @@ class cBioPortal(object):
             df_table = pd.read_csv(filename, sep="\t", comment="#")
             df_table = self.clean_expression_table(df_table)
 
-            cols = ["gene_id", "symbol", "gene_type", "unstranded", "counts", "stranded_second",
+            cols = ["gene_id", "symbol", "gene_type", "unstranded", "stranded_first", "stranded_second",
                     "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
             df_table = df_table[cols]
 
-            cols = ["geneid", "symbol", "biotype", "unstranded", "counts", "stranded_second",
+            cols = ["geneid", "symbol", "biotype", "unstranded", "stranded_first", "stranded_second",
                     "tpm_unstranded", "fpkm_unstranded", "fpkm_uq_unstranded",]
             df_table.columns = cols
 
@@ -1378,10 +1385,10 @@ class cBioPortal(object):
                 print(s_error)
 
             self.df_table = pd.DataFrame()
-            return self.df_table, filename
+            return self.df_table, fname
 
         self.df_table = df_table
-        return df_table, filename
+        return df_table, fname
 
 
     def clean_expression_table(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1395,7 +1402,7 @@ class cBioPortal(object):
         # Remove version from gene_id (ENSG... -> ENSG...)
         df["gene_id"] = df["gene_id"].str.split(".").str[0]
 
-        df = df.rename(columns={"gene_name": "symbol", "stranded_first": "counts"})
+        df = df.rename(columns={"gene_name": "symbol"})
 
         return df
 
@@ -1426,6 +1433,68 @@ class cBioPortal(object):
 
         return df_table
 
+    def strand_profile(self, df: pd.DataFrame) -> pd.Series:
+        tot = df[["unstranded", "stranded_first", "stranded_second"]].sum()
+        return pd.Series({
+            "first_unst":  tot.stranded_first  / tot.unstranded,
+            "second_unst": tot.stranded_second / tot.unstranded,
+            "ratio":      tot.stranded_first  / tot.stranded_second,
+            "tot_unstranded":    tot.unstranded,
+            "tot_first": tot.stranded_first,
+            "tot_second": tot.stranded_second,
+        })
+
+
+    def which_col_strand(self, dic: dict) -> str:
+        ratio = dic["ratio"][0]
+        if ratio > 5:    return "stranded_first"
+        if ratio < 0.2:  return "stranded_second"
+        return "unstranded"
+
+        
+    def check_counts(self, files: list, verbose: bool = False) -> dict:
+
+        first_list = []
+        second_list = []
+        ratio_list = []
+
+        tot_unstranded_list = []
+        tot_first_list = []
+        tot_second_list = []
+
+        for fname in files:
+            df = pdreadcsv(fname, self.root_lfc, verbose=verbose)
+
+            missing = {"unstranded", "stranded_first", "stranded_second"} - set(df.columns)
+            if missing:
+                raise KeyError(f"{fname}: faltam colunas {missing}")        
+
+            row = self.strand_profile(df)
+            first_list.append(row["first_unst"])
+            second_list.append(row["second_unst"])
+            ratio_list.append(row["ratio"])
+
+            tot_unstranded_list.append(row["tot_unstranded"])
+            tot_first_list.append(row["tot_first"])
+            tot_second_list.append(row["tot_second"])
+
+        dic = {}
+        dic['prog_id'] = self.prog_id
+        dic['psi_id'] = self.psi_id
+        dic['n_files'] = len(files)
+
+        dic['first'] = np.round([np.mean(first_list), np.std(first_list)],3)
+        dic['second'] = np.round([np.mean(second_list), np.std(second_list)],3)
+        dic['ratio'] = np.round([np.mean(ratio_list), np.std(ratio_list)],3)
+
+        MI = 1000000
+
+        dic['tot_unstranded_MI'] = np.round([np.mean(tot_unstranded_list)/ MI, np.std(tot_unstranded_list) / MI],3)
+        dic['tot_first_MI'] = np.round([np.mean(tot_first_list)/ MI, np.std(tot_first_list) / MI],3)
+        dic['tot_second_MI'] = np.round([np.mean(tot_second_list)/ MI, np.std(tot_second_list) / MI],3)
+
+        return dic
+
     def calc_file_expression_tumor_normal_gtex(self, imax_tumor: int = 100, imax_normal: int = 50, force: bool = False,
                                                verbose: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         '''
@@ -1454,7 +1523,6 @@ class cBioPortal(object):
             output: df_tumor, df_normal, df_gtex_ctrl
         
         '''
-
         fname_exp_tumor = self.fname_exp_tumor%(self.psi_id)
         filename_tumor = self.root_lfc / fname_exp_tumor
 
@@ -1464,11 +1532,15 @@ class cBioPortal(object):
         fname_exp_gtex = self.fname_exp_gtex%(self.psi_id)
         filename_gtex = self.root_lfc / fname_exp_gtex
 
-        if filename_tumor.exists() and filename_normal.exists() and filename_gtex.exists() and not force:
+        if filename_tumor.exists() and filename_normal.exists() and not force:
             
             df_tumor = pdreadcsv(fname_exp_tumor, self.root_lfc, verbose=verbose)
             df_normal = pdreadcsv(fname_exp_normal, self.root_lfc, verbose=verbose)
-            df_gtex_ctrl = pdreadcsv(fname_exp_gtex, self.root_lfc, verbose=verbose)
+
+            if filename_gtex.exists():
+                df_gtex_ctrl = pdreadcsv(fname_exp_gtex, self.root_lfc, verbose=verbose)
+            else:
+                df_gtex_ctrl = pd.DataFrame()
 
             self.df_tumor = df_tumor
             self.df_normal = df_normal
@@ -1493,23 +1565,34 @@ class cBioPortal(object):
 
         df_gtex_ctrl, _ = self.get_gtex_control(force=False, verbose=verbose)
 
-        if "gene_id" in df_tumor.columns:
-            df_tumor = df_tumor.rename(columns={"gene_id": "geneid"})
-        if "gene_type" in df_tumor.columns:
-            df_tumor = df_tumor.rename(columns={"gene_type": "biotype"})
+        #--------------------------- tumor ----------------------------------
+        cols = list(df_tumor.columns)
 
-        if "gene_id" in df_normal.columns:
-            df_normal = df_normal.rename(columns={"gene_id": "geneid"})
-        if "gene_type" in df_normal.columns:
-            df_normal = df_normal.rename(columns={"gene_type": "biotype"})
+        if "gene_id" in cols:
+            df_tumor.rename(columns={"gene_id": "geneid"}, inplace=True)
+        if "gene_type" in cols:
+            df_tumor.rename(columns={"gene_type": "biotype"}, inplace=True)
 
+        #--------------------------- normal ----------------------------------
+        cols = list(df_normal.columns)
+
+        if "gene_id" in cols:
+            df_normal.rename(columns={"gene_id": "geneid"}, inplace=True)
+        if "gene_type" in cols:
+            df_normal.rename(columns={"gene_type": "biotype"}, inplace=True)
+
+            
         self.df_tumor = df_tumor
         self.df_normal = df_normal
         self.df_gtex_ctrl = df_gtex_ctrl
 
-        if not df_tumor.empty and not df_normal.empty and not df_gtex_ctrl.empty:
+        if not df_tumor.empty:
             _ = pdwritecsv(df_tumor, fname_exp_tumor, self.root_lfc)
+
+        if not df_normal.empty:
             _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
+            
+        if not df_gtex_ctrl.empty:
             _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
 
         return df_tumor, df_normal, df_gtex_ctrl
@@ -1539,19 +1622,19 @@ class cBioPortal(object):
 
         self.file_type_list = np.unique(df_tumor_samples.data_type)
 
-        dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"]
+        dff_normal = df_normal_samples[df_normal_samples.data_type == "Gene Expression Quantification"].copy()
         dff_normal = dff_normal.drop_duplicates('case_id')
         dff_normal.reset_index(drop=True, inplace=True)
         self.dff_normal = dff_normal
 
-        dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"]
+        dff_tumor = df_tumor_samples[df_tumor_samples.data_type == "Gene Expression Quantification"].copy()
         dff_tumor = dff_tumor.drop_duplicates('case_id')
         dff_tumor.reset_index(drop=True, inplace=True)
         self.dff_tumor = dff_tumor
 
         # raise ValueError("\n\n------------ stop --------------\n\n")
 
-        if verbose or 3==3:
+        if verbose:
             print(
                 f"There are {len(dff_tumor)} tumor and {len(dff_normal)} normal Gene Expression tables"
             )
@@ -1563,8 +1646,9 @@ class cBioPortal(object):
         N = len(dff_normal)
 
         print(f"Downloading {N} normal files:", end=" ")
-        cols = ["geneid", "symbol", "biotype", "counts"]
+        cols = ["geneid", "symbol", "biotype", "unstranded", "stranded_first", "stranded_second"]
 
+        #----------------------- normal ------------------------------
         dic_normal = {}
         for i, row in dff_normal.iterrows():
             if i % 10 == 0:
@@ -1573,7 +1657,7 @@ class cBioPortal(object):
             case_id = row.case_id
             file_id = row.file_id
 
-            dfexp, filename_normal = self.get_table_given_fileID(
+            dfexp, fname_normal = self.get_table_given_fileID(
                                             case_id=case_id,
                                             file_id=file_id,
                                             sample_type="normal",
@@ -1588,15 +1672,11 @@ class cBioPortal(object):
 
             self.dfexp_normal = dfexp
 
-            try:
-                dfexp = dfexp[cols]
-            except Exception as e:
-                if verbose:
-                    print(f"Error occurred while processing normal file {filename_normal}: {e}")
-                    print("\n------------------------------\n")
-                    print(dfexp)
-                    print("\n------------------------------\n")
-                continue
+            if 'counts' in dfexp.columns:
+                if 'counts' not in cols:
+                    cols = ["geneid", "symbol", "biotype", "unstranded", "stranded_first", "stranded_second", "counts"]
+
+            dfexp = dfexp[cols]
 
             dfa = self.df_cases[self.df_cases.case_id == case_id]
             if dfa.empty:
@@ -1609,12 +1689,15 @@ class cBioPortal(object):
             dic_normal[key] = {}
             dic_normal[key]['expression'] = dfexp
             dic_normal[key]['barcode_case'] = barcode_case
+            dic_normal[key]['fname'] = fname_normal
 
         print("")
         if verbose:
             print(f" -> {len(dff_normal)}")
 
+        #----------------------- tumor ------------------------------
         N = len(dff_tumor)
+        cols = ["geneid", "symbol", "biotype", "unstranded", "stranded_first", "stranded_second"]
 
         print(f"Downloading {N} tumor files:", end=" ")
         dic_tumor = {}
@@ -1625,7 +1708,7 @@ class cBioPortal(object):
             case_id = row.case_id
             file_id = row.file_id
 
-            dfexp, filename_tumor = self.get_table_given_fileID(
+            dfexp, fname_tumor = self.get_table_given_fileID(
                                             case_id=case_id,
                                             file_id=file_id,
                                             sample_type="tumor",
@@ -1638,15 +1721,11 @@ class cBioPortal(object):
                 continue
             print(".", end="")
 
-            try:
-                dfexp = dfexp[cols]
-            except Exception as e:
-                if verbose:
-                    print(f"Error occurred while processing tumor file {filename_tumor}: {e}")
-                    print("\n------------------------------\n")
-                    print(dfexp)
-                    print("\n------------------------------\n")
-                continue
+            if 'counts' in dfexp.columns:
+                if 'counts' not in cols:
+                    cols = ["geneid", "symbol", "biotype", "unstranded", "stranded_first", "stranded_second", "counts"]
+
+            dfexp = dfexp[cols]
 
             dfa = self.df_cases[self.df_cases.case_id == case_id]
             if dfa.empty:
@@ -1659,11 +1738,55 @@ class cBioPortal(object):
             dic_tumor[key] = {}
             dic_tumor[key]['expression'] = dfexp
             dic_tumor[key]['barcode_case'] = barcode_case
+            dic_tumor[key]['fname'] = fname_tumor
 
         print("")
         if verbose:
             print(f" -> {len(dff_tumor)}")
 
+        """
+            choose the column that is the correct counts
+            dUTP or standed
+        """
+
+        #----------------- tumor --------------------
+        keys = list(dic_tumor.keys())
+
+        files = []
+        for key in keys:
+            fname = dic_tumor[key]['fname']
+            files.append(fname)
+
+        dic = self.check_counts(files)
+        col = self.which_col_strand(dic)
+        
+        for key in keys:
+            fname = dic_tumor[key]['fname']
+
+            df_tumor = pdreadcsv(fname, self.root_lfc)
+            cols = list(df_tumor.columns)
+
+            if cols[-1] != 'counts':
+                df_tumor['counts'] = df_tumor[col]
+                _ = pdwritecsv(df_tumor, fname, self.root_lfc, verbose=verbose)
+                dic_tumor[key]['expression'] = df_tumor
+
+
+        #----------------- normal --------------------
+        keys = list(dic_normal.keys())
+        
+        for key in keys:
+            fname = dic_normal[key]['fname']
+
+            df_normal = pdreadcsv(fname, self.root_lfc)
+            cols = list(df_normal.columns)
+
+            if cols[-1] != 'counts':
+                df_normal['counts'] = df_normal[col]
+                _ = pdwritecsv(df_normal, fname, self.root_lfc, verbose=verbose)
+                dic_normal[key]['expression'] = df_normal
+
+        #----------------- end --------------------
         self.dic_tumor = dic_tumor
         self.dic_normal = dic_normal
 
@@ -1798,7 +1921,7 @@ class cBioPortal(object):
                 df_tumor and df_normal tables
         """
 
-        print(">> prepare_normal_tumor_tables()")
+        if verbose: print(">> prepare_normal_tumor_tables()")
 
         df_tumor = pd.DataFrame()
         df_normal = pd.DataFrame()
@@ -1810,7 +1933,7 @@ class cBioPortal(object):
         if len(dic_normal) == 0:
             print(">>> No data for normal samples")
         else:
-            print(">>> Processing normal data:", len(dic_normal))
+            if verbose: print(">>> Processing normal data:", len(dic_normal))
 
             isel_normal_list = np.arange(len(dic_normal))
 
@@ -2339,15 +2462,15 @@ class cBioPortal(object):
                     timeout=timeout,
                 )
             
-            if df_cbio is None or df_cbio.empty:
+            if df_cbio is None or df_self.empty:
                 print(f"No cBioPortal samples found for study_id={study_id}.")
                 return pd.DataFrame(), pd.DataFrame()
 
-            if "sequenced" in df_cbio.columns:
+            if "sequenced" in df_self.columns:
                 sequenced = df_cbio["sequenced"].astype(bool)
                 df_cbio = df_cbio[sequenced].copy()
 
-            if "sampleId" not in df_cbio.columns:
+            if "sampleId" not in df_self.columns:
                 print(f"cBioPortal sample table for {study_id} has no sampleId column.")
                 return pd.DataFrame(), pd.DataFrame()
 
@@ -2602,8 +2725,7 @@ class cBioPortal(object):
 
         return df_all_cases, df_all_clin_demo, df_all_case_bar, df_all_samples, df_all_mutations
 
-    def get_filtered_tables(
-        self, 
+    def get_filtered_tables(self, 
         sample_type_term: str = "Primary Tumor", 
         verbose: bool = False
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
@@ -4287,7 +4409,7 @@ class cBioPortal(object):
 
         
         run first:
-            df_cluster, df_pca, df_umap = cbio.cluster_PCA_HCA_UMAP(df_combat2, group=group, n_clusters=n_clusters, 
+            df_cluster, df_pca, df_umap = self.cluster_PCA_HCA_UMAP(df_combat2, group=group, n_clusters=n_clusters, 
                                                     n_components=n_components, min_clusters=min_clusters, max_clusters=n_clusters+2,
                                                     n_umap_neighbors=n_umap_neighbors, min_umap_dist=min_umap_dist, umap_metric=umap_metric,
                                                     method_hca=method_hca, hca_criterion=hca_criterion,

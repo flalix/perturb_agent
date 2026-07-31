@@ -1,0 +1,368 @@
+[
+  {
+    "id": "GDSC2_AUC",
+    "display_name": "Drug sensitivity AUC (Sanger GDSC2)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC2AUCMatrix.csv"
+  },
+  {
+    "id": "metmap-data-f459.3/metmap125_metastatic_potential",
+    "display_name": "MetMap 125: Metastatic Potential",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap125_metastatic_potential_matrix.csv"
+  },
+  {
+    "id": "mirna-573f.3/CCLE_miRNA_MIMAT",
+    "display_name": "miRNA Expression",
+    "data_type": "Expression",
+    "download_entry_url": "/portal/download/all/?release=CCLE+2019&file=CCLE_miRNA_MIMAT.csv"
+  },
+  {
+    "id": "metmap-data-f459.3/metmap500_metastatic_potential",
+    "display_name": "MetMap 500: Metastatic Potential",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap500_metastatic_potential_matrix.csv"
+  },
+  {
+    "id": "global-chromatin-profiling-34f3.1/CCLE_GlobalChromatinProfiling_20181130",
+    "display_name": "Global Chromatin Profiling",
+    "data_type": "Global epigenomic feature",
+    "download_entry_url": "/portal/download/all/?release=CCLE+2019&file=CCLE_GlobalChromatinProfiling_20181130.csv"
+  },
+  {
+    "id": "Repurposing_secondary_AUC",
+    "display_name": "Drug sensitivity AUC (PRISM Repurposing Secondary Screen)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+PRISM+Repurposing+Secondary+Screen+25Q2&file=REPURPOSINGAUCMatrix.csv"
+  },
+  {
+    "id": "GDSC1_AUC",
+    "display_name": "Drug sensitivity AUC (Sanger GDSC1)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC1AUCMatrix.csv"
+  },
+  {
+    "id": "CTRP_AUC",
+    "display_name": "Drug sensitivity AUC (CTD^2)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+CTD%5E2+25Q2&file=CTRPAUCMatrix.csv"
+  },
+  {
+    "id": "metmap-data-f459.3/metmap500_penetrance",
+    "display_name": "MetMap 500: Penetrance",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap500_penetrance_matrix.csv"
+  },
+  {
+    "id": "fusions",
+    "display_name": "Fusions Public 26Q1",
+    "data_type": "Structural variants",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsFusionFiltered.csv"
+  },
+  {
+    "id": "breadbox/66987c02-b84b-4da1-a9ed-a96fe2c21f6b",
+    "display_name": "Omics Absolute CN Gene Public 24Q4",
+    "data_type": "CN",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+24Q4&file=OmicsAbsoluteCNGene.csv"
+  },
+  {
+    "id": "breadbox/0da38e94-2ba1-4710-85de-cdf766321b1b",
+    "display_name": "Harmonized MS CCLE Gygi",
+    "data_type": "Protein Expression",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+Public+Proteomics+24Q4&file=harmonized_MS_CCLE_Gygi.csv"
+  },
+  {
+    "id": "breadbox/3b41c239-b8fb-4ff6-8063-18ae4b8d4a2d",
+    "display_name": "RPPA500 MCLP",
+    "data_type": "Protein Expression",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/6254e57d-6336-4192-81c9-6c6186200507",
+    "display_name": "Global Chromatin Profiling",
+    "data_type": "Global epigenomic feature",
+    "download_entry_url": "/portal/download/all/?release=CCLE+2019&file=CCLE_GlobalChromatinProfiling_20181130.csv"
+  },
+  {
+    "id": "breadbox/2fa50c04-15d1-4fe2-b37e-eb5b55ede675",
+    "display_name": "Harmonized RPPA CCLE",
+    "data_type": "Protein Expression",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+Public+Proteomics+24Q4&file=harmonized_RPPA_CCLE.csv"
+  },
+  {
+    "id": "breadbox/dd02e63c-07a4-40be-b968-f3a9eefbebb9",
+    "display_name": "MetMap 125: Metastatic Potential",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap125_metastatic_potential_matrix.csv"
+  },
+  {
+    "id": "breadbox/69f922ab-8010-4f5b-9ede-2de5a5cde7d4",
+    "display_name": "MetMap 500: Metastatic Potential",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap500_metastatic_potential_matrix.csv"
+  },
+  {
+    "id": "breadbox/a3bf2e10-7e20-4632-958a-bde85d4078b0",
+    "display_name": "MetMap 500: Penetrance",
+    "data_type": "MetMap",
+    "download_entry_url": "/portal/download/all/?release=MetMap&file=metmap500_penetrance_matrix.csv"
+  },
+  {
+    "id": "breadbox/94fa91bc-9ed2-4a93-a945-1cc165dc087a",
+    "display_name": "Methylation (1kb upstream TSS)",
+    "data_type": "Methylation",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/de0616b8-2bf5-4c36-91ae-bc146dcf2643",
+    "display_name": "GDSC Combination (Combination AUC)",
+    "data_type": "Combo Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Sanger+Drug+Combinations+2022&file=sanger_combination_combo_fit_breadbox_data.csv"
+  },
+  {
+    "id": "breadbox/2748aa32-a74c-4897-8a57-0bc2a0e1b00a",
+    "display_name": "GDSC Combination (Anchor Viability)",
+    "data_type": "Combo Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Sanger+Drug+Combinations+2022&file=sanger_combination_anchor_viability_breadbox_data.csv"
+  },
+  {
+    "id": "breadbox/d6879a22-b0ef-46b9-b919-66a52a01f805",
+    "display_name": "GDSC Combination (Library AUC)",
+    "data_type": "Combo Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Sanger+Drug+Combinations+2022&file=sanger_combination_library_fit_breadbox_data.csv"
+  },
+  {
+    "id": "breadbox/1bfefe86-8daa-4b2d-83bc-741db486fe8f",
+    "display_name": "GDSC Combination (Library Viability)",
+    "data_type": "Combo Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Sanger+Drug+Combinations+2022&file=sanger_combination_library_viability_breadbox_data.csv"
+  },
+  {
+    "id": "breadbox/6dfb8dcb-eb95-407a-bc12-ca1e2c91a50e",
+    "display_name": "GDSC Combination (Combination Viability)",
+    "data_type": "Combo Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Sanger+Drug+Combinations+2022&file=sanger_combination_combo_viability_breadbox_data.csv"
+  },
+  {
+    "id": "breadbox/91544d85-e474-4878-95ac-d515c78c99ae",
+    "display_name": "miRNA Expression",
+    "data_type": "Expression",
+    "download_entry_url": "/portal/download/all/?release=CCLE+2019&file=CCLE_miRNA_MIMAT.csv"
+  },
+  {
+    "id": "breadbox/8deb4189-a69e-41a3-917e-d9006ce702e1",
+    "display_name": "ssGSEA Public 24Q2",
+    "data_type": "Expression",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+24Q2&file=OmicsExpressionGeneSetEnrichment.csv"
+  },
+  {
+    "id": "breadbox/a2a0a725-b585-40c8-8c45-a924f8178656",
+    "display_name": "CRISPR (DepMap Public 26Q1+Score, Chronos)",
+    "data_type": "CRISPR",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=CRISPRGeneEffect.csv"
+  },
+  {
+    "id": "breadbox/56a60301-65c6-48b3-bcab-2c98037b79ef",
+    "display_name": "CRISPR Gene Dependency",
+    "data_type": "CRISPR",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=CRISPRGeneDependency.csv"
+  },
+  {
+    "id": "breadbox/299e2f30-fa29-4195-8d1e-c285a58bbb1d",
+    "display_name": "CRISPR confounders Public 26Q1",
+    "data_type": "Confounders",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=CRISPRConfounders.csv"
+  },
+  {
+    "id": "breadbox/636f6ae8-9eea-4697-9237-9029b208697b",
+    "display_name": "CTD^2 (AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+CTD%5E2+25Q2&file=CTRPAUCMatrix.csv"
+  },
+  {
+    "id": "breadbox/477a13bc-563b-4a62-be49-8c85237e6d88",
+    "display_name": "CTD^2 (Viability)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+CTD%5E2+25Q2&file=CTRPLog2ViabilityCollapsedMatrix.csv"
+  },
+  {
+    "id": "breadbox/c011d592-983a-494c-99fb-57b0d0c96573",
+    "display_name": "CTD^2 (log2 AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/a8990e8d-14b4-4875-a5f1-9f5f2a24c44c",
+    "display_name": "Copy Number WGS Public 26Q1 (log2)",
+    "data_type": "CN",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=PortalOmicsCNGeneLog2.csv"
+  },
+  {
+    "id": "breadbox/170f1297-8f63-412c-b468-39ce7d7a18f7",
+    "display_name": "Copy Number WGS Public 26Q1",
+    "data_type": "CN",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsCNGeneWGS.csv"
+  },
+  {
+    "id": "breadbox/33012dd6-9fec-4cb9-95e0-cd7ad27e4c60",
+    "display_name": "Damaging Mutations (Public 26Q1)",
+    "data_type": "Mutations",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsSomaticMutationsMatrixDamaging.csv"
+  },
+  {
+    "id": "breadbox/20528fee-bd1d-4f3f-b7a2-f991fc875858",
+    "display_name": "Expression (Short-read) Public 26Q1",
+    "data_type": "Expression",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv"
+  },
+  {
+    "id": "breadbox/369069f0-a39f-4987-8170-b2c402b5c0d3",
+    "display_name": "GDSC1 (AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC1AUCMatrix.csv"
+  },
+  {
+    "id": "breadbox/8a4fb9e4-d96a-4296-b0e7-df871d0dfd22",
+    "display_name": "GDSC1 (Viability)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC1Log2ViabilityCollapsedMatrix.csv"
+  },
+  {
+    "id": "breadbox/43421bdf-f5f4-4666-94ad-0fe99406f800",
+    "display_name": "GDSC1 (log2 AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/2eac8e7b-beb4-48c1-b78f-c226723e54d7",
+    "display_name": "GDSC2 (AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC2AUCMatrix.csv"
+  },
+  {
+    "id": "breadbox/b0ff184f-7486-41b2-9444-efcbc6c259f8",
+    "display_name": "GDSC2 (Viability)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+GDSC+25Q2&file=GDSC2Log2ViabilityCollapsedMatrix.csv"
+  },
+  {
+    "id": "breadbox/c7ca6b5e-8e1e-4925-bd3e-484e3e7dcaea",
+    "display_name": "GDSC2 (log2 AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/743f33f6-2460-410a-a06a-fac80f795cac",
+    "display_name": "Harmonized MS Sanger",
+    "data_type": "Protein Expression",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+Public+Proteomics+26Q1&file=harmonized_Sanger_MS_2022.csv"
+  },
+  {
+    "id": "breadbox/a3a5fe5e-13aa-4374-867e-51ec1b85fd34",
+    "display_name": "Harmonized Olink 2023 Lysate Best Dilution",
+    "data_type": "Protein Expression",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/a952ab7b-56c8-4aeb-872e-8ee02eeae042",
+    "display_name": "Hotspot Mutations (Public 26Q1)",
+    "data_type": "Mutations",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsSomaticMutationsMatrixHotspot.csv"
+  },
+  {
+    "id": "breadbox/734714b0-502c-4e58-a8ad-802ed1f0475b",
+    "display_name": "Inferred Molecular Subtypes Public 26Q1",
+    "data_type": "Annotations",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsInferredMolecularSubtypes.csv"
+  },
+  {
+    "id": "breadbox/1e1e3834-4068-41b6-b248-66e4d8424171",
+    "display_name": "Metabolomics",
+    "data_type": "Metabolomics",
+    "download_entry_url": "/portal/download/all/?release=CCLE+2019&file=CCLE_metabolomics_20190502.csv"
+  },
+  {
+    "id": "breadbox/0ef7bc66-5c1d-48e9-8ecd-4ef5eb8edc45",
+    "display_name": "Omics LoH Public 24Q4",
+    "data_type": "CN",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+24Q4&file=OmicsLoH.csv"
+  },
+  {
+    "id": "breadbox/351350d3-4ed3-45ef-8a5d-58205749c589",
+    "display_name": "Omics Signatures Public 26Q1",
+    "data_type": "Global genomic feature",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=OmicsGlobalSignatures.csv"
+  },
+  {
+    "id": "breadbox/a3b600c8-1abf-4ff3-bad1-2b310cbbdc28",
+    "display_name": "PRISM Repurposing Primary (Viability) per Compound Sample",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/d2675a6e-4cf5-4107-a703-6f88e0dceaf3",
+    "display_name": "PRISM Repurposing Primary (Viability)",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/07b7bda9-ae00-43b3-bca1-336b9607f8f5",
+    "display_name": "PRISM Repurposing Secondary (AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+PRISM+Repurposing+Secondary+Screen+25Q2&file=REPURPOSINGAUCMatrix.csv"
+  },
+  {
+    "id": "breadbox/576e1cb6-ac8d-4e29-bf15-0552c8665d72",
+    "display_name": "PRISM Repurposing Secondary (Viability)",
+    "data_type": "Drug screen",
+    "download_entry_url": "/portal/download/all/?release=Harmonized+PRISM+Repurposing+Secondary+Screen+25Q2&file=REPURPOSINGLog2ViabilityCollapsedMatrix.csv"
+  },
+  {
+    "id": "breadbox/d2f93c90-5934-4fc2-9ce2-acbc5689eb05",
+    "display_name": "PRISM Repurposing Secondary (log2 AUC)",
+    "data_type": "Drug screen",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/d3fc7be1-fa6c-40da-9103-7537efd53da6",
+    "display_name": "RNAi (Achilles+DRIVE+Marcotte, DEMETER2)",
+    "data_type": "RNAi",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/be24aecd-8e49-41e7-b841-7f8d4e831e15",
+    "display_name": "RNAi (Combined Broad, Novartis, Marcotte) PR",
+    "data_type": "RNAi",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/ed51abea-5c26-4f53-95eb-05e7b2ca696f",
+    "display_name": "RNAi confounders",
+    "data_type": "Confounders",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/84cfe508-4243-4a47-a7ce-986ce583ab31",
+    "display_name": "Repurposing Primary Extended confounders",
+    "data_type": "Confounders",
+    "download_entry_url": null
+  },
+  {
+    "id": "breadbox/9c07bba0-ca7f-4f31-b9f9-a9695c08b855",
+    "display_name": "Screen Public 26Q1",
+    "data_type": "CRISPR",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=ScreenGeneEffect.csv"
+  },
+  {
+    "id": "breadbox/30fdd8a5-523f-4645-9ac2-a54372d35a7f",
+    "display_name": "Subtype Matrix Public 26Q1",
+    "data_type": "Annotations",
+    "download_entry_url": "/portal/download/all/?release=DepMap+Public+26Q1&file=SubtypeMatrix.csv"
+  },
+  {
+    "id": "breadbox/fa1b635a-5116-4a93-b66d-84eca7e2a402",
+    "display_name": "Screens from NextGen Model Manuscript 2026",
+    "data_type": "CRISPR",
+    "download_entry_url": "/portal/download/all/?release=NextGen+Model+Manuscript+2026&file=screen_gene_effect.csv"
+  }
+]
