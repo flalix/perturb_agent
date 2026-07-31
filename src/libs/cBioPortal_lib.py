@@ -86,6 +86,8 @@ class cBioPortal(object):
         self.root0 = Path(root0)
         self.root_src   =  create_dir(self.root0, 'src')
 
+        self.df_psi = pd.DataFrame()
+
         self.root0_data = Path(root0_data)
         self.root_colab = create_dir(self.root0_data, 'colab')
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
@@ -349,9 +351,10 @@ class cBioPortal(object):
         return df_psi
 
     def set_program_and_primary_site(
-        self, prog_id: str, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
-    ) -> pd.DataFrame:
+        self, prog_id: str, psi_id: Any = None, primary_site: Any = None, verbose: bool = False) -> pd.DataFrame:
+
         self.set_program(prog_id=prog_id)
+
         return self.set_primary_site(psi_id=psi_id, primary_site=primary_site, verbose=verbose)
 
     def set_primary_site(
@@ -1591,7 +1594,7 @@ class cBioPortal(object):
 
         if not df_normal.empty:
             _ = pdwritecsv(df_normal, fname_exp_normal, self.root_lfc)
-            
+
         if not df_gtex_ctrl.empty:
             _ = pdwritecsv(df_gtex_ctrl, fname_exp_gtex, self.root_lfc)
 

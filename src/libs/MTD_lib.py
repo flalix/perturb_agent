@@ -45,7 +45,7 @@ from libs.biomart_lib import *
 from libs.graphic_lib import plotly_colors_proteins
 
 from libs.calc_degs_lib import CALC_DEGS
-from libs.GDC_lib import GDC
+from libs.cBioPortal_lib import cBioPortal
 
 from project_context_GDC import load_project_context
 
@@ -8832,14 +8832,12 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 	def import_from_GDC(self, force:bool = False, verbose:bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
 
-		gdc = GDC(root0=self.root0, root0_data=self.root0_data)
-		self.gdc = gdc
+		cbio = cBioPortal(self.root0, root0_data=self.root0_data, memory_restriction=False)
+		self.cbio = cbio
 
-		_ = gdc.get_primary_sites(prog_id=self.prog_id, verbose=verbose)
+		df_psi = cbio.set_program_and_primary_site(prog_id=self.prog_id, psi_id=self.psi_id, verbose=verbose)
 
-		print(">>> psi_id or disease:", self.disease)
-
-		gdc.set_primary_site(psi_id=self.psi_id, verbose=False)
+		print(">>> psi_id or disease:", self.psi_id)
 
 		fname_lfc, _, _ = self.set_lfc_names()
 		fname_lfc_all = fname_lfc.replace('.tsv', '_all_transcripts.tsv')
@@ -8852,7 +8850,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 			df_lfc_all = pdreadcsv(fname_lfc_all, self.root_lfc, verbose=verbose)
 			return df_lfc, df_lfc_all
 
-		df_lfc_all, msg = gdc.calc_lfc_table(
+		df_lfc_all, msg = cbio.calc_lfc_table(
 			psi_id=self.psi_id,
 			run_conda=True,
 			method="deseq2",
