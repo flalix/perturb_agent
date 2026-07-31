@@ -198,9 +198,8 @@ class PRISM(object):
     #                 CD8_exhausted, CD8_effector, Treg, TAM_C1QC, TAM_SPP1, ...)
 
 
-    def pseudobulk_reference(
+    def pseudobulk_reference(self,
         adata,
-        *,
         state_key: str = "cell_state",
         type_key: str = "cell_type",
         layer: str | None = None,
@@ -255,9 +254,8 @@ class PRISM(object):
         return ref, s2t
 
 
-    def select_genes(
+    def select_genes(self, 
         ref: pd.DataFrame,
-        *,
         n_per_state: int = 200,
         min_logfc: float = 0.5,
         pseudocount: float = 1.0,
@@ -288,14 +286,14 @@ class PRISM(object):
     # =============================================================================
 
 
-    def _to_backend(*arrays, device: str = "cpu", dtype=np.float64):
+    def _to_backend(self, *arrays, device: str = "cpu", dtype=np.float64):
         if device != "cpu" and _HAS_TORCH:
             td = torch.float32 if dtype is np.float32 else torch.float64
             return [torch.as_tensor(np.asarray(a), dtype=td, device=device) for a in arrays]
         return [np.asarray(a, dtype=dtype) for a in arrays]
 
 
-    def prism_em(
+    def prism_em(self,
         X: np.ndarray,
         phi: np.ndarray,
         *,
@@ -367,7 +365,7 @@ class PRISM(object):
         return Z
 
 
-    def update_reference(
+    def update_reference(self,
         Z: np.ndarray,
         malignant_idx: Sequence[int],
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -394,11 +392,10 @@ class PRISM(object):
         return psi_mal.astype(np.float64), psi_env.astype(np.float64)
 
 
-    def _refit_two_component(
+    def _refit_two_component(self,
         X: np.ndarray,
         psi_mal: np.ndarray,
         psi_env: np.ndarray,
-        *,
         max_iter: int = 500,
         tol: float = 1e-8,
     ) -> np.ndarray:
@@ -407,7 +404,7 @@ class PRISM(object):
         theta2 = np.full((S, 2), 0.5)
         for s in range(S):
             phi_s = np.vstack([psi_mal[s], psi_env])
-            theta2[s] = prism_em(X[s : s + 1], phi_s, max_iter=max_iter, tol=tol)[0]
+            theta2[s] = self.prism_em(X[s : s + 1], phi_s, max_iter=max_iter, tol=tol)[0]
         return theta2
 
 
@@ -437,11 +434,10 @@ class PRISM(object):
             return Zk
 
 
-    def run_bayesprism(
+    def run_bayesprism(self, 
         df_bulk: pd.DataFrame,
         ref: pd.DataFrame,
         state_to_type: pd.Series,
-        *,
         malignant_types: Iterable[str] = ("malignant", "tumor", "epithelial_malignant"),
         gene_subset: Sequence[str] | None = None,
         update_malignant_reference: bool = True,
@@ -477,16 +473,16 @@ class PRISM(object):
             update_malignant_reference = False
 
         # ---- stage 1 --------------------------------------------------------
-        theta1 = prism_em(X, phi, device=device, verbose=verbose)
+        theta1 = self.prism_em(X, phi, device=device, verbose=verbose)
         theta_final = theta1
-        Z = posterior_Z(X, theta1, phi) if (return_Z or update_malignant_reference) else None
+        Z = self.posterior_Z(X, theta1, phi) if (return_Z or update_malignant_reference) else None
 
         # ---- stage 2 --------------------------------------------------------
         if update_malignant_reference:
             if verbose:
                 print("[prism] stage 2: sample-specific malignant reference")
-            psi_mal, psi_env = update_reference(Z, mal_idx)
-            theta2 = _refit_two_component(X, psi_mal, psi_env)      # (S, 2)
+            psi_mal, psi_env = self.update_reference(Z, mal_idx)
+            theta2 = self._refit_two_component(X, psi_mal, psi_env)      # (S, 2)
 
             env_idx = np.setdiff1d(np.arange(len(states)), mal_idx)
             theta_final = theta1.copy()
@@ -610,47 +606,4 @@ class PRISM(object):
         out["basal_minus_classical"] = out["basal_score"] - out["classical_score"]
         out["subtype"] = np.where(out["basal_minus_classical"] > 0, "basal-like", "classical")
         return out
-
-
-    # =============================================================================
-    # 7. EXAMPLE DRIVER
-    # =============================================================================
-
-    if __name__ == "__main__":
-        """
-        import anndata as ad
-        from paad_deconv import *
-
-        # 1. df_bulk -----------------------------------------------------------
-        df_bulk, df_meta = build_bulk_matrix(dfn_tumor, dfn_normal, cbio.df_metadata)
-        qc = qc_report(df_bulk, df_meta)
-        print(qc.groupby("dataset")[["log10_library", "frac_zero", "top50_frac"]].median())
-
-        # 2. reference ------------------------------------------------------
-        sc_ref = ad.read_h5ad("PAAD_Peng2019_annotated.h5ad")   # raw counts in .X
-        ref, s2t = pseudobulk_reference(sc_ref, state_key="cell_state", type_key="cell_type")
-        markers = select_genes(ref, n_per_state=200)
-
-        # 3. deconvolve -----------------------------------------------------
-        res = run_bayesprism(df_bulk, ref, s2t, gene_subset=markers, device="cpu")
-
-        res.theta_type.to_csv("PAAD_celltype_fractions.csv")
-        res.tumor_purity.describe()
-
-        # 4. cell-type-specific expression ----------------------------------
-        Z_mal  = res.cell_type_expression("malignant_ductal")   # genes x samples, CPM
-        Z_cd8  = res.cell_type_expression("CD8_T")
-        Z_caf  = res.cell_type_expression("myCAF")
-
-        # 5. purity-corrected subtyping -------------------------------------
-        sub = subtype_malignant(res, "malignant_ductal")
-        print(sub["subtype"].value_counts())
-
-        # 6. sanity checks ---------------------------------------------------
-        nnls_frac = nnls_deconvolve(df_bulk, ref, genes=markers)
-        print(res.theta.corrwith(nnls_frac, axis=0).sort_values())
-        # normals should have ~0 malignant fraction:
-        print(res.tumor_purity.groupby(df_meta["condition"]).describe())
-        """
-        print(__doc__)
 
