@@ -1760,8 +1760,9 @@ class cBioPortal(object):
             fname = dic_tumor[key]['fname']
             files.append(fname)
 
-        dic = self.check_counts(files)
-        col = self.which_col_strand(dic)
+        # dic = self.check_counts(files)
+        # col = self.which_col_strand(dic)
+        col = "unstranded"
         
         for key in keys:
             fname = dic_tumor[key]['fname']
@@ -1769,10 +1770,9 @@ class cBioPortal(object):
             df_tumor = pdreadcsv(fname, self.root_lfc)
             cols = list(df_tumor.columns)
 
-            if cols[-1] != 'counts':
-                df_tumor['counts'] = df_tumor[col]
-                _ = pdwritecsv(df_tumor, fname, self.root_lfc, verbose=verbose)
-                dic_tumor[key]['expression'] = df_tumor
+            df_tumor['counts'] = df_tumor[col]
+            _ = pdwritecsv(df_tumor, fname, self.root_lfc, verbose=verbose)
+            dic_tumor[key]['expression'] = df_tumor
 
 
         #----------------- normal --------------------
@@ -4287,24 +4287,34 @@ class cBioPortal(object):
 
         return df_combat
     
-    def plot_boxplot_combat(self, df_combat: pd.DataFrame, 
-                            title: str = "ComBat Corrected Expression across samples", figsize=(16, 6)):
-        
+    def plot_boxplot_expression(self, df: pd.DataFrame, 
+                                title: str = "Expression across samples", 
+                                xlabel: str = "samples", ylabel: str = "counts",
+                                do_log10: bool = False,
+                                figsize: tuple = (16, 6)):
+
         fig, ax = plt.subplots(figsize=figsize)
 
-        df_combat.boxplot(
+        sample_cols = [c for c in df.columns if c not in self.ANNOT_COLS]
+        df = df[sample_cols].copy()
+
+        if do_log10:
+            df = np.log10(df + 1)
+            ylabel = f"log10({ylabel})"
+
+        df.boxplot(
             ax=ax,
             grid=False,
             showfliers=False,
         )
 
         ax.set_title(title)
-        ax.set_xlabel("Samples")
-        ax.set_ylabel("log2(expression + 1)")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.tick_params(axis="x", labelbottom=False)
 
         plt.tight_layout()
-        plt.show()        
+        plt.show()    
 
 
     def plot_pca_expression(self, 

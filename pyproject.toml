@@ -18,6 +18,7 @@ dependencies = [
     "fastcluster",
     "kaleido", 
     "psutil", 
+    "torch", 
 
     # Clustering / VCF
     "umap-learn>=0.5,<0.6",
