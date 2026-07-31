@@ -6,7 +6,6 @@
 # @author: Flavio Lichtenstein
 # @local: Home sweet home
 
-from duckdb import df
 import numpy as np
 import pandas as pd
 import requests
