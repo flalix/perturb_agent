@@ -41,7 +41,6 @@ Author: written for a PAAD CPTAC3/TCGA project
 from __future__ import annotations
 
 import numpy as np
-from numpy.testing import verbose
 import pandas as pd
 from pathlib import Path
 
@@ -49,9 +48,7 @@ import re
 import warnings
 
 import anndata as ad
-import scanpy as sc
 
-import cellxgene_census
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
@@ -82,7 +79,7 @@ _DROP_REGEX = re.compile(
     r"MALAT1$|NEAT1$)"                               # nuclear-retained, huge, driven by protocol
 )
 
-DEFAULT_BIOTYPES = ("protein_coding",)
+DEFAULT_BIOTYPES = ("protein_coding", "lncRNA", "miRNA",)
 
 class PRISM(object):
     def __init__(self, root0: Path, root0_data: Path):
@@ -413,6 +410,47 @@ class PRISM(object):
         return Z
 
 
+    def full_Z(self, res: DeconvResult, 
+               df_bulk: pd.DataFrame, 
+               ref: pd.DataFrame, 
+               chunk: int = 32) -> tuple[np.ndarray, list]:
+        """ 
+        Recompute Z over ALL shared genes with theta held fixed.
+        """
+
+        genes = df_bulk.index.intersection(ref.columns).sort_values()
+
+        X = df_bulk.loc[genes].T.to_numpy(dtype=np.float64)
+        R = ref[genes].to_numpy(dtype=np.float64) + 1e-8
+        phi = R / R.sum(axis=1, keepdims=True)
+        theta = res.theta.to_numpy()
+
+        return self.posterior_Z(X, theta, phi, chunk=chunk), list(genes)
+
+
+    def state_expression(self, Z: np.ndarray, genes: list[str], res,
+                         state: str, cpm: bool = True) -> pd.DataFrame:
+        """
+        genes x samples for one cell state, from a full-gene Z.
+        """
+        if state not in res.states:
+            raise KeyError(f"{state!r} not among states: {res.states}")
+        k  = res.states.index(state)
+        Zk = pd.DataFrame(Z[:, k, :].T, index=genes, columns=res.theta.index)
+        return Zk.div(Zk.sum(axis=0).replace(0, np.nan), axis=1) * 1e6 if cpm else Zk
+
+    def gene_compartment_share(self, Z: np.ndarray, genes: list[str], res,
+                               gene: str) -> pd.Series:
+        """
+        Fraction of a gene's counts attributed to each cell state.
+        """
+        if gene not in genes:
+            raise KeyError(f"{gene!r} not in the matrix (check _DROP_REGEX and biotype filter).")
+        share = Z[:, :, genes.index(gene)].sum(axis=0)
+        return (pd.Series(share / share.sum(), index=res.states)
+                  .sort_values(ascending=False))
+
+    
     def update_reference(self,
         Z: np.ndarray,
         malignant_idx: Sequence[int],
@@ -500,12 +538,8 @@ class PRISM(object):
             update_malignant_reference = False
 
         # ---- stage 1 --------------------------------------------------------
-        print("X before", type(X))
-        print("X before", X.shape)
         theta1 = self.prism_em(X, phi, device=device, verbose=verbose)
         theta_final = theta1
-        print("X after", type(X))
-        print("X after", X.shape)
 
         Z = self.posterior_Z(X, theta1, phi) if (return_Z or update_malignant_reference) else None
 
@@ -517,7 +551,7 @@ class PRISM(object):
             theta2 = self._refit_two_component(X, psi_mal, psi_env)      # (S, 2)
 
             env_idx = np.setdiff1d(np.arange(len(states)), mal_idx)
-            theta_final = theta1.copy()
+            theta_final = theta1
             # rescale malignant states to the updated purity, env states to 1 - purity
             mal_share = theta1[:, mal_idx].sum(axis=1, keepdims=True)
             env_share = theta1[:, env_idx].sum(axis=1, keepdims=True)
@@ -644,7 +678,10 @@ class PRISM(object):
     
     
     def load_tisch2(self, h5_filename: str, meta_filename: str, verbose: bool = True):
-        """Build an AnnData from a TISCH2 .h5 + CellMetainfo table."""
+        """
+        Build an AnnData from a TISCH2 .h5 + CellMetainfo table.
+        """
+        import scanpy as sc
     
         adata = sc.read_10x_h5(h5_filename)
         adata.var_names_make_unique()
@@ -677,6 +714,7 @@ class PRISM(object):
         """
         List candidate pancreas / PDAC datasets currently in the Census.
         """
+        import cellxgene_census
     
         with cellxgene_census.open_soma(census_version=census_version) as census:
             ds = census["census_info"]["datasets"].read().concat().to_pandas()
@@ -696,7 +734,8 @@ class PRISM(object):
         `check_reference` below before using it as a BayesPrism reference.
         """
 
-    
+        import cellxgene_census
+
         if out_h5ad:
             cellxgene_census.download_source_h5ad(dataset_id, to_path=out_h5ad)
             return ad.read_h5ad(out_h5ad)
