@@ -329,9 +329,8 @@ class PRISM(object):
     def prism_em(self,
         X: np.ndarray,
         phi: np.ndarray,
-        *,
         alpha: float = 1.0,
-        max_iter: int = 500,
+        max_iter: int = 1000,
         tol: float = 1e-7,
         device: str = "cpu",
         verbose: bool = False,
@@ -345,11 +344,18 @@ class PRISM(object):
         alpha : Dirichlet concentration on theta (alpha=1 -> flat prior = MLE,
                 which is BayesPrism's default).
         """
-        S, G = X.shape
+        try:
+            S, G = X.shape
+        except Exception as e:
+            print(f"Error: {e}")
+            print(type(X))
+            raise ValueError("\n\n-------- stop ------------\n\n")
+
+
         K = phi.shape[0]
         use_torch = device != "cpu" and _HAS_TORCH
         xp = torch if use_torch else np
-        X_, phi_ = _to_backend(X, phi, device=device)
+        X_, phi_ = self._to_backend(X, phi, device=device)
 
         theta = xp.ones((S, K), dtype=X_.dtype) / K
         if use_torch:
@@ -377,17 +383,26 @@ class PRISM(object):
 
 
     def posterior_Z(
-        X: np.ndarray,
-        theta: np.ndarray,
-        phi: np.ndarray,
-        *,
-        chunk: int = 32,
-    ) -> np.ndarray:
+            self,
+            X: np.ndarray,
+            theta: np.ndarray,
+            phi: np.ndarray,
+            chunk: int = 32, ) -> np.ndarray:
         """
         Cell-type-specific expression: Z (S x K x G), in count units.
         Chunked over samples to bound memory.
         """
-        S, G = X.shape
+        try:
+            S, G = X.shape
+        except Exception as e:
+            print(f"Error: {e}")
+            print(type(X))
+            print("\n------------\n")
+            print(X)
+            print("\n------------\n")
+            raise ValueError("\n\n-------- stop ------------\n\n")
+
+
         K = phi.shape[0]
         Z = np.empty((S, K, G), dtype=np.float32)
         for i in range(0, S, chunk):
@@ -441,30 +456,9 @@ class PRISM(object):
         return theta2
 
 
-    # =============================================================================
-    # 4. ORCHESTRATOR
-    # =============================================================================
-
-
-    @dataclass
-    class DeconvResult:
-        theta: pd.DataFrame                     # samples x cell states (final)
-        theta_stage1: pd.DataFrame              # samples x cell states (initial)
-        theta_type: pd.DataFrame                # samples x coarse cell types
-        tumor_purity: pd.Series                 # malignant fraction
-        genes: list[str] = field(repr=False, default_factory=list)
-        Z: np.ndarray | None = field(repr=False, default=None)      # S x K x G
-        states: list[str] = field(repr=False, default_factory=list)
-
-        def cell_type_expression(self, state: str, *, cpm: bool = True) -> pd.DataFrame:
-            """Return the deconvolved expression of one cell state: genes x samples."""
-            if self.Z is None:
-                raise ValueError("Re-run with return_Z=True.")
-            k = self.states.index(state)
-            Zk = pd.DataFrame(self.Z[:, k, :].T, index=self.genes, columns=self.theta.index)
-            if cpm:
-                Zk = Zk.div(Zk.sum(axis=0).replace(0, np.nan), axis=1) * 1e6
-            return Zk
+# =============================================================================
+# 4. ORCHESTRATOR
+# =============================================================================
 
 
     def run_bayesprism(self, 
@@ -506,8 +500,13 @@ class PRISM(object):
             update_malignant_reference = False
 
         # ---- stage 1 --------------------------------------------------------
+        print("X before", type(X))
+        print("X before", X.shape)
         theta1 = self.prism_em(X, phi, device=device, verbose=verbose)
         theta_final = theta1
+        print("X after", type(X))
+        print("X after", X.shape)
+
         Z = self.posterior_Z(X, theta1, phi) if (return_Z or update_malignant_reference) else None
 
         # ---- stage 2 --------------------------------------------------------
@@ -527,7 +526,7 @@ class PRISM(object):
             theta_final /= theta_final.sum(axis=1, keepdims=True)
 
             if return_Z:  # recompute Z under the updated mixture
-                Z = posterior_Z(X, theta_final, phi)
+                Z = self.posterior_Z(X, theta_final, phi)
 
         # ---- package --------------------------------------------------------
         idx = df_bulk.columns
@@ -599,7 +598,7 @@ class PRISM(object):
         return pd.DataFrame(theta, index=df_bulk.columns)
 
 
-    def score_signature(self, expr: pd.DataFrame, gene_set: Sequence[str], *, log: bool = True) -> pd.Series:
+    def score_signature(self, expr: pd.DataFrame, gene_set: Sequence[str], log: bool = True) -> pd.Series:
         """Mean z-score of a gene set across samples (expr = genes x samples, CPM)."""
         g = [x for x in gene_set if x in expr.index]
         if not g:
@@ -644,7 +643,7 @@ class PRISM(object):
     # 'Patient', 'Sample', 'Tissue'. Print them before mapping -- do not assume.
     
     
-    def load_tisch2(self, h5_filename: str, meta_filename: str, *, verbose: bool = True):
+    def load_tisch2(self, h5_filename: str, meta_filename: str, verbose: bool = True):
         """Build an AnnData from a TISCH2 .h5 + CellMetainfo table."""
     
         adata = sc.read_10x_h5(h5_filename)
@@ -727,7 +726,7 @@ class PRISM(object):
     # =============================================================================
     
     
-    def check_reference(self, adata, *, 
+    def check_reference(self, adata,
                         state_key: str = "cell_state", 
                         type_key: str = "cell_type") -> dict:
         """
@@ -978,3 +977,22 @@ class PRISM(object):
         return adata
 
 
+@dataclass
+class DeconvResult:
+    theta: pd.DataFrame                     # samples x cell states (final)
+    theta_stage1: pd.DataFrame              # samples x cell states (initial)
+    theta_type: pd.DataFrame                # samples x coarse cell types
+    tumor_purity: pd.Series                 # malignant fraction
+    genes: list[str] = field(repr=False, default_factory=list)
+    Z: np.ndarray | None = field(repr=False, default=None)      # S x K x G
+    states: list[str] = field(repr=False, default_factory=list)
+
+    def cell_type_expression(self, state: str, cpm: bool = True) -> pd.DataFrame:
+        """Return the deconvolved expression of one cell state: genes x samples."""
+        if self.Z is None:
+            raise ValueError("Re-run with return_Z=True.")
+        k = self.states.index(state)
+        Zk = pd.DataFrame(self.Z[:, k, :].T, index=self.genes, columns=self.theta.index)
+        if cpm:
+            Zk = Zk.div(Zk.sum(axis=0).replace(0, np.nan), axis=1) * 1e6
+        return Zk
