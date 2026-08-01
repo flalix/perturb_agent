@@ -92,6 +92,7 @@ class cBioPortal(object):
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
+        self.root_singc = create_dir(self.root0_data, "single_cell")
         self.root_mprog_disease = Path()
         self.root_mprog_lfc = Path()
 

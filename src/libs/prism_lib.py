@@ -41,6 +41,7 @@ Author: written for a PAAD CPTAC3/TCGA project
 from __future__ import annotations
 
 import numpy as np
+from numpy.testing import verbose
 import pandas as pd
 from pathlib import Path
 
@@ -56,6 +57,9 @@ from typing import Iterable, Sequence
 
 import scipy.sparse as sp
 from scipy.optimize import nnls
+
+
+from libs.cBioPortal_lib import cBioPortal
 
 try:
     import torch
@@ -83,7 +87,15 @@ DEFAULT_BIOTYPES = ("protein_coding",)
 class PRISM(object):
     def __init__(self, root0: Path, root0_data: Path):
 
+        self.cbio = cBioPortal(root0=root0, root0_data=root0_data, memory_restriction=False)
+
         self.ANNOT_COLS = ["geneid", "symbol", "biotype"]
+
+        self.root_colab = Path()
+        self.root_gtex  = Path()
+
+        self.root_mprog = Path()
+        self.root_singc = Path()
 
         # =============================================================================
         # 6. DOWNSTREAM: purity-corrected PDAC subtyping on the malignant compartment
@@ -632,19 +644,19 @@ class PRISM(object):
     # 'Patient', 'Sample', 'Tissue'. Print them before mapping -- do not assume.
     
     
-    def load_tisch2(self, h5_path: str, meta_path: str, *, verbose: bool = True):
+    def load_tisch2(self, h5_filename: str, meta_filename: str, *, verbose: bool = True):
         """Build an AnnData from a TISCH2 .h5 + CellMetainfo table."""
     
-        adata = sc.read_10x_h5(h5_path)
+        adata = sc.read_10x_h5(h5_filename)
         adata.var_names_make_unique()
     
-        meta = pd.read_csv(meta_path, sep="\t", index_col=0)
+        df_meta = pd.read_csv(meta_filename, sep="\t", index_col=0)
         if verbose:
-            print("metadata columns:", list(meta.columns))
+            print("metadata columns:", list(df_meta.columns))
     
-        common = adata.obs_names.intersection(meta.index)
+        common = adata.obs_names.intersection(df_meta.index)
         adata = adata[common].copy()
-        adata.obs = adata.obs.join(meta.loc[common])
+        adata.obs = adata.obs.join(df_meta.loc[common])
     
         major = "Celltype (major-lineage)"
         minor = "Celltype (minor-lineage)"
@@ -663,8 +675,9 @@ class PRISM(object):
     
     
     def census_find_pdac(self, census_version: str = "stable") -> pd.DataFrame:
-        """List candidate pancreas / PDAC datasets currently in the Census."""
-        import cellxgene_census
+        """
+        List candidate pancreas / PDAC datasets currently in the Census.
+        """
     
         with cellxgene_census.open_soma(census_version=census_version) as census:
             ds = census["census_info"]["datasets"].read().concat().to_pandas()
@@ -781,28 +794,60 @@ class PRISM(object):
     never materialised dense.
     """
 
-    def peek(self, path: str, n: int = 4) -> None:
-        """Print the corner of the file. ALWAYS run this first -- confirm the
-        orientation (genes as rows vs cells as rows) and the separator."""
-        head = pd.read_csv(path, sep="\t", nrows=n, index_col=0)
-        print(f"first {n} rows x 5 cols:\n{head.iloc[:, :5]}\n")
-        print("row labels look like:", list(head.index[:3]))
-        print("col labels look like:", list(head.columns[:3]))
-        print("dtypes:", head.dtypes.unique())
+
+    def set_program_and_primary_site(self, prog_id:str, psi_id:str, verbose:bool=False) -> pd.DataFrame:
+        df_psi = self.cbio.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
+
+        self.root_colab = self.cbio.root_colab
+        self.root_gtex  = self.cbio.root_gtex
+
+        self.root_mprog = self.cbio.root_mprog
+        self.root_singc = self.cbio.root_singc
+
+        self.df_psi = df_psi
+        return df_psi
+
+    def load_and_view_matrix_txt(self, fname: str | Path, nrows: int = 4) -> bool:
+        """
+        Print the corner of the file. ALWAYS run this first -- confirm the
+        orientation (genes as rows vs cells as rows) and the separator.
+        """
+
+        filename = self.root_singc / fname
+
+        if not filename.exists():
+            print(f"File not found: {filename}")
+            return False
+
+        df = pd.read_csv(filename, sep="\t", nrows=nrows, index_col=0)
+        print(f"first {nrows} rows x 5 cols:\n{df.iloc[:, :5]}\n")
+        print("row labels look like:", list(df.index[:3]))
+        print("col labels look like:", list(df.columns[:3]))
+        print("dtypes:", df.dtypes.unique())
+
+        return True
 
 
     def load_matrix(self, 
-        path: str,
+        fname: str | Path,
         chunksize: int = 2000,
         dtype=np.float32,
         genes_are_rows: bool = True,
-        verbose: bool = True,
-    ):
-        """Stream the dense TSV into a sparse AnnData (cells x genes)."""
+        verbose: bool = True, ) -> ad.AnnData:
+        """
+        Stream the dense TSV into a sparse AnnData (cells x genes).
+        """
+
+        filename = self.root_singc / fname
+
+        if not filename.exists():
+            print(f"File not found: {filename}")
+            return ad.AnnData()
+
 
         blocks, labels, cols = [], [], None
         for i, chunk in enumerate(
-            pd.read_csv(path, sep="\t", index_col=0, chunksize=chunksize)
+            pd.read_csv(filename, sep="\t", index_col=0, chunksize=chunksize)
         ):
             if cols is None:
                 cols = chunk.columns
@@ -827,9 +872,16 @@ class PRISM(object):
         )
         adata.var_names_make_unique()
         if verbose:
-            dens = X.nnz / (X.shape[0] * X.shape[1])
-            print(f"{adata.n_obs:,} cells x {adata.n_vars:,} genes | "
-                f"density {dens:.3f} | {X.data.nbytes/1e9:.2f} GB in memory")
+            try:
+                dens = X.nnz / (X.shape[0] * X.shape[1])
+                print(f"{adata.n_obs:,} cells x {adata.n_vars:,} genes | "
+                    f"density {dens:.3f} | {X.data.nbytes/1e9:.2f} GB in memory")
+            except Exception as e:
+                print(f"Error occurred while calculating density: {e}")
+                print(X.shape)
+
+        print("\n\n------------------- end --------------------\n")
+        
         return adata
 
 
