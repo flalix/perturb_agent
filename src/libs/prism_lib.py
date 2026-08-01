@@ -47,9 +47,15 @@ from pathlib import Path
 import re
 import warnings
 
+import anndata as ad
+import scanpy as sc
+
+import cellxgene_census
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
+import scipy.sparse as sp
+from scipy.optimize import nnls
 
 try:
     import torch
@@ -78,6 +84,21 @@ class PRISM(object):
     def __init__(self, root0: Path, root0_data: Path):
 
         self.ANNOT_COLS = ["geneid", "symbol", "biotype"]
+
+        # =============================================================================
+        # 6. DOWNSTREAM: purity-corrected PDAC subtyping on the malignant compartment
+        # =============================================================================
+
+        # Representative marker sets (extend with the full published lists).
+        self.MOFFITT_BASAL = ["KRT17", "KRT5", "KRT6A", "KRT6C", "KRT14", "KRT15", "S100A2",
+                        "SPRR1B", "SPRR3", "TNS4", "DHRS9", "LY6D", "SCEL", "SERPINB3",
+                        "SERPINB4", "CST6", "AREG", "FAM83A", "GPR87", "VGLL1"]
+        self.MOFFITT_CLASSICAL = ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CTSE",
+                            "BTNL8", "ANXA10", "CEACAM6", "LYZ", "REG4", "TSPAN8",
+                            "ST6GALNAC1", "MYO1A", "CLRN3", "VSIG2", "SPINK4"]
+        self.MOFFITT_ACTIVATED_STROMA = ["SPARC", "COL10A1", "COL11A1", "POSTN", "FN1",
+                                    "INHBA", "WNT2", "SFRP2", "THBS2", "CTHRC1", "FAP"]
+        self.MOFFITT_NORMAL_STROMA = ["ACTA2", "MYH11", "DES", "VIM", "IGF1", "RSPO3", "SPOCK1"]
 
 
     def build_bulk_matrix(self,
@@ -124,35 +145,35 @@ class PRISM(object):
 
         # --- collapse duplicated symbols by summing counts ------------------
         genes = df_bulk[gene_key].astype(str)
-        df_mat = df_bulk.drop(columns=[c for c in id_cols if c in df_bulk.columns])
-        df_mat = df_mat.apply(pd.to_numeric, errors="coerce").fillna(0.0)
-        df_mat.index = genes.values
-        df_mat = df_mat.groupby(level=0).sum()
+        df_bulk = df_bulk.drop(columns=[c for c in id_cols if c in df_bulk.columns])
+        df_bulk = df_bulk.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        df_bulk.index = genes.values
+        df_bulk = df_bulk.groupby(level=0).sum()
 
         # --- drop MT / ribosomal / hemoglobin -------------------------------
-        df_mat = df_mat[~df_mat.index.to_series().str.match(drop_regex)]
+        df_bulk = df_bulk[~df_bulk.index.to_series().str.match(drop_regex)]
 
         # --- expression filter ----------------------------------------------
-        keep = (df_mat >= min_count).mean(axis=1) >= min_samples_frac
-        df_mat = df_mat.loc[keep]
+        keep = (df_bulk >= min_count).mean(axis=1) >= min_samples_frac
+        df_bulk = df_bulk.loc[keep]
 
-        df_mat = df_mat.round().astype(np.int64)
-        df_mat.index.name = gene_key
+        df_bulk = df_bulk.round().astype(np.int64)
+        df_bulk.index.name = gene_key
 
         # --- metadata alignment ---------------------------------------------
         if df_metadata is not None:
             df_meta = df_metadata.copy()
             df_meta.index = df_meta.index.astype(str)
-            missing = [c for c in df_mat.columns if c not in df_meta.index]
+            missing = [c for c in df_bulk.columns if c not in df_meta.index]
             if missing:
                 warnings.warn(f"{len(missing)} df_bulk samples absent from metadata: {missing[:5]}")
-            shared = [c for c in df_mat.columns if c in df_meta.index]
-            df_mat = df_mat[shared]
+            shared = [c for c in df_bulk.columns if c in df_meta.index]
+            df_bulk = df_bulk[shared]
             df_meta = df_meta.loc[shared]
         else:
-            df_meta = pd.DataFrame(index=df_mat.columns)
+            df_meta = pd.DataFrame(index=df_bulk.columns)
 
-        return df_mat, df_meta
+        return df_bulk, df_meta
 
 
     def qc_report(self, df_bulk: pd.DataFrame, df_meta: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -520,9 +541,12 @@ class PRISM(object):
     # =============================================================================
 
 
-    def nnls_deconvolve(df_bulk: pd.DataFrame, ref: pd.DataFrame, genes=None) -> pd.DataFrame:
-        """Fast NNLS baseline on CPM signature space (dtangle/CIBERSORT-like)."""
-        from scipy.optimize import nnls
+    def nnls_deconvolve(self, df_bulk: pd.DataFrame, 
+                        ref: pd.DataFrame, genes=None) -> pd.DataFrame:
+
+        """
+        Fast NNLS baseline on CPM signature space (dtangle/CIBERSORT-like).
+        """
 
         g = df_bulk.index.intersection(ref.columns)
         if genes is not None:
@@ -534,7 +558,7 @@ class PRISM(object):
         return pd.DataFrame(out, index=df_bulk.columns, columns=ref.index)
 
 
-    def run_instaprism_r(df_bulk: pd.DataFrame, ref: pd.DataFrame, state_to_type: pd.Series):
+    def run_instaprism_r(self, df_bulk: pd.DataFrame, ref: pd.DataFrame, state_to_type: pd.Series):
         """
         Canonical implementation via rpy2, for validation of the Python engine.
 
@@ -563,23 +587,7 @@ class PRISM(object):
         return pd.DataFrame(theta, index=df_bulk.columns)
 
 
-    # =============================================================================
-    # 6. DOWNSTREAM: purity-corrected PDAC subtyping on the malignant compartment
-    # =============================================================================
-
-    # Representative marker sets (extend with the full published lists).
-    MOFFITT_BASAL = ["KRT17", "KRT5", "KRT6A", "KRT6C", "KRT14", "KRT15", "S100A2",
-                    "SPRR1B", "SPRR3", "TNS4", "DHRS9", "LY6D", "SCEL", "SERPINB3",
-                    "SERPINB4", "CST6", "AREG", "FAM83A", "GPR87", "VGLL1"]
-    MOFFITT_CLASSICAL = ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CTSE",
-                        "BTNL8", "ANXA10", "CEACAM6", "LYZ", "REG4", "TSPAN8",
-                        "ST6GALNAC1", "MYO1A", "CLRN3", "VSIG2", "SPINK4"]
-    MOFFITT_ACTIVATED_STROMA = ["SPARC", "COL10A1", "COL11A1", "POSTN", "FN1",
-                                "INHBA", "WNT2", "SFRP2", "THBS2", "CTHRC1", "FAP"]
-    MOFFITT_NORMAL_STROMA = ["ACTA2", "MYH11", "DES", "VIM", "IGF1", "RSPO3", "SPOCK1"]
-
-
-    def score_signature(expr: pd.DataFrame, gene_set: Sequence[str], *, log: bool = True) -> pd.Series:
+    def score_signature(self, expr: pd.DataFrame, gene_set: Sequence[str], *, log: bool = True) -> pd.Series:
         """Mean z-score of a gene set across samples (expr = genes x samples, CPM)."""
         g = [x for x in gene_set if x in expr.index]
         if not g:
@@ -589,7 +597,7 @@ class PRISM(object):
         return z.mean(axis=0)
 
 
-    def subtype_malignant(res: DeconvResult, malignant_state: str) -> pd.DataFrame:
+    def subtype_malignant(self, res: DeconvResult, malignant_state: str) -> pd.DataFrame:
         """
         Classical vs basal-like call made on the *deconvolved malignant* expression
         instead of df_bulk -- which is the whole point: df_bulk subtype calls are
@@ -598,12 +606,281 @@ class PRISM(object):
         Zmal = res.cell_type_expression(malignant_state, cpm=True)
         out = pd.DataFrame(
             {
-                "classical_score": score_signature(Zmal, MOFFITT_CLASSICAL),
-                "basal_score": score_signature(Zmal, MOFFITT_BASAL),
+                "classical_score": self.score_signature(Zmal, self.MOFFITT_CLASSICAL),
+                "basal_score": self.score_signature(Zmal, self.MOFFITT_BASAL),
                 "tumor_purity": res.tumor_purity,
             }
         )
         out["basal_minus_classical"] = out["basal_score"] - out["classical_score"]
         out["subtype"] = np.where(out["basal_minus_classical"] > 0, "basal-like", "classical")
         return out
+
+
+    # =============================================================================
+    # ROUTE A -- TISCH2  (recommended: Peng 2019 data, already annotated)
+    # =============================================================================
+    # Portal:  http://tisch.comp-genomics.org/
+    # Dataset: PAAD_CRA001160   (Peng et al. 2019, ~57k cells, 13 cell types)
+    #          PAAD_GSE165399   (second PDAC cohort, good robustness check)
+    #
+    # Download from the dataset page:
+    #     PAAD_CRA001160_expression.h5          10x-style HDF5 matrix
+    #     PAAD_CRA001160_CellMetainfo_table.tsv per-cell annotation
+    #
+    # The metadata table carries several annotation depths; typical columns are
+    # 'Celltype (malignancy)', 'Celltype (major-lineage)', 'Celltype (minor-lineage)',
+    # 'Patient', 'Sample', 'Tissue'. Print them before mapping -- do not assume.
+    
+    
+    def load_tisch2(self, h5_path: str, meta_path: str, *, verbose: bool = True):
+        """Build an AnnData from a TISCH2 .h5 + CellMetainfo table."""
+    
+        adata = sc.read_10x_h5(h5_path)
+        adata.var_names_make_unique()
+    
+        meta = pd.read_csv(meta_path, sep="\t", index_col=0)
+        if verbose:
+            print("metadata columns:", list(meta.columns))
+    
+        common = adata.obs_names.intersection(meta.index)
+        adata = adata[common].copy()
+        adata.obs = adata.obs.join(meta.loc[common])
+    
+        major = "Celltype (major-lineage)"
+        minor = "Celltype (minor-lineage)"
+        adata.obs["cell_type"] = adata.obs[major].astype(str)
+        adata.obs["cell_state"] = adata.obs.get(minor, adata.obs[major]).astype(str)
+    
+        # BayesPrism needs one compartment flagged as malignant
+        adata.obs["cell_type"] = adata.obs["cell_type"].replace({"Malignant": "malignant"})
+        return adata
+    
+    
+    # =============================================================================
+    # ROUTE B -- CZ CELLxGENE Census (programmatic; run the query, then choose)
+    # =============================================================================
+    # pip install cellxgene-census
+    
+    
+    def census_find_pdac(self, census_version: str = "stable") -> pd.DataFrame:
+        """List candidate pancreas / PDAC datasets currently in the Census."""
+        import cellxgene_census
+    
+        with cellxgene_census.open_soma(census_version=census_version) as census:
+            ds = census["census_info"]["datasets"].read().concat().to_pandas()
+        hit = ds[
+            ds["dataset_title"].str.contains("pancrea|PDAC|ductal", case=False, na=False)
+            | ds["collection_name"].str.contains("pancrea|PDAC|ductal", case=False, na=False)
+        ]
+        return hit[["dataset_id", "collection_name", "dataset_title", "dataset_total_cell_count"]]
+    
+    
+    def census_fetch(self, dataset_id: str, out_h5ad: str | None = None, census_version: str = "stable"):
+        """
+        Pull one Census dataset as AnnData, or download the untouched source H5AD.
+    
+        IMPORTANT: the Census `raw` layer holds the counts. `get_anndata` may return
+        normalised values in .X depending on the build -- always verify with
+        `check_reference` below before using it as a BayesPrism reference.
+        """
+
+    
+        if out_h5ad:
+            cellxgene_census.download_source_h5ad(dataset_id, to_path=out_h5ad)
+            return ad.read_h5ad(out_h5ad)
+    
+        with cellxgene_census.open_soma(census_version=census_version) as census:
+            return cellxgene_census.get_anndata(
+                census,
+                organism="Homo sapiens",
+                obs_value_filter=f"dataset_id == '{dataset_id}'",
+            )
+    
+
+    # =============================================================================
+    # ROUTE C -- GEO (processed matrices, need your own annotation)
+    # =============================================================================
+    #   GSE155698  Steele et al. 2020, Nat Cancer      16 PDAC + 3 adjacent
+    #   GSE154778  Lin et al. 2020                     primary + metastatic
+    #   GSE205013  Werba et al. 2023, Nat Commun       treatment-naive + treated
+    #   GSE165399  second TISCH2 PDAC cohort
+    #
+    # These ship as 10x barcodes/features/matrix triplets; read with
+    # scanpy.read_10x_mtx per sample and concatenate, then annotate yourself.
+    
+    
+    # =============================================================================
+    # VALIDATION -- run this before handing anything to run_bayesprism
+    # =============================================================================
+    
+    
+    def check_reference(self, adata, *, 
+                        state_key: str = "cell_state", 
+                        type_key: str = "cell_type") -> dict:
+        """
+        Verify the reference satisfies BayesPrism's assumptions. The single most
+        common failure is a normalised/log-transformed .X: the model is multinomial
+        over counts, and log values silently produce plausible-looking but wrong
+        fractions.
+        """
+        X = adata.X
+        sub = X[:200].data if sp.issparse(X) else np.asarray(X[:200]).ravel()
+        sub = sub[np.isfinite(sub)]
+    
+        is_int = bool(np.allclose(sub, np.round(sub))) if sub.size else False
+        report = {
+            "n_cells": int(adata.n_obs),
+            "n_genes": int(adata.n_vars),
+            "X_looks_like_raw_counts": is_int,
+            "X_max": float(sub.max()) if sub.size else np.nan,
+            "has_negative_values": bool((sub < 0).any()) if sub.size else False,
+            "layers_available": list(adata.layers.keys()),
+            "raw_available": adata.raw is not None,
+            f"{type_key}_present": type_key in adata.obs,
+            f"{state_key}_present": state_key in adata.obs,
+        }
+        if type_key in adata.obs:
+            report["cell_types"] = adata.obs[type_key].value_counts().to_dict()
+            report["has_malignant"] = any(
+                "malign" in str(t).lower() for t in adata.obs[type_key].unique()
+            )
+        if state_key in adata.obs:
+            vc = adata.obs[state_key].value_counts()
+            report["n_states"] = int(vc.size)
+            report["states_under_30_cells"] = vc[vc < 30].to_dict()
+    
+        problems = []
+        if not is_int:
+            problems.append(
+                "X is not integer counts. Try adata.layers['counts'] or adata.raw.X; "
+                "if only normalised data exists, this reference is unusable for BayesPrism."
+            )
+        if report.get("has_negative_values"):
+            problems.append("X contains negatives -- this is scaled/z-scored data.")
+        if not report.get("has_malignant", True):
+            problems.append(
+                "No malignant compartment found. Stage-2 reference update will be "
+                "disabled and tumor purity cannot be estimated."
+            )
+        report["problems"] = problems
+        return report
+
+    """
+    load_cra001160.py
+    =================
+    Convert the Peng 2019 GSA deposit into an AnnData ready for
+    `paad_deconv.pseudobulk_reference()`.
+    
+    Input (from ftp://download.big.ac.cn/gsa/CRA001160/):
+        count-matrix.txt   2.77 GB dense TSV, genes x cells
+        all_celltype.txt   2.1 MB, per-cell annotation
+    
+    The matrix is dense text: ~20k genes x ~57k cells is ~1.1e9 values, which is
+    10-13 GB as a dense float array but well under 1 GB as CSR, since scRNA counts
+    are >90% zeros. So it is parsed in row chunks and sparsified incrementally --
+    never materialised dense.
+    """
+
+    def peek(self, path: str, n: int = 4) -> None:
+        """Print the corner of the file. ALWAYS run this first -- confirm the
+        orientation (genes as rows vs cells as rows) and the separator."""
+        head = pd.read_csv(path, sep="\t", nrows=n, index_col=0)
+        print(f"first {n} rows x 5 cols:\n{head.iloc[:, :5]}\n")
+        print("row labels look like:", list(head.index[:3]))
+        print("col labels look like:", list(head.columns[:3]))
+        print("dtypes:", head.dtypes.unique())
+
+
+    def load_matrix(self, 
+        path: str,
+        chunksize: int = 2000,
+        dtype=np.float32,
+        genes_are_rows: bool = True,
+        verbose: bool = True,
+    ):
+        """Stream the dense TSV into a sparse AnnData (cells x genes)."""
+
+        blocks, labels, cols = [], [], None
+        for i, chunk in enumerate(
+            pd.read_csv(path, sep="\t", index_col=0, chunksize=chunksize)
+        ):
+            if cols is None:
+                cols = chunk.columns
+            labels.extend(chunk.index.astype(str))
+            blocks.append(sp.csr_matrix(chunk.to_numpy(dtype=dtype)))
+            if verbose and i % 5 == 0:
+                print(f"  chunk {i}: {len(labels):,} rows parsed", flush=True)
+
+        X = sp.vstack(blocks, format="csr")
+        del blocks
+
+        if genes_are_rows:
+            X = X.T.tocsr()
+            obs_names, var_names = list(cols.astype(str)), labels
+        else:
+            obs_names, var_names = labels, list(cols.astype(str))
+
+        adata = ad.AnnData(
+            X,
+            obs=pd.DataFrame(index=pd.Index(obs_names, name="cell")),
+            var=pd.DataFrame(index=pd.Index(var_names, name="gene")),
+        )
+        adata.var_names_make_unique()
+        if verbose:
+            dens = X.nnz / (X.shape[0] * X.shape[1])
+            print(f"{adata.n_obs:,} cells x {adata.n_vars:,} genes | "
+                f"density {dens:.3f} | {X.data.nbytes/1e9:.2f} GB in memory")
+        return adata
+
+
+    def attach_celltypes(
+        self,
+        adata,
+        celltype_path: str,
+        type_col: str | None = None,
+        state_col: str | None = None,
+        verbose: bool = True,
+    ):
+        """
+        Join all_celltype.txt onto the AnnData and create `cell_type` / `cell_state`.
+
+        The file's column names are not assumed -- they are printed so you can pass
+        the right ones explicitly.
+        """
+        ct = pd.read_csv(celltype_path, sep="\t", index_col=0)
+        if verbose:
+            print("all_celltype.txt columns:", list(ct.columns))
+            print(ct.head(3))
+
+        if type_col is None:
+            cands = [c for c in ct.columns if "type" in c.lower() or "cluster" in c.lower()]
+            if not cands:
+                raise ValueError(f"Could not guess the label column from {list(ct.columns)}")
+            type_col = cands[0]
+            if verbose:
+                print(f"using type_col='{type_col}'")
+
+        shared = adata.obs_names.intersection(ct.index)
+        if verbose:
+            print(f"barcode overlap: {len(shared):,} / {adata.n_obs:,}")
+        if len(shared) < 0.5 * adata.n_obs:
+            raise ValueError(
+                "Barcode overlap under 50%. The two files likely use different "
+                "barcode conventions (sample prefixes, -1 suffixes). Inspect both "
+                "index formats and reconcile before joining."
+            )
+
+        adata = adata[shared].copy()
+        adata.obs = adata.obs.join(ct.loc[shared])
+        adata.obs["cell_type"] = adata.obs[type_col].astype(str)
+        adata.obs["cell_state"] = adata.obs[state_col or type_col].astype(str)
+
+        # BayesPrism needs one compartment flagged malignant for the stage-2 update
+        adata.obs["cell_type"] = adata.obs["cell_type"].replace(
+            {"Malignant": "malignant", "Ductal cell type 2": "malignant"}
+        )
+        if verbose:
+            print(adata.obs["cell_type"].value_counts())
+        return adata
+
 
