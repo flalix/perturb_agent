@@ -807,7 +807,10 @@ class PRISM(object):
         self.df_psi = df_psi
         return df_psi
 
-    def load_and_view_matrix_txt(self, fname: str | Path, nrows: int = 4) -> bool:
+    def load_and_view_matrix_txt(self, 
+                                 fname: str | Path, 
+                                 sep: str | None = None, 
+                                 nrows: int = 4) -> bool:
         """
         Print the corner of the file. ALWAYS run this first -- confirm the
         orientation (genes as rows vs cells as rows) and the separator.
@@ -819,6 +822,25 @@ class PRISM(object):
             print(f"File not found: {filename}")
             return False
 
+        if sep is None:
+            with open(filename) as f:
+                f.readline()
+                line = f.readline()
+
+            counts = {"\t": line.count("\t"),
+                      ",": line.count(","),
+                      " ": line.count(" "), 
+                      ";": line.count(";")}
+
+            sep = max(counts, key=counts.get)
+
+            print("field counts:", {repr(k): v for k, v in counts.items()},
+                "-> sep =", repr(sep))
+
+            if counts[sep] == 0:
+                print("No delimiter found; file may be compressed or fixed-width.")
+                return False
+        
         df = pd.read_csv(filename, sep="\t", nrows=nrows, index_col=0)
         print(f"first {nrows} rows x 5 cols:\n{df.iloc[:, :5]}\n")
         print("row labels look like:", list(df.index[:3]))
@@ -830,12 +852,15 @@ class PRISM(object):
 
     def load_matrix(self, 
         fname: str | Path,
-        chunksize: int = 2000,
+        chunksize: int = 1000,
         dtype=np.float32,
         genes_are_rows: bool = True,
+        sep: str = ' ',
         verbose: bool = True, ) -> ad.AnnData:
         """
         Stream the dense TSV into a sparse AnnData (cells x genes).
+        head -2 count-matrix.txt | cut -c1-200
+        awk 'NR==2{print "tabs:",gsub(/\t/,""); print "spaces:",gsub(/ /,""); print "commas:",gsub(/,/,"")}' count-matrix.txt
         """
 
         filename = self.root_singc / fname
@@ -847,7 +872,7 @@ class PRISM(object):
 
         blocks, labels, cols = [], [], None
         for i, chunk in enumerate(
-            pd.read_csv(filename, sep="\t", index_col=0, chunksize=chunksize)
+            pd.read_csv(filename, sep=sep, index_col=0, chunksize=chunksize)
         ):
             if cols is None:
                 cols = chunk.columns
@@ -881,7 +906,7 @@ class PRISM(object):
                 print(X.shape)
 
         print("\n\n------------------- end --------------------\n")
-        
+
         return adata
 
 
