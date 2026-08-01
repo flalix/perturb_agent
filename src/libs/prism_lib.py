@@ -585,17 +585,17 @@ class PRISM(object):
         g = df_bulk.index.intersection(ref.columns)
         r.assign("df_bulk", df_bulk.loc[g].to_numpy())
         r.assign("ref", ref[g].T.to_numpy())
-        r.assign("ct", np.array(state_to_type.reindex(ref.index).astype(str)))
+        r.assign("df_ct", np.array(state_to_type.reindex(ref.index).astype(str)))
         r.assign("cs", np.array(ref.index.astype(str)))
         r.assign("gn", np.array(g.astype(str)))
         r("""
         rownames(df_bulk) <- gn; colnames(df_bulk) <- paste0("S", 1:ncol(df_bulk))
         rownames(ref)  <- gn; colnames(ref)  <- cs
         res <- InstaPrism(bulk_Expr = df_bulk, refPhi_cs = new("refPhi_cs",
-                            phi.cs = ref, cell.type.labels = ct, cell.state.labels = cs),
+                            phi.cs = ref, cell.type.labels = df_ct, cell.state.labels = cs),
                             dfn.iter = 100, update = TRUE)
         """)
-        theta = np.asarray(r("dft(res@Post.updated.ct@theta)"))
+        theta = np.asarray(r("dft(res@Post.updated.df_ct@theta)"))
         return pd.DataFrame(theta, index=df_bulk.columns)
 
 
@@ -856,19 +856,30 @@ class PRISM(object):
         dtype=np.float32,
         genes_are_rows: bool = True,
         sep: str = ' ',
-        verbose: bool = True, ) -> ad.AnnData:
+        compression:str = "gzip",
+        force: bool = False,
+        verbose: bool = False, ) -> ad.AnnData:
         """
         Stream the dense TSV into a sparse AnnData (cells x genes).
         head -2 count-matrix.txt | cut -c1-200
         awk 'NR==2{print "tabs:",gsub(/\t/,""); print "spaces:",gsub(/ /,""); print "commas:",gsub(/,/,"")}' count-matrix.txt
         """
 
+        fname_ad = str(fname).replace('.txt', '.h5ad')
+        filename_ad = self.root_singc / fname_ad
+
+        if filename_ad.exists() and not force:
+            adata = ad.read_h5ad(filename_ad)
+            if verbose: 
+                print(f"{adata.n_obs:,} cells x {adata.n_vars:,} genes | obs: {list(adata.obs.columns)}")
+            return adata
+
+        
         filename = self.root_singc / fname
 
         if not filename.exists():
             print(f"File not found: {filename}")
             return ad.AnnData()
-
 
         blocks, labels, cols = [], [], None
         for i, chunk in enumerate(
@@ -907,13 +918,16 @@ class PRISM(object):
 
         print("\n\n------------------- end --------------------\n")
 
+        adata.write_h5ad(filename_ad, compression=compression)
+        if verbose:print(f"AData saved as {filename_ad},  ({filename_ad.stat().st_size/1e6:.0f} MB), compressed with {compression}")
+
         return adata
 
 
     def attach_celltypes(
         self,
         adata,
-        celltype_path: str,
+        fname_celltype: str,
         type_col: str | None = None,
         state_col: str | None = None,
         verbose: bool = True,
@@ -924,20 +938,23 @@ class PRISM(object):
         The file's column names are not assumed -- they are printed so you can pass
         the right ones explicitly.
         """
-        ct = pd.read_csv(celltype_path, sep="\t", index_col=0)
+
+        filename = self.root_singc / fname_celltype
+
+        df_ct = pd.read_csv(filename, sep="\t", index_col=0)
         if verbose:
-            print("all_celltype.txt columns:", list(ct.columns))
-            print(ct.head(3))
+            print("all_celltype.txt columns:", list(df_ct.columns))
+            print(df_ct.head(3))
 
         if type_col is None:
-            cands = [c for c in ct.columns if "type" in c.lower() or "cluster" in c.lower()]
+            cands = [c for c in df_ct.columns if "type" in c.lower() or "cluster" in c.lower()]
             if not cands:
-                raise ValueError(f"Could not guess the label column from {list(ct.columns)}")
+                raise ValueError(f"Could not guess the label column from {list(df_ct.columns)}")
             type_col = cands[0]
             if verbose:
                 print(f"using type_col='{type_col}'")
 
-        shared = adata.obs_names.intersection(ct.index)
+        shared = adata.obs_names.intersection(df_ct.index)
         if verbose:
             print(f"barcode overlap: {len(shared):,} / {adata.n_obs:,}")
         if len(shared) < 0.5 * adata.n_obs:
@@ -948,7 +965,7 @@ class PRISM(object):
             )
 
         adata = adata[shared].copy()
-        adata.obs = adata.obs.join(ct.loc[shared])
+        adata.obs = adata.obs.join(df_ct.loc[shared])
         adata.obs["cell_type"] = adata.obs[type_col].astype(str)
         adata.obs["cell_state"] = adata.obs[state_col or type_col].astype(str)
 
