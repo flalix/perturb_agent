@@ -8,8 +8,9 @@
 
 
 """
-paad_deconv.py
-==============
+first study
+===========
+written for a PAAD CPTAC3/TCGA
 Bulk RNA-seq deconvolution for PAAD (CPTAC3 + TCGA), producing
 
   (1) theta : cell-type / cell-state fractions per sample
@@ -35,28 +36,32 @@ non-malignant types are merged into a single psi_env profile, and the model is
 re-fit. This removes the bias caused by using one fixed malignant reference for
 tumors that are transcriptionally heterogeneous (classical vs basal-like PDAC).
 
-Author: written for a PAAD CPTAC3/TCGA project
+
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+import datetime as _dt
+from typing import Iterable, Sequence
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
+import h5py
 
 import re
+import json
+import os
+from dataclasses import asdict, fields, dataclass, is_dataclass, field
 import warnings
 
 import anndata as ad
 
-from dataclasses import dataclass, field
-from typing import Iterable, Sequence
-
 import scipy.sparse as sp
 from scipy.optimize import nnls
 
-
 from libs.cBioPortal_lib import cBioPortal
+from libs.Basic import pdreadcsv, pdwritecsv, create_dir
 
 try:
     import torch
@@ -94,6 +99,9 @@ class PRISM(object):
         self.root_mprog = Path()
         self.root_singc = Path()
 
+        self.fname_bulk = "bulk_matrix.tsv"
+        self.fname_meta = "bulk_metadata.tsv"
+
         # =============================================================================
         # 6. DOWNSTREAM: purity-corrected PDAC subtyping on the malignant compartment
         # =============================================================================
@@ -119,6 +127,8 @@ class PRISM(object):
         drop_regex: re.Pattern = _DROP_REGEX,
         min_count: int = 10,
         min_samples_frac: float = 0.05,
+        force: bool = False,
+        verbose: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Merge df_tumor / df_normal into one raw-count matrix (genes x samples).
@@ -131,6 +141,16 @@ class PRISM(object):
         df_bulk : DataFrame (genes x samples), integer counts
         df_meta : DataFrame (samples x metadata), aligned & ordered to df_bulk.columns
         """
+
+        filename_bulk = self.root_singc / self.fname_bulk
+        filename_meta = self.root_singc / self.fname_meta
+
+        if filename_bulk.exists() and filename_meta.exists() and not force:
+            df_bulk = pdreadcsv(self.fname_bulk, self.root_singc, verbose=verbose)
+            df_meta = pdreadcsv(self.fname_meta, self.root_singc, verbose=verbose)
+
+            return df_bulk, df_meta
+
         id_cols = [c for c in self.ANNOT_COLS if c in df_tumor.columns and c in df_normal.columns]
         if gene_key not in id_cols:
             raise ValueError(f"`{gene_key}` must be an identifier column in both frames.")
@@ -182,6 +202,9 @@ class PRISM(object):
         else:
             df_meta = pd.DataFrame(index=df_bulk.columns)
 
+        _ = pdwritecsv(df_bulk, self.fname_bulk, self.root_singc, verbose=verbose)
+        _ = pdwritecsv(df_meta, self.fname_meta, self.root_singc, verbose=verbose)
+
         return df_bulk, df_meta
 
 
@@ -208,26 +231,26 @@ class PRISM(object):
         return qc
 
 
-    # =============================================================================
-    # 2. SINGLE-CELL REFERENCE  (scRNA-seq -> pseudobulk profiles per cell state)
-    # =============================================================================
+    """
+    =============================================================================
+    2. SINGLE-CELL REFERENCE  (scRNA-seq -> pseudobulk profiles per cell state)
+    =============================================================================
 
-    # Recommended PAAD scRNA references (download as .h5ad):
-    #   Peng et al. 2019, Cell Res  - CRA001160 (24 PDAC + 11 normal pancreas, ~57k cells)
-    #   Steele et al. 2020, Nat Cancer - GSE155698
-    #   Werba et al. 2023, Nat Commun  - GSE205013 (treatment-naive + treated)
-    #   Lin et al. 2020 - GSE154778 (metastatic)
-    #   Pre-annotated / harmonised: TISCH2 (PAAD_CRA001160), or the CellxGene PDAC collections.
+    Recommended PAAD scRNA references (download as .h5ad):
+      Peng et al. 2019, Cell Res  - CRA001160 (24 PDAC + 11 normal pancreas, ~57k cells)
+      Steele et al. 2020, Nat Cancer - GSE155698
+      Werba et al. 2023, Nat Commun  - GSE205013 (treatment-naive + treated)
+      Lin et al. 2020 - GSE154778 (metastatic)
+      Pre-annotated / harmonised: TISCH2 (PAAD_CRA001160), or the CellxGene PDAC collections.
     #
-    # Required .obs columns:
-    #   cell_type  : coarse compartment  (malignant, acinar, ductal, endocrine,
-    #                fibroblast, stellate, endothelial, T, NK, B, plasma,
-    #                myeloid, mast, ...)
-    #   cell_state : fine label used for deconvolution
-    #                (malignant_classical, malignant_basal, iCAF, myCAF, apCAF,
-    #                 CD8_exhausted, CD8_effector, Treg, TAM_C1QC, TAM_SPP1, ...)
-
-
+    Required .obs columns:
+      cell_type  : coarse compartment  (malignant, acinar, ductal, endocrine,
+                   fibroblast, stellate, endothelial, T, NK, B, plasma,
+                   myeloid, mast, ...)
+      cell_state : fine label used for deconvolution
+                   (malignant_classical, malignant_basal, iCAF, myCAF, apCAF,
+                   CD8_exhausted, CD8_effector, Treg, TAM_C1QC, TAM_SPP1, ...)
+    """
     def pseudobulk_reference(self,
         adata,
         state_key: str = "cell_state",
@@ -311,10 +334,11 @@ class PRISM(object):
         return sorted(markers)
 
 
-    # =============================================================================
-    # 3. THE ENGINE  (BayesPrism / InstaPrism fixed point)
-    # =============================================================================
-
+    '''
+    =============================================================================
+    3. THE ENGINE  (BayesPrism / InstaPrism fixed point)
+    =============================================================================
+    '''
 
     def _to_backend(self, *arrays, device: str = "cpu", dtype=np.float64):
         if device != "cpu" and _HAS_TORCH:
@@ -341,6 +365,7 @@ class PRISM(object):
         alpha : Dirichlet concentration on theta (alpha=1 -> flat prior = MLE,
                 which is BayesPrism's default).
         """
+
         try:
             S, G = X.shape
         except Exception as e:
@@ -493,14 +518,14 @@ class PRISM(object):
             theta2[s] = self.prism_em(X[s : s + 1], phi_s, max_iter=max_iter, tol=tol)[0]
         return theta2
 
-
-# =============================================================================
-# 4. ORCHESTRATOR
-# =============================================================================
-
-
+    '''
+    =============================================================================
+    4. ORCHESTRATOR
+    =============================================================================
+    '''
     def run_bayesprism(self, 
         df_bulk: pd.DataFrame,
+        meta_desc: dict, 
         ref: pd.DataFrame,
         state_to_type: pd.Series,
         malignant_types: Iterable[str] = ("malignant", "tumor", "epithelial_malignant"),
@@ -508,12 +533,22 @@ class PRISM(object):
         update_malignant_reference: bool = True,
         return_Z: bool = True,
         device: str = "cpu",
+        force: bool = False,
         verbose: bool = True,
     ) -> DeconvResult:
         """
         Full two-stage BayesPrism on `df_bulk` (genes x samples) with reference
         `ref` (states x genes).
         """
+
+        self.fname_dec = "deconv.h5ad"
+        filename_ad = self.root_singc / self.fname_dec
+
+        if filename_ad.exists() and not force:
+            res = DeconvResult.load(filename_ad, verbose=verbose)
+            return res
+
+
         # ---- align genes ----------------------------------------------------
         genes = df_bulk.index.intersection(ref.columns)
         if gene_subset is not None:
@@ -570,7 +605,7 @@ class PRISM(object):
         purity = th.iloc[:, mal_idx].sum(axis=1) if mal_idx else pd.Series(np.nan, index=idx)
         purity.name = "tumor_purity"
 
-        return DeconvResult(
+        res = DeconvResult(
             theta=th,
             theta_stage1=th1,
             theta_type=th_type,
@@ -580,12 +615,19 @@ class PRISM(object):
             states=states,
         )
 
+        res.save(
+            filename_ad,
+            meta=meta_desc,
+            verbose=verbose
+        )
 
-    # =============================================================================
-    # 5. BASELINES / CROSS-CHECKS
-    # =============================================================================
+        return res
 
-
+    '''
+    =============================================================================
+    5. BASELINES / CROSS-CHECKS
+    =============================================================================
+    '''
     def nnls_deconvolve(self, df_bulk: pd.DataFrame, 
                         ref: pd.DataFrame, genes=None) -> pd.DataFrame:
 
@@ -704,11 +746,12 @@ class PRISM(object):
         return adata
     
     
-    # =============================================================================
-    # ROUTE B -- CZ CELLxGENE Census (programmatic; run the query, then choose)
-    # =============================================================================
+    '''    
+    =============================================================================
+    ROUTE B -- CZ CELLxGENE Census (programmatic; run the query, then choose)
+    =============================================================================
     # pip install cellxgene-census
-    
+    '''    
     
     def census_find_pdac(self, census_version: str = "stable") -> pd.DataFrame:
         """
@@ -748,23 +791,22 @@ class PRISM(object):
             )
     
 
-    # =============================================================================
-    # ROUTE C -- GEO (processed matrices, need your own annotation)
-    # =============================================================================
-    #   GSE155698  Steele et al. 2020, Nat Cancer      16 PDAC + 3 adjacent
-    #   GSE154778  Lin et al. 2020                     primary + metastatic
-    #   GSE205013  Werba et al. 2023, Nat Commun       treatment-naive + treated
-    #   GSE165399  second TISCH2 PDAC cohort
-    #
-    # These ship as 10x barcodes/features/matrix triplets; read with
-    # scanpy.read_10x_mtx per sample and concatenate, then annotate yourself.
+    '''    
+    =============================================================================
+    ROUTE C -- GEO (processed matrices, need your own annotation)
+    =============================================================================
+       GSE155698  Steele et al. 2020, Nat Cancer      16 PDAC + 3 adjacent
+       GSE154778  Lin et al. 2020                     primary + metastatic
+       GSE205013  Werba et al. 2023, Nat Commun       treatment-naive + treated
+       GSE165399  second TISCH2 PDAC cohort
     
-    
-    # =============================================================================
-    # VALIDATION -- run this before handing anything to run_bayesprism
-    # =============================================================================
-    
-    
+    These ship as 10x barcodes/features/matrix triplets; read with
+    scanpy.read_10x_mtx per sample and concatenate, then annotate yourself.
+        
+    =============================================================================
+    VALIDATION -- run this before handing anything to run_bayesprism
+    =============================================================================
+    '''    
     def check_reference(self, adata,
                         state_key: str = "cell_state", 
                         type_key: str = "cell_type") -> dict:
@@ -815,22 +857,6 @@ class PRISM(object):
             )
         report["problems"] = problems
         return report
-
-    """
-    load_cra001160.py
-    =================
-    Convert the Peng 2019 GSA deposit into an AnnData ready for
-    `paad_deconv.pseudobulk_reference()`.
-    
-    Input (from ftp://download.big.ac.cn/gsa/CRA001160/):
-        count-matrix.txt   2.77 GB dense TSV, genes x cells
-        all_celltype.txt   2.1 MB, per-cell annotation
-    
-    The matrix is dense text: ~20k genes x ~57k cells is ~1.1e9 values, which is
-    10-13 GB as a dense float array but well under 1 GB as CSR, since scRNA counts
-    are >90% zeros. So it is parsed in row chunks and sparsified incrementally --
-    never materialised dense.
-    """
 
 
     def set_program_and_primary_site(self, prog_id:str, psi_id:str, verbose:bool=False) -> pd.DataFrame:
@@ -887,7 +913,19 @@ class PRISM(object):
 
         return True
 
-
+    """
+    Convert the Peng 2019 GSA deposit into an AnnData ready for
+    `paad_deconv.pseudobulk_reference()`.
+    
+    Input (from ftp://download.big.ac.cn/gsa/CRA001160/):
+        count-matrix.txt   2.77 GB dense TSV, genes x cells
+        all_celltype.txt   2.1 MB, per-cell annotation
+    
+    The matrix is dense text: ~20k genes x ~57k cells is ~1.1e9 values, which is
+    10-13 GB as a dense float array but well under 1 GB as CSR, since scRNA counts
+    are >90% zeros. So it is parsed in row chunks and sparsified incrementally --
+    never materialised dense.
+    """
     def load_matrix(self, 
         fname: str | Path,
         chunksize: int = 1000,
@@ -904,6 +942,8 @@ class PRISM(object):
         """
 
         fname_ad = str(fname).replace('.txt', '.h5ad')
+        if not fname_ad.endswith('.h5ad'):
+            fname_ad += '.h5ad'
         filename_ad = self.root_singc / fname_ad
 
         if filename_ad.exists() and not force:
@@ -957,14 +997,15 @@ class PRISM(object):
         print("\n\n------------------- end --------------------\n")
 
         adata.write_h5ad(filename_ad, compression=compression)
-        if verbose:print(f"AData saved as {filename_ad},  ({filename_ad.stat().st_size/1e6:.0f} MB), compressed with {compression}")
+        if verbose:
+            print(f"AData saved as {filename_ad},  ({filename_ad.stat().st_size/1e6:.0f} MB), compressed with {compression}")
 
         return adata
 
 
     def attach_celltypes(
         self,
-        adata,
+        adata: ad.AnnData,
         fname_celltype: str,
         type_col: str | None = None,
         state_col: str | None = None,
@@ -1025,7 +1066,7 @@ class DeconvResult:
     genes: list[str] = field(repr=False, default_factory=list)
     Z: np.ndarray | None = field(repr=False, default=None)      # S x K x G
     states: list[str] = field(repr=False, default_factory=list)
-
+ 
     def cell_type_expression(self, state: str, cpm: bool = True) -> pd.DataFrame:
         """Return the deconvolved expression of one cell state: genes x samples."""
         if self.Z is None:
@@ -1035,3 +1076,282 @@ class DeconvResult:
         if cpm:
             Zk = Zk.div(Zk.sum(axis=0).replace(0, np.nan), axis=1) * 1e6
         return Zk
+ 
+    # ------------------------------------------------------------------ #
+    # persistence — thin wrappers over the module-level functions below   #
+    # ------------------------------------------------------------------ #
+    def save(self, filename, **kw) -> str:
+        return save_deconv_result(self, filename, **kw)
+ 
+    @classmethod
+    def load(cls, filename, **kw) -> "DeconvResult":
+        return load_deconv_result(filename, cls=cls, **kw)
+ 
+    def summary(self) -> pd.DataFrame:
+        th = _as_frame(self.theta)
+        return pd.DataFrame({
+            "mean": th.mean(), "median": th.median(),
+            "min": th.min(), "max": th.max(),
+            "frac_below_2pct": (th < 0.02).mean(),
+        }).round(4)
+ 
+ 
+# =============================================================================
+# 7. PERSISTENCE FOR DeconvResult
+# =============================================================================
+# fmt="h5ad" : Z flattened to long format (obs = sample x state, X = genes),
+#              theta/purity in .uns. Reads back via the "long" layout.
+# fmt="h5"   : native 3-D tensor /Z (S, K, G), chunked along the sample axis.
+#
+# These are MODULE-LEVEL functions on purpose. They take no `self`; putting them
+# in a class body is what produced the _as_frame redeclaration.
+ 
+ 
+def _as_frame(obj, index=None, columns=None, name=None) -> pd.DataFrame | None:
+    """theta may be a DataFrame, ndarray or Series depending on the backend."""
+    if obj is None:
+        return None
+    if isinstance(obj, pd.DataFrame):
+        return obj
+    if isinstance(obj, pd.Series):
+        return obj.to_frame(name or "value")
+    arr = np.asarray(obj)
+    if arr.ndim == 1:
+        return pd.DataFrame({name or "value": arr}, index=index)
+    return pd.DataFrame(arr, index=index, columns=columns)
+ 
+ 
+def _samples_of(res) -> list[str]:
+    th = res.theta
+    if isinstance(th, (pd.DataFrame, pd.Series)):
+        return th.index.astype(str).tolist()
+    return [f"S{i:04d}" for i in range(np.asarray(th).shape[0])]
+ 
+ 
+def _vlen_str(g, key: str, values):
+    values = list(values)
+    if not values:                                   # h5py rejects empty object arrays
+        g.create_dataset(key, shape=(0,), dtype=h5py.string_dtype("utf-8"))
+        return
+    g.create_dataset(key, data=np.asarray(values, dtype=object),
+                     dtype=h5py.string_dtype("utf-8"))
+ 
+ 
+def _default_meta(extra: dict | None = None) -> dict:
+    meta = {"created": _dt.datetime.now().isoformat(timespec="seconds"),
+            "format_version": "1.0"}
+    if extra:
+        meta.update(extra)
+    return meta
+ 
+ 
+def save_deconv_result(res,
+                       filename: str | Path,
+                       fmt: str = "h5ad",
+                       dtype=np.float32,
+                       compression: str = "gzip",
+                       compression_opts: int = 4,
+                       meta: dict | None = None,
+                       verbose: bool = True) -> str:
+    """
+    dtype : float32 is right. EM fixed-point values carry nowhere near float64
+            precision and it halves the file.
+    meta  : provenance — reference dataset, strand mode, cohort, git hash.
+    """
+    filename = str(filename)                          # accept Path
+ 
+    samples = _samples_of(res)
+    states = list(res.states) if res.states else None
+    genes = list(res.genes)
+ 
+    th = _as_frame(res.theta, index=samples, columns=states)
+    if states is None and th is not None:
+        states = th.columns.astype(str).tolist()
+ 
+    th1 = _as_frame(res.theta_stage1, index=samples, columns=states)
+    tht = _as_frame(res.theta_type, index=samples)
+    pur = _as_frame(res.tumor_purity, index=samples, name="tumor_purity")
+ 
+    meta = _default_meta(meta)
+    meta.update(n_samples=len(samples), n_states=len(states or []),
+                n_genes=len(genes), has_Z=res.Z is not None)
+ 
+    if fmt == "h5ad":
+        filename = _save_h5ad(res, filename, samples, states, genes,
+                              th, th1, tht, pur, dtype, compression, meta)
+    elif fmt == "h5":
+        filename = _save_h5(res, filename, samples, states, genes,
+                            th, th1, tht, pur, dtype, compression,
+                            compression_opts, meta)
+    else:
+        raise ValueError("fmt must be 'h5ad' or 'h5'")
+ 
+    if verbose:
+        mb = os.path.getsize(filename) / 1e6
+        print(f"saved {filename} ({mb:,.1f} MB) | {len(samples)} samples x "
+              f"{len(states or [])} states x {len(genes)} genes"
+              f"{' | Z included' if res.Z is not None else ' | theta only'}")
+    return filename
+ 
+ 
+def _orient_Z(Z, n_samples: int, n_states: int) -> np.ndarray:
+    """Z must be (S, K, G). Fail loudly rather than guess."""
+    Z = np.asarray(Z)
+    if Z.ndim != 3:
+        raise ValueError(f"Z must be 3-D (S,K,G), got shape {Z.shape}")
+    if Z.shape[:2] == (n_samples, n_states):
+        return Z
+    if Z.shape[:2] == (n_states, n_samples):
+        warnings.warn("Z looked like (K,S,G); transposing to (S,K,G).")
+        return np.transpose(Z, (1, 0, 2))
+    raise ValueError(f"Z shape {Z.shape} matches neither (S,K,G)="
+                     f"({n_samples},{n_states},G) nor (K,S,G)")
+ 
+ 
+def _save_h5ad(res, filename, samples, states, genes, th, th1, tht, pur,
+               dtype, compression, meta):
+    if not filename.endswith(".h5ad"):
+        filename += ".h5ad"
+ 
+    if res.Z is not None:
+        Z = _orient_Z(res.Z, len(samples), len(states))
+        ns, nk, ng = Z.shape
+        X = Z.reshape(ns * nk, ng).astype(dtype)
+        obs = pd.DataFrame({
+            "sample": np.repeat(np.asarray(samples, dtype=object), nk),
+            "state": np.tile(np.asarray(states, dtype=object), ns),
+        })
+        obs.index = pd.Index(obs["sample"].astype(str) + "|" + obs["state"].astype(str))
+        obs["sample"] = obs["sample"].astype("category")
+        obs["state"] = obs["state"].astype("category")
+        adata = ad.AnnData(X=X, obs=obs,
+                           var=pd.DataFrame(index=pd.Index(genes, name="geneid")))
+    else:
+        adata = ad.AnnData(X=np.asarray(th.values, dtype=dtype),
+                           obs=pd.DataFrame(index=pd.Index(samples, name="sample")),
+                           var=pd.DataFrame(index=pd.Index(states, name="state")))
+ 
+    adata.uns["theta"] = th
+    if th1 is not None:
+        adata.uns["theta_stage1"] = th1
+    if tht is not None:
+        adata.uns["theta_type"] = tht
+    if pur is not None:
+        adata.uns["tumor_purity"] = pur
+    adata.uns["states"] = np.asarray(states, dtype=object)
+    adata.uns["sample_order"] = np.asarray(samples, dtype=object)
+    adata.uns["meta"] = json.dumps(meta)
+ 
+    adata.write_h5ad(filename, compression=compression)
+    return filename
+ 
+ 
+def _save_h5(res, filename, samples, states, genes, th, th1, tht, pur,
+             dtype, compression, compression_opts, meta):
+    if not filename.endswith((".h5", ".hdf5")):
+        filename += ".h5"
+ 
+    with h5py.File(filename, "w") as f:
+        f.attrs["meta"] = json.dumps(meta)
+        _vlen_str(f, "samples", samples)
+        _vlen_str(f, "states", states or [])
+        _vlen_str(f, "genes", genes)
+ 
+        if res.Z is not None:
+            Z = _orient_Z(res.Z, len(samples), len(states))
+            f.create_dataset("Z", data=Z.astype(dtype),
+                             chunks=(1, Z.shape[1], Z.shape[2]),
+                             compression=compression,
+                             compression_opts=compression_opts, shuffle=True)
+ 
+        for key, df in (("theta", th), ("theta_stage1", th1),
+                        ("theta_type", tht), ("tumor_purity", pur)):
+            if df is None:
+                continue
+            g = f.create_group(key)
+            g.create_dataset("values", data=np.asarray(df.values, dtype=np.float64),
+                             compression=compression)
+            _vlen_str(g, "index", df.index.astype(str))
+            _vlen_str(g, "columns", df.columns.astype(str))
+    return filename
+ 
+ 
+def load_deconv_result(filename: str | Path, cls=None, mmap: bool = False):
+    """
+    Returns a DeconvResult if `cls` is given, else a plain dict.
+ 
+    mmap=True (fmt='h5' only) leaves Z as an open h5py dataset — the file handle
+    stays open under out['_h5file'], so slice what you need and do not let the
+    object outlive the process.
+    """
+    filename = str(filename)
+    out = _load_h5ad(filename) if filename.endswith(".h5ad") else _load_h5(filename, mmap=mmap)
+ 
+    # tumor_purity is declared as a Series on the dataclass; it round-trips as a
+    # 1-column DataFrame, so squeeze it back.
+    pur = out.get("tumor_purity")
+    if isinstance(pur, pd.DataFrame) and pur.shape[1] == 1:
+        out["tumor_purity"] = pur.iloc[:, 0].rename("tumor_purity")
+ 
+    if cls is None or not is_dataclass(cls):
+        return out
+
+    valid = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in out.items() if k in valid})
+ 
+ 
+def _load_h5ad(filename):
+    adata = ad.read_h5ad(filename)
+    uns = adata.uns
+    meta = json.loads(str(uns.get("meta", "{}")))
+ 
+    Z = None
+    if {"sample", "state"}.issubset(adata.obs.columns):
+        states = [str(s) for s in np.asarray(uns["states"]).ravel()]
+        if "sample_order" in uns:
+            s_order = [str(s) for s in np.asarray(uns["sample_order"]).ravel()]
+        else:
+            s_order = adata.obs["sample"].astype(str).drop_duplicates().tolist()
+        nk, ng = len(states), adata.n_vars
+        if adata.n_obs != len(s_order) * nk:
+            raise ValueError(f"obs rows ({adata.n_obs}) != samples x states "
+                             f"({len(s_order)} x {nk}); file is inconsistent.")
+        X = adata.X.toarray() if hasattr(adata.X, "toarray") else np.asarray(adata.X)
+        Z = X.reshape(len(s_order), nk, ng)
+    else:
+        states = [str(s) for s in adata.var_names]
+ 
+    return dict(theta=uns.get("theta"), theta_stage1=uns.get("theta_stage1"),
+                theta_type=uns.get("theta_type"), tumor_purity=uns.get("tumor_purity"),
+                genes=adata.var_names.astype(str).tolist(), Z=Z,
+                states=states, meta=meta)
+ 
+ 
+def _load_h5(filename, mmap=False):
+    f = h5py.File(filename, "r")
+    meta = json.loads(f.attrs.get("meta", "{}"))
+ 
+    def _dec(v):
+        return v.decode() if isinstance(v, bytes) else str(v)
+ 
+    def _read_df(key):
+        if key not in f:
+            return None
+        g = f[key]
+        return pd.DataFrame(g["values"][:],
+                            index=[_dec(s) for s in g["index"][:]],
+                            columns=[_dec(s) for s in g["columns"][:]])
+ 
+    def _read_str(key):
+        return [_dec(s) for s in f[key][:]]
+ 
+    Z = f["Z"] if (mmap and "Z" in f) else (f["Z"][:] if "Z" in f else None)
+ 
+    out = dict(theta=_read_df("theta"), theta_stage1=_read_df("theta_stage1"),
+               theta_type=_read_df("theta_type"), tumor_purity=_read_df("tumor_purity"),
+               genes=_read_str("genes"), Z=Z, states=_read_str("states"), meta=meta)
+    if mmap:
+        out["_h5file"] = f
+    else:
+        f.close()
+    return out
