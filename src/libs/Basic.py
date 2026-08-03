@@ -287,7 +287,7 @@ def pdreadcsv(
 
     filename = path / filename
 
-    if not exists(filename):
+    if not filename.exists():
         print(f"File does not exist: '{filename}'")
         return pd.DataFrame()
 

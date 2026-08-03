@@ -523,6 +523,21 @@ class PRISM(object):
     4. ORCHESTRATOR
     =============================================================================
     '''
+
+    def open_bayesprism(self, 
+        verbose: bool = False,
+    ) -> DeconvResult | None:
+        self.fname_dec = "deconv.h5ad"
+        filename_ad = self.root_singc / self.fname_dec
+
+        if filename_ad.exists():
+            res = DeconvResult.load(filename_ad, verbose=verbose)
+            return res
+
+        print(f"Could not find deconvolution results: {filename_ad}")
+        return None
+        
+
     def run_bayesprism(self, 
         df_bulk: pd.DataFrame,
         meta_desc: dict, 
@@ -534,7 +549,7 @@ class PRISM(object):
         return_Z: bool = True,
         device: str = "cpu",
         force: bool = False,
-        verbose: bool = True,
+        verbose: bool = False,
     ) -> DeconvResult:
         """
         Full two-stage BayesPrism on `df_bulk` (genes x samples) with reference
