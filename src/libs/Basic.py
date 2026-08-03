@@ -271,6 +271,7 @@ def pdreadcsv(
     sep: str = "\t",
     dtype: dict = {},
     colnames: List = [],
+    index_col=-1,
     skiprows: int = 0,
     selcols: List = [],
     sortcols: List = [],
@@ -292,19 +293,34 @@ def pdreadcsv(
 
     try:
         if dtype == {}:
-            df = pd.read_csv(
-                filename, sep=sep, low_memory=low_memory, skiprows=skiprows, header=header
-            )
+            if index_col < 0:
+                df = pd.read_csv(
+                    filename, sep=sep, low_memory=low_memory, skiprows=skiprows, header=header,
+                )
+            else:
+                df = pd.read_csv(
+                    filename, sep=sep, low_memory=low_memory, skiprows=skiprows, header=header, index_col=index_col,
+                )
         else:
-            df = pd.read_csv(
-                filename,
-                sep=sep,
-                dtype=dtype,
-                low_memory=low_memory,
-                skiprows=skiprows,
-                header=header,
-            )
-
+            if index_col < 0:
+                df = pd.read_csv(
+                    filename,
+                    sep=sep,
+                    dtype=dtype,
+                    low_memory=low_memory,
+                    skiprows=skiprows,
+                    header=header,
+                )
+            else:
+                df = pd.read_csv(
+                    filename,
+                    sep=sep,
+                    dtype=dtype,
+                    low_memory=low_memory,
+                    skiprows=skiprows,
+                    header=header,
+                    index_col=index_col
+                )
     except Exception as e:
         print(f"Error reading csv/tsv '{filename}': {e}")
         return pd.DataFrame()

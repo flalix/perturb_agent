@@ -146,8 +146,8 @@ class PRISM(object):
         filename_meta = self.root_singc / self.fname_meta
 
         if filename_bulk.exists() and filename_meta.exists() and not force:
-            df_bulk = pdreadcsv(self.fname_bulk, self.root_singc, verbose=verbose)
-            df_meta = pdreadcsv(self.fname_meta, self.root_singc, verbose=verbose)
+            df_bulk = pdreadcsv(self.fname_bulk, self.root_singc, index_col=0, verbose=verbose)
+            df_meta = pdreadcsv(self.fname_meta, self.root_singc, index_col=0, verbose=verbose)
 
             return df_bulk, df_meta
 
@@ -202,8 +202,8 @@ class PRISM(object):
         else:
             df_meta = pd.DataFrame(index=df_bulk.columns)
 
-        _ = pdwritecsv(df_bulk, self.fname_bulk, self.root_singc, verbose=verbose)
-        _ = pdwritecsv(df_meta, self.fname_meta, self.root_singc, verbose=verbose)
+        _ = pdwritecsv(df_bulk, self.fname_bulk, self.root_singc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_meta, self.fname_meta, self.root_singc, index=True, verbose=verbose)
 
         return df_bulk, df_meta
 
