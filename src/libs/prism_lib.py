@@ -1276,7 +1276,7 @@ def _save_h5(res, filename, samples, states, genes, th, th1, tht, pur,
     return filename
  
  
-def load_deconv_result(filename: str | Path, cls=None, mmap: bool = False):
+def load_deconv_result(filename: str | Path, cls=None, mmap: bool = False, verbose: bool = False):
     """
     Returns a DeconvResult if `cls` is given, else a plain dict.
  
@@ -1297,6 +1297,11 @@ def load_deconv_result(filename: str | Path, cls=None, mmap: bool = False):
         return out
 
     valid = {f.name for f in fields(cls)}
+
+    if verbose:
+        mb = os.path.getsize(filename) / 1e6
+        print(f"Loaded {filename} ({mb:,.1f} MB)")
+            
     return cls(**{k: v for k, v in out.items() if k in valid})
  
  
