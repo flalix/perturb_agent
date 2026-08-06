@@ -21,6 +21,8 @@ dependencies = [
     "torch", 
 
     "cellxgene_census", 
+    "huggingface-hub",
+    "duckdb",
     "rpy2", 
 
     # Clustering / VCF

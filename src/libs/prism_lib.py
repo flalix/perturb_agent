@@ -77,7 +77,7 @@ except Exception:  # pragma: no cover
 
 # genes that must be removed before deconvolution (BayesPrism cleanup.genes)
 _DROP_REGEX = re.compile(
-    r"^(MT-|MTRNR|MTATP|MTCO|MTCYB|MTND|MTRF|"      # mitochondrial
+    r"^(MT-|MTRNR|MTATP|MTCO|MTCYB|MTND|MTRF|"       # mitochondrial
     r"RPL\d|RPS\d|RPLP\d|RPSA$|"                     # cytosolic ribosomal
     r"MRPL\d|MRPS\d|"                                # mito-ribosomal
     r"HB[ABDEGQZ]\d?$|"                              # hemoglobin (blood contam.)
@@ -271,7 +271,6 @@ class PRISM(object):
         ref   : DataFrame (states x genes) of summed raw counts
         s2t   : Series mapping cell_state -> cell_type
         """
-        import scipy.sparse as sp
 
         X = adata.layers[layer] if layer else adata.X
         if not sp.issparse(X):
@@ -648,6 +647,18 @@ class PRISM(object):
 
         """
         Fast NNLS baseline on CPM signature space (dtangle/CIBERSORT-like).
+        It's the baseline cross-check — deliberately not part of the main path. It's there so you can ask "is my reference sane?" without trusting the engine you're validating.
+
+        What it computes. For each sample independently, it solves
+
+        min_w  ||Φᵀw − b_s||²    subject to  w ≥ 0
+
+        where 
+            b_s is the sample's CPM vector and 
+            Φᵀ is the genes × states signature matrix (each state row CPM-normalized). 
+            
+        Then it rescales w to sum to 1. That's the dtangle / CIBERSORT family: linear unmixing under a Gaussian loss.
+
         """
 
         g = df_bulk.index.intersection(ref.columns)
