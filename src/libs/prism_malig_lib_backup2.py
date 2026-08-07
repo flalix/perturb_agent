@@ -52,8 +52,6 @@ Design notes that matter more than the code
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -132,7 +130,6 @@ class MalignantCluster:
 
     def __init__(self, prism, res, df_bulk, ref,
                  root_mprog_cluster: Path,
-                 organ: str = "Pancreas",
                  cell_name: str = "Ductal cell type 2",
                  cell_types: Optional[Sequence[str]] = None):
 
@@ -141,7 +138,6 @@ class MalignantCluster:
         create_dir(self.root_mprog_cluster)
 
         self.cell_name = cell_name
-        self.organ = organ
         self.df_theta = res.theta
 
         if self.cell_name not in self.df_theta.columns:
@@ -181,38 +177,22 @@ class MalignantCluster:
         self, 
         ks: Iterable[int] = range(2, 9),
         tahoe: bool = False,
-        tahoe_kw: Optional[Dict] = None,
         **kw,
     ):
-        """Cluster the malignant compartment; optionally anchor against Tahoe.
 
-        `**kw` goes to prepare_malignant_matrix; `tahoe_kw` to load_tahoe_de
-        (e.g. dict(mode="download", local_dir=..., hf_token=..., threads=2)).
-        """
         X, diag = self.prepare_malignant_matrix(keep_genes=self.program1_panel, **kw)
         cc = self.consensus_cluster(X, ks=ks)
         k = self.choose_k(cc)
         labels = cc[k]["labels"]
         sig = self.cluster_signatures(X, labels)
 
-        out = {"X": X, "diag": diag, "consensus": cc, "k": k,
-               "labels": labels, "signatures": sig}
+        res = {"X": X, "diag": diag, "consensus": cc, "k": k,
+            "labels": labels, "signatures": sig}
 
         if tahoe:
-            # genes=X.columns is not optional: without it the pancreas subset
-            # is ~5e8 rows. Callers may override, but never silently drop it.
-            tkw = {"organs": (self.organ,), "genes": X.columns,
-                   "local_dir": self.tahoe_dir(),
-                   "save_to": self.tahoe_derived_dir()}
-            tkw.update(tahoe_kw or {})
-            if tkw.get("genes") is None:
-                warnings.warn(
-                    "run(tahoe=True) with genes=None will pull the full gene "
-                    "universe and is likely to exhaust memory.")
-            S, cond = self.load_tahoe_de(**tkw)
-            out["tahoe"] = self.score_clusters_vs_tahoe(sig, S, cond)
-            out["tahoe_S"], out["tahoe_cond"] = S, cond
-        return out
+            S, cond = self.load_tahoe_de(organs=("Pancreas",))
+            res["tahoe"] = self.score_clusters_vs_tahoe(sig, S, cond)
+        return res
 
 
     def from_full_Z(
@@ -265,9 +245,7 @@ class MalignantCluster:
                                      .values, dtype=float)
                           for c in cell_types], axis=2)
         else:
-            A = np.asarray(Z_full)
-            if A.dtype.kind != "f":            # keep f32 as f32
-                A = A.astype(np.float32)
+            A = np.asarray(Z_full, dtype=float)
         if A.ndim != 3:
             raise ValueError(
                 f"expected a 3-D (sample, gene, cell-type) array or a dict of "
@@ -301,21 +279,14 @@ class MalignantCluster:
             raise KeyError(f"'{cell_name}' not in cell_types {cts}")
         ci = cts.index(cell_name)
 
-        Zc = pd.DataFrame(np.ascontiguousarray(A[:, :, ci]),
-                          index=idx, columns=genes)
-        # Accumulate the denominator in f64, then divide in place and store the
-        # share as f32: at 300 x 60k x 10 the naive version holds three extra
-        # f64 copies of a samples x genes plane.
-        total = A.sum(axis=2, dtype=np.float64)
+        Zc = pd.DataFrame(A[:, :, ci], index=idx, columns=genes)
+        total = A.sum(axis=2)
         with np.errstate(invalid="ignore", divide="ignore"):
-            zero = total == 0
-            np.divide(A[:, :, ci], total, out=total, where=~zero)
-            total[zero] = np.nan
-        share = pd.DataFrame(total.astype(np.float32), index=idx, columns=genes)
-        del total, zero
+            share = pd.DataFrame(np.where(total > 0, A[:, :, ci] / total, np.nan),
+                                index=idx, columns=genes)
 
         if df_theta is None:
-            m = A.sum(axis=1, dtype=np.float64)
+            m = A.sum(axis=1)
             df_theta = pd.DataFrame(m / m.sum(axis=1, keepdims=True),
                                 index=idx, columns=cts)
             theta_source = "derived from Z_full (Z-implied, not theta_f)"
@@ -778,131 +749,12 @@ class MalignantCluster:
     # 5. Tahoe-100M perturbation reference
     # ===========================================================================
 
-    # --- where Tahoe lives on disk -------------------------------------------
-    _TAHOE_SMALL = ["metadata/cell_line_metadata.parquet",
-                    "metadata/drug_metadata.parquet",
-                    "metadata/gene_metadata.parquet",
-                    "metadata/sample_metadata.parquet"]
-    _TAHOE_DE_GLOB = "metadata/pseudobulk_differential_expression/*.parquet"
-
-    def tahoe_dir(self, local_dir=None) -> Path:
-        """Resolve (and create) the directory Tahoe files are kept in."""
-        d = Path(local_dir) if local_dir is not None \
-            else Path(self.root_mprog_cluster) / "tahoe"
-        create_dir(d)
-        return d
-
-    def tahoe_derived_dir(self, save_to=None) -> Path:
-        """Where derived S/cond parquet is cached. Defaults to
-        `<root_mprog_cluster>/tahoe/derived` so every call site shares it."""
-        d = Path(save_to) if save_to not in (None, True) \
-            else self.tahoe_dir() / "derived"
-        create_dir(d)
-        return d
-
-    def download_tahoe(self, local_dir=None, de: bool = False,
-                       force: bool = False) -> Path:
-        """Download Tahoe-100M metadata into a plain directory of your choice.
-
-        Parameters
-        ----------
-        local_dir
-            Target directory. Real files are written here (not the HF
-            blobs/snapshots cache layout), so the tree is portable and you can
-            point `load_tahoe_de(local_dir=...)` at it later, or move it to a
-            scratch volume. Defaults to `<root_mprog_cluster>/tahoe`.
-        de
-            Also pull the pseudobulk DE table. This is the expensive part: 21
-            parquet shards covering 4.09e9 rows. Leave it False and use
-            `mode="stream"` unless you need repeated offline access.
-
-        Note
-        ----
-        `allow_patterns=["metadata/*"]` would also drag down obs_metadata
-        (101M rows) and the whole DE table. The small tables below are a few MB
-        total, which is all `load_tahoe_de` needs for cell-line/drug lookup.
-        """
-        from huggingface_hub import snapshot_download
-
-        d = self.tahoe_dir(local_dir)
-        patterns = list(self._TAHOE_SMALL)
-        if de:
-            patterns.append(self._TAHOE_DE_GLOB)
-
-        snapshot_download(
-            repo_id=self._TAHOE_REPO,
-            repo_type="dataset",
-            allow_patterns=patterns,
-            local_dir=str(d),
-            force_download=force,
-        )
-        return d
-
-    @staticmethod
-    def _tahoe_cache_key(organs, cell_lines, drugs, genes) -> str:
-        """Short hash of the query so different filters get different files.
-
-        Keying the cache on the directory alone means changing `genes` (which
-        run() derives from X.columns, so it moves whenever n_hvg/min_share
-        change) silently returns a stale signature matrix.
-        """
-        payload = json.dumps({
-            "organs": sorted(map(str, organs)) if organs else None,
-            "cell_lines": sorted(map(str, cell_lines)) if cell_lines else None,
-            "drugs": sorted(map(str, drugs)) if drugs else None,
-            "genes": sorted({str(g) for g in genes}) if genes is not None else None,
-        }, sort_keys=True)
-        return hashlib.sha1(payload.encode()).hexdigest()[:12]
-
-    @staticmethod
-    def _duck_retry(con, query: str, retries: int = 8, wait_s: float = 5.0):
-        """Run a DuckDB query, backing off on HTTP 429/5xx.
-
-        HF returns 429 when a scan fans out across many shards at once. Backoff
-        is exponential and capped; non-HTTP errors are re-raised immediately so
-        real bugs are not retried.
-        """
-        import time
-        last = None
-        for attempt in range(retries):
-            try:
-                return con.execute(query).df()
-            except Exception as e:                       # duckdb.HTTPException
-                msg = str(e)
-                retryable = any(c in msg for c in
-                                ("429", "Too Many Requests", "503", "504",
-                                 "500", "connection", "timeout", "Timeout"))
-                if not retryable:
-                    raise
-                last = e
-                sleep = min(wait_s * (2 ** attempt), 120.0)
-                warnings.warn(
-                    f"Tahoe query attempt {attempt + 1}/{retries} failed "
-                    f"({msg.splitlines()[0][:90]}); retrying in {sleep:.0f}s.")
-                time.sleep(sleep)
-        raise RuntimeError(
-            f"Tahoe query failed after {retries} attempts. Last error: {last}\n"
-            "Options: set HF_TOKEN, lower threads=, or switch to "
-            "mode='download' for a one-off local copy."
-        ) from last
-
     def load_tahoe_de(
         self,
         organs: Optional[Sequence[str]] = ("Pancreas",),
         cell_lines: Optional[Sequence[str]] = None,
         drugs: Optional[Sequence[str]] = None,
-        genes: Optional[Sequence[str]] = None,
-        local_dir=None,
-        mode: str = "stream",
-        save_to=None,
-        force: bool = False,
-        memory_limit: str = "8GB",
-        temp_dir=None,
-        threads: Optional[int] = 4,
-        hf_token: Optional[str] = None,
-        http_retries: int = 8,
-        http_retry_wait_s: float = 5.0,
-        dtype=np.float32,
+        cache_dir: Optional[str] = None,
         stat_col: Optional[str] = None,
         gene_col: Optional[str] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -915,110 +767,33 @@ class MalignantCluster:
         cond : DataFrame
             Condition metadata (cell line, organ, drug, MOA, targets).
 
-        Parameters
-        ----------
-        local_dir
-            Where the small metadata tables are kept (and the DE shards, if
-            `mode="download"`). Defaults to `<root_mprog_cluster>/tahoe`.
-        mode
-            "stream" (default) queries the DE parquet shards directly over
-            `hf://` with DuckDB and only materialises the filtered subset --
-            nothing large touches disk. "download" fetches all 21 shards into
-            `local_dir` first, which is worth it only if you will re-query many
-            times offline.
-        save_to
-            Directory to persist the derived `S` / `cond` as parquet. Defaults
-            to `<root_mprog_cluster>/tahoe/derived`, so `run()` and ad-hoc
-            calls share one cache. Files are keyed by a hash of
-            organs/cell_lines/drugs/genes, so changing any filter re-queries
-            rather than returning a stale matrix. Pass `save_to=False` to
-            disable caching entirely.
-
-        genes
-            Restrict the gene universe. **Pass this.** Without it the pancreas
-            subset alone is ~5e8 rows (~6 lines x 379 drugs x ~4 doses x ~54k
-            genes), which is >100 GB as an object-dtype pandas frame before
-            pivoting -- the usual cause of an OOM here. Passing `X.columns`
-            (your HVG set) cuts it by 25-30x.
-
-            Restricting the universe does change the enrichment scores: ES is
-            computed over the ranked list you supply, so a 2k-gene universe is
-            a different null than a 54k one. This is the same trade CMap makes
-            with its 978 landmark genes, and it is defensible provided you say
-            so -- but do not mix scores computed over different universes.
-        memory_limit, temp_dir
-            Passed to DuckDB. With a temp dir set, DuckDB spills to disk rather
-            than being OOM-killed.
-
         Notes
         -----
-        Aggregation and pivoting happen per cell line inside DuckDB; only the
-        genes x conditions block for one line is ever in memory. Column names
+        The DE table lives under `metadata/pseudobulk_differential_expression/`
+        (~4.1e9 rows across all conditions), so we push the cell-line and drug
+        filters into the parquet scan rather than materialising it. Column names
         have shifted between revisions of the dataset card, so the schema is
-        sniffed at runtime; override with `stat_col` / `gene_col` if the
-        sniffing picks the wrong one.
+        sniffed at runtime; override with `stat_col` / `gene_col` if the sniffing
+        picks the wrong one.
         """
+        import pyarrow.dataset as ds  # noqa: F401  (kept for the local-path branch)
+        from huggingface_hub import snapshot_download
         import duckdb
 
-        if mode not in ("stream", "download"):
-            raise ValueError(f"mode must be 'stream' or 'download', got {mode!r}")
-
-        d = self.tahoe_dir(local_dir)
-
-        # --- reuse a previously saved result --------------------------------
-        # save_to=False disables caching; None means "use the default dir".
-        if save_to is not False:
-            sd = self.tahoe_derived_dir(save_to)
-            key = self._tahoe_cache_key(organs, cell_lines, drugs, genes)
-            f_S = sd / f"tahoe_S_{key}.parquet"
-            f_c = sd / f"tahoe_cond_{key}.parquet"
-            if f_S.exists() and f_c.exists() and not force:
-                return pd.read_parquet(f_S), pd.read_parquet(f_c)
-
-        # --- small tables always local (a few MB) ---------------------------
-        need = [Path(d) / f for f in self._TAHOE_SMALL[:2]]
-        if force or not all(f.exists() for f in need):
-            self.download_tahoe(local_dir=d, de=False, force=force)
-
+        local = snapshot_download(
+            repo_id=self._TAHOE_REPO,
+            repo_type="dataset",
+            allow_patterns=["metadata/*"],
+            cache_dir=cache_dir,
+        )
+        de_glob = os.path.join(local, "metadata", "pseudobulk_differential_expression", "*.parquet")
         con = duckdb.connect()
-        con.execute(f"SET memory_limit='{memory_limit}'")
-        con.execute("SET preserve_insertion_order=false")
-        if temp_dir is not None:
-            create_dir(temp_dir)
-            con.execute(f"SET temp_directory='{temp_dir}'")
-
-        if threads:
-            con.execute(f"SET threads={int(threads)}")
-
-        if mode == "stream":
-            con.execute("INSTALL httpfs; LOAD httpfs;")
-            # Anonymous HF requests are rate-limited far more aggressively than
-            # authenticated ones; a token is the single most effective fix for
-            # HTTP 429 on this table.
-            tok = hf_token or os.environ.get("HF_TOKEN") or os.environ.get(
-                "HUGGING_FACE_HUB_TOKEN")
-            if tok:
-                con.execute(
-                    f"CREATE OR REPLACE SECRET hf_tok "
-                    f"(TYPE huggingface, TOKEN '{tok}')")
-            else:
-                warnings.warn(
-                    "No HF_TOKEN found. Streaming ~1026 remote parquet shards "
-                    "anonymously will likely hit HTTP 429. Set HF_TOKEN, or "
-                    "use mode='download'.")
-            de_glob = (f"hf://datasets/{self._TAHOE_REPO}/"
-                       "metadata/pseudobulk_differential_expression/*.parquet")
-        elif mode == "download":
-            de_dir = Path(d) / "metadata" / "pseudobulk_differential_expression"
-            if force or not any(de_dir.glob("*.parquet")):
-                self.download_tahoe(local_dir=d, de=True, force=force)
-            de_glob = str(de_dir / "*.parquet")
 
         cl_meta = con.execute(
-            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'cell_line_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{os.path.join(local,'metadata','cell_line_metadata.parquet')}')"
         ).df()
         drug_meta = con.execute(
-            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'drug_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{os.path.join(local,'metadata','drug_metadata.parquet')}')"
         ).df()
 
         # --- resolve which cell lines we want ----------------------------------
@@ -1054,48 +829,23 @@ class MalignantCluster:
         ccol = _pick(["cell_line_id", "cell_id_cellosaur", "cell_line"], None)
         dcol = _pick(["drug", "drugname_drugconc", "treatment"], None)
 
-        # --- per-cell-line fetch: one genes x conditions block at a time ----
-        gene_filter = ""
-        if genes is not None:
-            g_list = sorted({str(g) for g in genes})
-            con.execute("CREATE TEMP TABLE _qgenes(gene VARCHAR)")
-            con.register("_qg_df", pd.DataFrame({"gene": g_list}))
-            con.execute("INSERT INTO _qgenes SELECT gene FROM _qg_df")
-            gene_filter = f" AND {gcol} IN (SELECT gene FROM _qgenes)"
-        else:
-            warnings.warn(
-                "load_tahoe_de(genes=None): pulling the full ~54k-gene universe. "
-                "For the pancreas subset this is ~5e8 rows and will exhaust a "
-                "64 GB machine. Pass genes=X.columns.")
-
-        drug_filter = ""
+        where = [f"{ccol} IN ({','.join(repr(x) for x in cvcl)})"]
         if drugs:
-            drug_filter = f" AND {dcol} IN ({','.join(repr(str(x)) for x in drugs)})"
+            where.append(f"{dcol} IN ({','.join(repr(x) for x in drugs)})")
 
-        # One scan of the shard set for every cell line at once. The DE table
-        # is ~1026 remote parquet shards; looping per cell line re-scans all of
-        # them each time and gets you rate-limited (HTTP 429). With `genes`
-        # restricted the combined result is small enough to pivot in pandas.
-        cl_in = ",".join(repr(str(x)) for x in cvcl)
         q = f"""
-            SELECT {ccol} AS cell_line_id, {dcol} AS drug, {gcol} AS gene,
-                   avg({scol}) AS stat
+            SELECT {ccol} AS cell_line_id, {dcol} AS drug,
+                {gcol} AS gene, {scol} AS stat
             FROM read_parquet('{de_glob}')
-            WHERE {ccol} IN ({cl_in}){gene_filter}{drug_filter}
-            GROUP BY 1, 2, 3
+            WHERE {' AND '.join(where)}
         """
-        df = self._duck_retry(con, q, retries=http_retries,
-                              wait_s=http_retry_wait_s)
+        df = con.execute(q).df()
         if df.empty:
             raise ValueError("Tahoe DE query returned nothing -- check filters.")
 
-        df["stat"] = df["stat"].astype(dtype)
-        df["condition"] = df["cell_line_id"].astype(str) + "|" + df["drug"].astype(str)
-        S = (df.pivot(index="gene", columns="condition", values="stat")
-               .astype(dtype))
-        blocks = [S]
-
-        del blocks
+        df["condition"] = df["cell_line_id"] + "|" + df["drug"].astype(str)
+        S = df.pivot_table(index="gene", columns="condition",
+                        values="stat", aggfunc="mean")
 
         cond = (df[["condition", "cell_line_id", "drug"]]
                 .drop_duplicates()
@@ -1106,22 +856,7 @@ class MalignantCluster:
                                 "human-approved"]],
                     on="drug", how="left")
                 .set_index("condition"))
-        cond = cond.loc[S.columns]
-
-        if save_to is not False:
-            S.to_parquet(f_S)
-            cond.to_parquet(f_c)
-            (sd / f"tahoe_manifest_{key}.json").write_text(json.dumps({
-                "organs": list(organs) if organs else None,
-                "cell_lines": list(cell_lines) if cell_lines else None,
-                "drugs": list(drugs) if drugs else None,
-                "n_genes": None if genes is None else len(set(map(str, genes))),
-                "genes_sha1": key,
-                "n_conditions": int(S.shape[1]),
-                "repo": self._TAHOE_REPO,
-            }, indent=2))
-
-        return S, cond
+        return S, cond.loc[S.columns]
 
 
     # --- CMap-style connectivity ------------------------------------------------
@@ -1273,4 +1008,3 @@ class MalignantCluster:
 
         return pd.DataFrame(_cos(cents.values, shifts),
                             index=cents.index, columns=pert_emb.index)
-    
