@@ -16,7 +16,7 @@ Pipeline
 --------
     init()                                  # -> MalignantState
         |
-    prepare_malignant_matrix()              # compartment CPM, share filter,
+    prepare_malignant_matrix()              # compartment CPM, df_share filter,
         |                                   # purity decoupling, HVG
     consensus_cluster()                     # k selection via PAC / silhouette
         |
@@ -52,10 +52,12 @@ Design notes that matter more than the code
 
 from __future__ import annotations
 
+import glob
 import os
+import re
 import warnings
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -66,7 +68,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 
-from libs.Basic import pdwritecsv, create_dir
+from libs.Basic import pdreadcsv, pdwritecsv, create_dir
 
 
 __all__ = ["MalignantState", "MalignantCluster"]
@@ -83,7 +85,7 @@ class MalignantState:
     df_theta: pd.DataFrame                   # samples x cell types
     cell_name: str = "malignant"
     Z_all: Optional[Dict[str, pd.DataFrame]] = None   # ct -> samples x genes
-    share: Optional[pd.DataFrame] = None  # samples x genes, malignant fraction
+    df_share: Optional[pd.DataFrame] = None  # samples x genes, malignant fraction
     meta: Dict = field(default_factory=dict)
 
     @property
@@ -96,12 +98,11 @@ class MalignantState:
         if self.Z_all is None:
             raise ValueError(
                 "Z_all is required. Re-run prism.open_bayesprism() so that "
-                "Z_all/ is populated, or supply `share=` directly (e.g. from "
+                "Z_all/ is populated, or supply `df_share=` directly (e.g. from "
                 "PRISM.gene_compartment_share_nnls)."
             )
 
         genes = self.Z.columns
-
         if isinstance(self.Z_all, dict):
             total = np.zeros(self.Z.shape, dtype=float)
             for ct, Zct in self.Z_all.items():
@@ -116,30 +117,27 @@ class MalignantState:
         with np.errstate(invalid="ignore", divide="ignore"):
             sh = np.where(total > 0, self.Z.values / total, np.nan)
 
-        self.share = pd.DataFrame(sh, index=self.Z.index, columns=genes)
+        self.df_share = pd.DataFrame(sh, index=self.Z.index, columns=genes)
 
-        return self.share
+        return self.df_share
 
 
+@dataclass
 class MalignantCluster:
-    """Driver: BayesPrism `res` -> malignant-compartment sample clusters.
+    """Everything pulled out of a BayesPrism `res` for one compartment."""
 
-    Holds the deconvolution inputs so the pipeline can be re-run with
-    different filters without re-deconvolving.
-    """
-
+ 
     def __init__(self, prism, res, df_bulk, ref,
                  root_mprog_cluster: Path,
                  cell_name: str = "Ductal cell type 2",
                  cell_types: Optional[Sequence[str]] = None):
 
         self.prism, self.res, self.df_bulk, self.ref = prism, res, df_bulk, ref
-        self.root_mprog_cluster = Path(root_mprog_cluster)
-        create_dir(self.root_mprog_cluster)
-
+        self.root_mprog_cluster = create_dir(root_mprog_cluster)
+ 
         self.cell_name = cell_name
-        self.df_theta = res.theta
-
+        self.df_theta = res.df_theta
+ 
         if self.cell_name not in self.df_theta.columns:
             raise KeyError(
                 f"'{self.cell_name}' not in df_theta columns {list(self.df_theta.columns)}. "
@@ -150,13 +148,13 @@ class MalignantCluster:
         self.program1_panel = ("FAM83A-AS1", "TFAP2A-AS2", "HOXA10-AS",
                                "HOXB-AS3", "HOXB-AS4", "LEMD1-AS1", "MIR7-3HG")
         self._TAHOE_REPO = "tahoebio/Tahoe-100M"
-
+ 
         self.Z_full, self.genes_full = prism.full_Z(res, df_bulk, ref)
         self.Z_mal = prism.state_expression(self.Z_full, self.genes_full,
                                             res, self.cell_name)
         self.cell_types = (list(cell_types) if cell_types is not None
                            else list(self.df_theta.columns))
-
+ 
         # Route through from_full_Z so axis resolution, the state_expression
         # concordance check and recovered-gene bookkeeping actually run.
         self.ms = self.from_full_Z(
@@ -169,6 +167,7 @@ class MalignantCluster:
             recovered_genes=self.program1_panel,
         )
         self.Z = self.ms.Z
+
 
     # ===========================================================================
     # 1. run --> end-to-end convenience
@@ -209,7 +208,7 @@ class MalignantCluster:
         """Build a MalignantState straight from `prism.full_Z(res, df_bulk, ref)`.
 
         Preferred over `load_bayesprism_export` -- no R round-trip, and the
-        per-gene compartment share is exact rather than reconstructed.
+        per-gene compartment df_share is exact rather than reconstructed.
 
             Z_full, genes_full = prism.full_Z(res, df_bulk, ref)
             Zmal = prism.state_expression(Z_full, genes_full, res, "Ductal cell type 2")
@@ -235,21 +234,12 @@ class MalignantCluster:
             post-hoc (your HOX-antisense / MIR7-3HG panel). These are recorded in
             `meta` and treated separately downstream -- see the note below.
         """
-        if isinstance(Z_full, dict):
-            cell_types = list(Z_full.keys())
-            first = next(iter(Z_full.values()))
-            if samples is None:
-                samples = list(first.index)
-            A = np.stack([np.asarray(pd.DataFrame(Z_full[c])
-                                     .reindex(index=samples, columns=genes_full)
-                                     .values, dtype=float)
-                          for c in cell_types], axis=2)
-        else:
-            A = np.asarray(Z_full, dtype=float)
+        A = np.asarray(Z_full, dtype=float)
         if A.ndim != 3:
             raise ValueError(
-                f"expected a 3-D (sample, gene, cell-type) array or a dict of "
-                f"2-D matrices from full_Z, got shape {getattr(A, 'shape', None)}."
+                f"expected a 3-D (sample, gene, cell-type) array from full_Z, "
+                f"got shape {A.shape}. If your full_Z returns a dict of 2-D "
+                f"matrices keyed by cell type, pass it as MalignantState(Z_all=...)"
             )
 
         genes, cts = list(genes_full), list(cell_types)
@@ -282,7 +272,7 @@ class MalignantCluster:
         Zc = pd.DataFrame(A[:, :, ci], index=idx, columns=genes)
         total = A.sum(axis=2)
         with np.errstate(invalid="ignore", divide="ignore"):
-            share = pd.DataFrame(np.where(total > 0, A[:, :, ci] / total, np.nan),
+            df_share = pd.DataFrame(np.where(total > 0, A[:, :, ci] / total, np.nan),
                                 index=idx, columns=genes)
 
         if df_theta is None:
@@ -302,23 +292,7 @@ class MalignantCluster:
 
         # Cross-check state_expression output against the Z_full slice.
         if Z_mal is not None:
-            Zm = pd.DataFrame(Z_mal)
-            # state_expression may hand back genes x samples; detect and fix,
-            # otherwise the reindex below yields an all-NaN frame and every
-            # gene silently fails the share filter.
-            hit_rows = Zm.index.isin(idx).mean()
-            hit_cols = Zm.columns.isin(idx).mean()
-            if hit_cols > hit_rows:
-                warnings.warn(
-                    f"Z_mal looks transposed (index matches samples at "
-                    f"{hit_rows:.0%}, columns at {hit_cols:.0%}); transposing.")
-                Zm = Zm.T
-            if not Zm.index.isin(idx).any():
-                raise ValueError(
-                    "Z_mal shares no index labels with the sample index. "
-                    f"Z_mal index[:3]={list(Zm.index[:3])}, "
-                    f"expected sample labels like {list(idx[:3])}.")
-            Zm = Zm.reindex(index=idx)
+            Zm = pd.DataFrame(Z_mal).reindex(index=idx)
             common = [g for g in Zm.columns if g in Zc.columns]
             if common:
                 r = np.corrcoef(Zm[common].values.ravel(),
@@ -335,10 +309,10 @@ class MalignantCluster:
             if extra:
                 meta["genes_only_in_state_expression"] = extra
             Zc = Zm.reindex(columns=Zm.columns)
-            share = share.reindex(columns=Zc.columns)
+            df_share = df_share.reindex(columns=Zc.columns)
 
         return MalignantState(Z=Zc, df_theta=df_theta, cell_name=cell_name,
-                            share=share, meta=meta)
+                              df_share=df_share, meta=meta)
 
 
     # ===========================================================================
@@ -407,14 +381,12 @@ class MalignantCluster:
         expressed = (Z.median(axis=0) >= min_counts)
         diag["n_genes_expressed"] = int(expressed.sum())
 
-        if self.ms.share is not None:
-            sh = self.ms.share.reindex(index=Z.index, columns=Z.columns)
-            computable = sh.notna().any(axis=0)
+        if self.ms.df_share is not None:
+            sh = self.ms.df_share.loc[Z.index, Z.columns]
             share_ok = (sh >= min_share).mean(axis=0) >= share_frac_samples
-            diag["n_genes_share_not_computable"] = int((~computable).sum())
         else:
             warnings.warn(
-                "No per-gene malignant share available -- shrinkage guard is OFF. "
+                "No per-gene malignant df_share available -- shrinkage guard is OFF. "
                 "Interpret clusters with corresponding caution."
             )
             share_ok = pd.Series(True, index=Z.columns)
@@ -424,47 +396,16 @@ class MalignantCluster:
         forced = []
         if keep_genes:
             forced = [g for g in keep_genes if g in logx.columns]
-            # "no_share" != "failed": recovered loci absent from Z_full have
-            # no computable share and would be dropped for lack of data, not
-            # for lack of compartment specificity.
-            _sh_ok = locals().get("computable")
-            diag["forced_genes_status"] = {
-                g: ("passed" if bool(keep_g.get(g, False))
-                    else ("no_share" if (_sh_ok is not None
-                                         and not bool(_sh_ok.get(g, False)))
-                          else "failed"))
-                for g in forced
+            diag["forced_genes_passing_filters"] = {
+                g: bool(keep_g.get(g, False)) for g in forced
             }
             keep_g.loc[forced] = True
         logx = logx.loc[:, keep_g]
         diag["n_genes_kept"] = int(logx.shape[1])
 
-        if logx.shape[1] < 2:
-            raise ValueError(
-                "gene filters left {n} gene(s). Cascade:\n"
-                "  total genes in Z            : {tot}\n"
-                "  median count >= {mc:<10g}  : {ex}\n"
-                "  share computable            : {sc}\n"
-                "  >= {ms:g} share in >= {sf:.0%} samples : {so}\n"
-                "  intersection (kept)         : {n}\n"
-                "Most common causes: (a) Z is not on a count scale, so "
-                "min_counts={mc:g} removes everything -- check "
-                "Z.median().median()={zmed:.3g}; (b) min_share={ms:g} is too "
-                "strict for a gene_subset fit, where the share denominator "
-                "covers only the fitted compartments. Call "
-                "diagnose_filters() to sweep thresholds."
-                .format(n=int(logx.shape[1]), tot=int(len(keep_g)),
-                        mc=min_counts, ex=int(expressed.sum()),
-                        sc=diag.get("n_genes_share_not_computable", "n/a") if
-                           isinstance(diag.get("n_genes_share_not_computable"), str)
-                           else int(len(keep_g)) - int(diag.get("n_genes_share_not_computable", 0)),
-                        ms=min_share, sf=share_frac_samples,
-                        so=int(share_ok.sum()),
-                        zmed=float(np.nanmedian(Z.values))))
-
         # --- purity decoupling --------------------------------------------------
         if decouple_purity:
-            C = pd.DataFrame({"theta_mal": theta_mal, "log_lib": np.log(lib)})
+            C = pd.DataFrame({"df_theta": theta_mal, "log_lib": np.log(lib)})
             if extra_covariates is not None:
                 C = C.join(extra_covariates.loc[C.index], how="left")
             C = C.fillna(C.mean())
@@ -484,8 +425,8 @@ class MalignantCluster:
             forced_set = set(forced)
             order = v.sort_values(ascending=False).index
             sel = [g for g in order if g not in forced_set][: max(0, n_hvg - len(forced_set))]
-            sel_set = forced_set | set(sel)
-            Xc = Xc.loc[:, [g for g in Xc.columns if g in sel_set]]
+            sel = list(forced_set) + sel
+            Xc = Xc.loc[:, [g for g in Xc.columns if g in set(sel)]]
         diag["n_hvg"] = int(Xc.shape[1])
 
         # --- purity leakage check ----------------------------------------------
@@ -502,64 +443,10 @@ class MalignantCluster:
         return (Xc, diag) if return_diagnostics else (Xc, {})
 
 
-    def diagnose_filters(
-        self,
-        min_shares: Sequence[float] = (0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8),
-        min_counts_grid: Sequence[float] = (0.0, 1.0, 5.0, 10.0, 50.0),
-        share_frac_samples: float = 0.50,
-        min_theta: float = 0.05,
-    ) -> Dict:
-        """Sweep the gene filters and report how many genes survive each.
-
-        Run this before touching the thresholds. It answers the two questions
-        that matter: is Z on a count scale (does min_counts bite at all?), and
-        is min_share calibrated for this fit (a `gene_subset` deconvolution has
-        a restricted share denominator, so shares run high and 0.5 may be
-        either trivially permissive or, if compartments are collinear, fatal).
-        """
-        keep_s = self.ms.theta_mal >= min_theta
-        Z = self.ms.Z.loc[keep_s]
-
-        out = {
-            "n_samples_kept": int(keep_s.sum()),
-            "n_samples_dropped": int((~keep_s).sum()),
-            "n_genes_total": int(Z.shape[1]),
-            "Z_median_of_medians": float(np.nanmedian(Z.median(axis=0))),
-            "Z_looks_like_counts": bool(np.nanmedian(Z.values) > 1.0),
-        }
-
-        med = Z.median(axis=0)
-        out["by_min_counts"] = pd.Series(
-            {c: int((med >= c).sum()) for c in min_counts_grid},
-            name="n_genes").rename_axis("min_counts")
-
-        if self.ms.share is None:
-            out["share"] = "unavailable -- shrinkage guard would be OFF"
-            return out
-
-        sh = self.ms.share.reindex(index=Z.index, columns=Z.columns)
-        out["n_genes_share_not_computable"] = int((~sh.notna().any(axis=0)).sum())
-        out["share_quantiles"] = sh.stack().quantile(
-            [0.05, 0.25, 0.5, 0.75, 0.95]).round(3)
-        out["by_min_share"] = pd.Series(
-            {m: int((((sh >= m).mean(axis=0) >= share_frac_samples)).sum())
-             for m in min_shares},
-            name="n_genes").rename_axis("min_share")
-
-        grid = pd.DataFrame(
-            {m: {c: int((((sh >= m).mean(axis=0) >= share_frac_samples)
-                         & (med >= c)).sum())
-                 for c in min_counts_grid} for m in min_shares})
-        grid.index.name = "min_counts"; grid.columns.name = "min_share"
-        out["joint_grid"] = grid
-        return out
-
-
     # ===========================================================================
     # 3. Consensus clustering (Monti et al.)
     # ===========================================================================
-    @staticmethod
-    def _pac(consensus: np.ndarray, lo: float = 0.1, hi: float = 0.9) -> float:
+    def _pac(self, consensus: np.ndarray, lo: float = 0.1, hi: float = 0.9) -> float:
         iu = np.triu_indices_from(consensus, k=1)
         v = consensus[iu]
         return float(((v > lo) & (v < hi)).mean())
@@ -582,22 +469,10 @@ class MalignantCluster:
         transcriptomic-subtype convention; use `metric="euclidean", method="ward"`
         if you want a spherical prior.
         """
-        if X.shape[1] < 2:
-            raise ValueError(
-                f"X has {X.shape[1]} feature(s); nothing to cluster on. This "
-                "almost always means prepare_malignant_matrix() filtered out "
-                "every gene -- run diagnose_filters() to see which threshold.")
-        if X.shape[0] < 3:
-            raise ValueError(f"X has {X.shape[0]} sample(s); need >= 3.")
-
         rng = np.random.default_rng(random_state)
         n = X.shape[0]
         Xv = X.values
         out: Dict[int, Dict] = {}
-
-        ks = [k for k in ks if k < n]
-        if not ks:
-            raise ValueError(f"no k in the requested range is < n_samples={n}.")
 
         for k in ks:
             M = np.zeros((n, n))       # co-cluster counts
@@ -665,6 +540,7 @@ class MalignantCluster:
         """
         labels = labels.reindex(X.index)
         sig: Dict[int, Dict[str, object]] = {}
+        n = X.shape[0]
 
         for c in sorted(labels.unique()):
             a = X.loc[labels == c]
@@ -690,60 +566,6 @@ class MalignantCluster:
             }
         return sig
 
-
-
-    # ===========================================================================
-    # 4b. The other axis: TME composition (see compare_axes)
-    # ===========================================================================
-    def tme_axis(self, exclude: Optional[Sequence[str]] = None,
-                 ks: Iterable[int] = range(2, 7), pseudo: float = 1e-4,
-                 **cc_kw) -> Dict:
-        """Cluster samples on TME *composition*, orthogonalised against purity.
-
-        Fractions are renormalised among non-malignant compartments only, so the
-        axis is "what is the stroma made of", not "how much stroma is there".
-        CLR before distance: the sum-to-one constraint on compositional data
-        induces structure that Euclidean/correlation distance will happily
-        cluster on.
-        """
-        drop = {self.cell_name} | set(exclude or [])
-        keep = [c for c in self.df_theta.columns if c not in drop]
-        if len(keep) < 2:
-            raise ValueError(f"need >=2 non-malignant compartments, have {keep}")
-
-        T = self.df_theta[keep]
-        T = T.div(T.sum(axis=1), axis=0)
-        L = np.log(T.values + pseudo)
-        clr = pd.DataFrame(L - L.mean(axis=1, keepdims=True),
-                           index=T.index, columns=keep)
-
-        cc = self.consensus_cluster(clr, ks=ks, **cc_kw)
-        k = self.choose_k(cc)
-        return {"clr": clr, "consensus": cc, "k": k,
-                "labels": cc[k]["labels"], "compartments": keep}
-
-    @staticmethod
-    def compare_axes(a: pd.Series, b: pd.Series,
-                     names: Tuple[str, str] = ("malignant", "TME")) -> Dict:
-        """Cross-tabulate two label sets and quantify their dependence.
-
-        Low ARI => the axes carry different information, report the joint
-        (tumour x stroma) label. High ARI => check whether the malignant
-        clustering simply recovered purity.
-        """
-        from scipy.stats import chi2_contingency
-        from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
-
-        idx = a.index.intersection(b.index)
-        a, b = a.loc[idx], b.loc[idx]
-        ct = pd.crosstab(a.rename(names[0]), b.rename(names[1]))
-        chi2, pval, dof, _ = chi2_contingency(ct)
-        n = ct.values.sum()
-        v = (float(np.sqrt(chi2 / (n * (min(ct.shape) - 1))))
-             if min(ct.shape) > 1 else np.nan)
-        return {"crosstab": ct, "chi2": float(chi2), "p": float(pval),
-                "cramers_v": v, "ari": float(adjusted_rand_score(a, b)),
-                "ami": float(adjusted_mutual_info_score(a, b))}
 
     # ===========================================================================
     # 5. Tahoe-100M perturbation reference
@@ -1008,3 +830,5 @@ class MalignantCluster:
 
         return pd.DataFrame(_cos(cents.values, shifts),
                             index=cents.index, columns=pert_emb.index)
+
+

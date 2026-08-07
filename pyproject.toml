@@ -22,6 +22,8 @@ dependencies = [
 
     "cellxgene_census", 
     "huggingface-hub",
+    "datasets",
+    "wandb",
     "duckdb",
     "rpy2", 
 

@@ -9,8 +9,8 @@
 """
 Claude - Opus 5 High code
 
-celltype_programs.py — PAAD subtyping on the deconvolved compartments
-=====================================================================
+example: PAAD subtyping on the deconvolved compartments
+=======================================================
 
 Consumes a `DeconvResult` (theta, Z, states, genes) and answers, in order:
 
