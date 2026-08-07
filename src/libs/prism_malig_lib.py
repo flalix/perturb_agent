@@ -1164,13 +1164,27 @@ class MalignantCluster:
         cond: pd.DataFrame,
         normalize_within: str = "cell_line_id",
     ) -> pd.DataFrame:
-        """WTCS + within-cell-line normalised connectivity (NCS) for every
-        (cluster, condition) pair.
+        """
+        WTCS (Weighted Connectivity Score) and NCS (Normalized Connectivity Score)
+        are core metrics used in the LINCS and Connectivity Map (CMap) pipelines 
+        to compare query gene signatures against reference expression profiles. 
+        WTCS measures signature similarity from −1 to 1, 
+        while NCS normalizes these scores within specific cell lines and perturbagen types.
+        
+        WTCS + within-cell-line normalised connectivity (NCS) for every (cluster, condition) pair.
 
         Interpretation: rank by ascending `ncs` to get compounds predicted to
         *reverse* a cluster's malignant program; descending to find compounds whose
         transcriptional footprint *is* that program (mechanistic hypothesis for
         what the cluster's cells are doing).
+
+        Direction convention for Tahoe. 
+        score_clusters_vs_tahoe returns WTCS/NCS where 
+        - negative = the compound reverses the cluster's program (therapeutic hypothesis) and 
+        - positive = the compound's footprint is the program (mechanistic hypothesis for what those cells are doing). 
+        
+        Pancreas is one of the better-represented organs among Tahoe's 47 usable lines, 
+        and the DE query filters at the parquet scan so you never materialise the 4.1B-row table.
         """
         rows = []
         for c, s in sig.items():
