@@ -55,10 +55,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import warnings
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -72,9 +71,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.15.0"          # bump on every edit; check with pml.__version__
-
-__all__ = ["MalignantState", "MalignantCluster", "__version__"]
+__all__ = ["MalignantState", "MalignantCluster"]
 
 
 # ===========================================================================
@@ -143,7 +140,6 @@ class MalignantCluster:
         self.root_mprog_cluster = Path(root_mprog_cluster)
         create_dir(self.root_mprog_cluster)
 
-        self.__lib_version__ = __version__
         self.cell_name = cell_name
         self.organ = organ
         self.df_theta = res.theta
@@ -842,379 +838,6 @@ class MalignantCluster:
         )
         return d
 
-    # Column-name candidates for the DE table, most-specific first. The real
-    # schema uses Cell_ID_Cellosaur / Cell_Name_Vevo / gene_name -- there is no
-    # `cell_line_id` column, and `gene_id` (Ensembl) sits alongside `gene_name`
-    # (HGNC), so ordering here decides whether a query returns rows at all.
-    _DE_GENE_CANDS = ["gene_name", "gene_symbol", "symbol", "gene", "genes"]
-    # DESeq2-style DE output uses log2FoldChange + a signed Wald `stat`.
-    # `stat` is preferred for connectivity scoring: it is variance-stabilised,
-    # so it is the closer analogue of CMap's moderated z-score, whereas raw
-    # log2FC is dominated by low-count genes unless shrunk. Both are signed;
-    # anything unsigned breaks the WTCS sign convention entirely.
-    _DE_STAT_CANDS = ["stat", "log2foldchange", "log2fc", "log2_fold_change",
-                      "logfoldchange", "logfc", "lfc", "shrunk_lfc",
-                      "vision_score", "score"]
-    _DE_CELL_CANDS = ["cell_id_cellosaur", "cell_line_id", "cell_name_vevo",
-                      "cell_line"]
-    _DE_DRUG_CANDS = ["drug", "drugname_drugconc", "treatment"]
-
-    @staticmethod
-    def _pick_col(cols, cands, override=None, label=""):
-        """Resolve a column name against a schema, exact match first."""
-        if override:
-            if override not in cols:
-                raise KeyError(f"{override!r} not in DE schema {list(cols)}")
-            return override
-        for c in cands:
-            for col in cols:
-                if col.lower() == c:
-                    return col
-        for c in cands:
-            hits = [col for col in cols if c in col.lower()]
-            if hits:
-                if len(hits) > 1:
-                    warnings.warn(
-                        f"ambiguous {label or 'column'} resolution: {hits} all "
-                        f"contain {c!r}; using {hits[0]!r}. Pass an explicit "
-                        f"override if that is wrong.")
-                return hits[0]
-        raise KeyError(f"none of {cands} in DE schema {list(cols)}")
-
-    def resolve_de_columns(self, cols, gene_col=None, stat_col=None) -> Dict[str, str]:
-        """Which DE columns the query will actually use. Check this before a
-        long scan -- a wrong `stat` column returns rows but meaningless scores,
-        which is worse than returning none."""
-        return {
-            "gene": self._pick_col(cols, self._DE_GENE_CANDS, gene_col, "gene"),
-            "stat": self._pick_col(cols, self._DE_STAT_CANDS, stat_col, "statistic"),
-            "cell_line": self._pick_col(cols, self._DE_CELL_CANDS, None, "cell line"),
-            "drug": self._pick_col(cols, self._DE_DRUG_CANDS, None, "drug"),
-        }
-
-    def fetch_de_shard(self, i: int = 0, local_dir=None) -> Path:
-        """Download a single DE shard to disk (cached). One file, not 1026."""
-        from huggingface_hub import hf_hub_download
-        d = self.tahoe_dir(local_dir) / "_probe"
-        create_dir(d)
-        f = hf_hub_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
-                            filename=self.list_de_shards()[i],
-                            local_dir=str(d))
-        return Path(f)
-
-    def inspect_de_schema(self, genes=None, shard: int = 0, n_distinct: int = 10,
-                          n_rows: int = 500_000, local_dir=None):
-        """Report what the DE columns actually contain. Run on 0-row queries.
-
-        Pulls ONE shard to disk and does every check in pandas. Inspecting over
-        HTTP means a separate remote scan per column, which is why the previous
-        version took minutes; this is one download then local work.
-
-        Answers: does the cell-line column hold Cellosaurus ids or cell names,
-        and does the gene column hold HGNC symbols, Ensembl ids, or integer
-        token ids?
-        """
-        import pyarrow.parquet as pq
-
-        f = self.fetch_de_shard(shard, local_dir)
-        pf = pq.ParquetFile(f)
-        df = next(pf.iter_batches(batch_size=min(n_rows, 200_000))).to_pandas()
-
-        out = {"shard_file": str(f),
-               "file_mb": round(Path(f).stat().st_size / 1e6, 1),
-               "total_rows_in_shard": pf.metadata.num_rows,
-               "columns": list(df.columns),
-               "dtypes": {c: str(t) for c, t in df.dtypes.items()},
-               "head": df.head(3)}
-
-        for c in df.columns:
-            u = df[c].dropna().unique()
-            out[f"distinct_{c}"] = list(u[:n_distinct])
-            out[f"n_distinct_{c}"] = int(len(u))
-
-        # Arrow-backed frames may give string[pyarrow], not object.
-        obj_cols = [c for c in df.columns
-                    if not pd.api.types.is_numeric_dtype(df[c])]
-
-        # which of our cell-line vocabularies actually appears?
-        cl_path = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
-        if cl_path.exists():
-            cl = pd.read_parquet(cl_path)
-            out["cell_line_metadata_columns"] = list(cl.columns)
-            for key in ("Cell_ID_Cellosaur", "cell_name"):
-                if key not in cl.columns:
-                    continue
-                cand = set(cl[key].dropna().astype(str))
-                for c in obj_cols:
-                    n = df[c].astype(str).isin(cand).sum()
-                    if n:
-                        out[f"MATCH cell_line_metadata.{key} -> DE.{c}"] = int(n)
-        else:
-            out["cell_line_metadata"] = f"not downloaded yet at {cl_path}"
-
-        # which gene vocabulary matches our query genes?
-        if genes is not None:
-            gset = {str(g) for g in genes}
-            for c in obj_cols:
-                n = df[c].astype(str).isin(gset).sum()
-                if n:
-                    out[f"MATCH query genes -> DE.{c}"] = int(n)
-            gm = Path(self.tahoe_dir(local_dir)) / "metadata" / "gene_metadata.parquet"
-            if gm.exists():
-                g_meta = pd.read_parquet(gm)
-                out["gene_metadata_columns"] = list(g_meta.columns)
-                for gk in g_meta.columns:
-                    hit = g_meta[gk].astype(str).isin(gset).sum()
-                    if hit:
-                        out[f"query genes look like gene_metadata.{gk}"] = int(hit)
-
-        num = df.select_dtypes(include=[np.number])
-        if not num.empty:
-            prof = pd.DataFrame({
-                "min": num.min(), "max": num.max(), "mean": num.mean(),
-                "frac_negative": (num < 0).mean(),
-                "n_unique": num.nunique(),
-            }).round(4)
-            out["numeric_profile"] = prof
-            # A statistic used for WTCS must be signed and roughly symmetric.
-            out["signed_candidates"] = [
-                c for c in num.columns
-                if 0.2 < float((num[c] < 0).mean()) < 0.8]
-
-        try:
-            out["resolved_columns"] = self.resolve_de_columns(list(df.columns))
-        except KeyError as e:
-            out["resolved_columns"] = f"unresolved: {e}"
-
-        out["matches"] = [k for k in out if k.startswith("MATCH")]
-        if not out["matches"]:
-            out["verdict"] = ("no filter vocabulary matched this shard -- "
-                              "compare distinct_* values against what you pass")
-        return out
-
-    def list_de_shards(self) -> List[str]:
-        """Repo-relative paths of the pseudobulk DE parquet shards."""
-        from huggingface_hub import HfApi
-        pre = "metadata/pseudobulk_differential_expression/"
-        files = HfApi().list_repo_files(self._TAHOE_REPO, repo_type="dataset")
-        return sorted(f for f in files if f.startswith(pre) and f.endswith(".parquet"))
-
-    def shard_index(self, column: str = "Cell_ID_Cellosaur", force: bool = False,
-                    local_dir=None, memory_limit: str = "4GB", verbose: bool = True,
-                    stride: int = 1):
-        """Accumulate a per-shard min/max index over `column` from parquet footers.
-
-        Incremental: results merge into one canonical file keyed by shard index,
-        so refining from stride=20 to stride=6 reads only the ~119 footers you
-        do not already have, not all 172. Reads footer statistics only, never
-        data.
-
-        Each DE shard holds exactly one cell line (lo == hi), but the blocks are
-        not in sorted id order, so this index is the only way to know which
-        shards to scan.
-        """
-        import duckdb
-        import time
-
-        d = self.tahoe_dir(local_dir)
-        canon = Path(d) / f"_shard_index_{column}.parquet"
-        have = pd.DataFrame(columns=["i", "shard", "lo", "hi"])
-        if canon.exists() and not force:
-            have = pd.read_parquet(canon)
-
-        all_shards = self.list_de_shards()
-        want = list(range(0, len(all_shards), max(1, stride)))
-        if want[-1] != len(all_shards) - 1:
-            want.append(len(all_shards) - 1)
-        known = set(have["i"].astype(int)) if len(have) else set()
-        todo = [i for i in want if i not in known]
-
-        if verbose:
-            print(f"shard index: {len(known)} cached, {len(todo)} to read "
-                  f"(stride={stride}, {len(all_shards)} shards total)", flush=True)
-        if not todo:
-            return have.sort_values("i").reset_index(drop=True)
-
-        con = duckdb.connect()
-        con.execute(f"SET memory_limit='{memory_limit}'")
-        con.execute("INSTALL httpfs; LOAD httpfs;")
-        tok = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-        if tok:
-            con.execute(f"CREATE OR REPLACE SECRET hf_tok "
-                        f"(TYPE huggingface, TOKEN '{tok}')")
-
-        rows, _t0 = [], time.time()
-        for j, i in enumerate(todo):
-            f = all_shards[i]
-            url = f"hf://datasets/{self._TAHOE_REPO}/{f}"
-            try:
-                m = self._duck_retry(con, f"""
-                    SELECT min(coalesce(stats_min_value, stats_min)) AS lo,
-                           max(coalesce(stats_max_value, stats_max)) AS hi
-                    FROM parquet_metadata('{url}')
-                    WHERE path_in_schema = '{column}'""")
-                rows.append({"i": i, "shard": f, "lo": m["lo"][0], "hi": m["hi"][0]})
-            except Exception as e:
-                rows.append({"i": i, "shard": f, "lo": None, "hi": None,
-                             "error": str(e)[:80]})
-            if verbose and ((j + 1) % 5 == 0 or j == 0 or j == len(todo) - 1):
-                el = time.time() - _t0
-                eta = el / (j + 1) * (len(todo) - j - 1)
-                print(f"  footer {j+1}/{len(todo)}  [shard {i}]  "
-                      f"elapsed={el:5.0f}s  eta={eta:5.0f}s", flush=True)
-            if (j + 1) % 25 == 0:                     # checkpoint mid-flight
-                pd.concat([have, pd.DataFrame(rows)], ignore_index=True) \
-                  .drop_duplicates("i").sort_values("i").to_parquet(canon)
-
-        idx = (pd.concat([have, pd.DataFrame(rows)], ignore_index=True)
-                 .drop_duplicates("i").sort_values("i").reset_index(drop=True))
-        idx.to_parquet(canon)
-        return idx
-
-    def organ_cell_lines(self, organ: Optional[str] = None,
-                         local_dir=None) -> List[str]:
-        """Cellosaurus ids for one organ, from the cached cell_line_metadata."""
-        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
-        if not f.exists():
-            self.download_tahoe(local_dir=local_dir, de=False)
-        cl = pd.read_parquet(f)
-        sel = cl[cl["Organ"] == (organ or self.organ)]
-        return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
-
-    def find_shards_for(self, values: Sequence[str],
-                        column: str = "Cell_ID_Cellosaur",
-                        report: bool = True, **kw) -> List[str]:
-        """Shards that can contain any of `values`, via footer statistics.
-
-        The DE table is grouped by cell line (lo == hi per shard) but the blocks
-        are NOT in sorted id order, so a single min-to-max band would cover
-        almost everything. We instead expand +/- one stride around each
-        individual hit and union the results.
-
-        With a coarse index some target lines may fall entirely between probes;
-        those are reported as `missing` and need a finer stride.
-        """
-        kw.setdefault("stride", 10 ** 6)      # read nothing new by default
-        kw.setdefault("verbose", False)
-        idx = self.shard_index(column=column, **kw)
-        ok = idx.dropna(subset=["lo", "hi"]).copy()
-        all_shards = self.list_de_shards()
-        if ok.empty:
-            warnings.warn("no usable footer statistics; scanning all shards.")
-            return list(all_shards)
-
-        vals = sorted({str(v) for v in values})
-        hit_mask = [any(str(r.lo) <= v <= str(r.hi) for v in vals)
-                    for r in ok.itertuples()]
-        hits = ok[hit_mask]
-
-        diffs = ok["i"].diff().dropna()
-        step = int(diffs.median()) if len(diffs) else 1
-
-        keep_i = set()
-        for i in hits["i"].astype(int):
-            keep_i.update(range(max(0, i - step), min(len(all_shards), i + step + 1)))
-        shards = [all_shards[i] for i in sorted(keep_i)]
-
-        found = sorted({str(r.lo) for r in hits.itertuples()} |
-                       {str(r.hi) for r in hits.itertuples()}) if len(hits) else []
-        found = [f for f in found if f in vals]
-        missing = [v for v in vals if v not in found]
-
-        if report:
-            print(f"targets: {len(vals)} | located: {len(found)} | "
-                  f"missing: {len(missing)}")
-            print(f"shards to scan: {len(shards)}/{len(all_shards)} "
-                  f"({len(shards)/len(all_shards):.0%})  "
-                  f"~{len(shards)*4.3/60:.0f} min at 4.3 s/shard")
-            if missing:
-                print(f"  NOT located (fall between stride-{step} probes): {missing}")
-                print(f"  -> rebuild with shard_index(stride={max(2, step//3)}) "
-                      f"to catch them")
-
-        if missing:
-            warnings.warn(
-                f"{len(missing)} target(s) not located at stride~{step}; their "
-                "conditions will be silently absent from the result. Rebuild "
-                "the index with a finer stride before the full scan.")
-        if len(shards) / len(all_shards) > 0.9:
-            warnings.warn("pruning saves nothing; consider download_tahoe(de=True).")
-        return shards
-
-    def probe_tahoe(self, genes=None, organs=None, cell_lines=None,
-                    n_shards: int = 1, **kw):
-        """Time a filtered scan of `n_shards` and extrapolate the full run.
-
-        Run this BEFORE launching a full scan. If one shard takes 20 s, 1026
-        shards take ~6 h at threads=1 -- which is what a silent multi-hour
-        `load_tahoe_de` actually means. The answer that number should drive is
-        stream-vs-download, not patience.
-        """
-        import time
-        shards = self.list_de_shards()
-        # Sample evenly across the range: the first n shards are unrepresentative
-        # if the table is clustered by cell line, and would time an empty scan.
-        idx = np.unique(np.linspace(0, len(shards) - 1, n_shards).astype(int))
-        picked = [shards[i] for i in idx]
-
-        t0 = time.time()
-        S, cond = self.load_tahoe_de(
-            genes=genes, organs=organs, cell_lines=cell_lines,
-            save_to=False, _shard_subset=picked, **kw)
-        dt = time.time() - t0
-        est = dt / max(len(picked), 1) * len(shards)
-        return {"n_shards_total": len(shards), "n_probed": len(picked),
-                "shard_indices": idx.tolist(),
-                "seconds_per_shard": round(dt / max(len(picked), 1), 1),
-                "estimated_full_scan_hours": round(est / 3600, 2),
-                "conditions_found": int(S.shape[1]) if S.size else 0,
-                "note": ("no rows in the sampled shards -- this timing "
-                         "measures fetching nothing"
-                         if not S.size else "timing reflects real work"),
-                "recommendation": (
-                    "INCONCLUSIVE: sampled shards held no matching rows. Run "
-                    "shard_index()/find_shards_for() to locate the shards that "
-                    "do, then probe those." if not S.size
-                    else "stream is fine" if est < 1800
-                    else "too slow to stream -- use download_tahoe(de=True) "
-                         "once, then mode='download'")}
-
-    def _scan_de_sharded(self, con, shards, select_sql, where_sql,
-                         checkpoint_dir, retries, wait_s, verbose=True):
-        """Query shards one at a time, checkpointing each to parquet.
-
-        Turns an opaque multi-hour scan into a resumable job: killed halfway,
-        the next call skips completed shards. Also caps peak memory at one
-        shard's filtered output rather than the whole result.
-        """
-        import time
-        ck = Path(checkpoint_dir); create_dir(ck)
-        t0, parts, n = time.time(), [], len(shards)
-
-        for i, f in enumerate(shards):
-            # Name by shard, never by loop position: probes and full scans pass
-            # different subsets, and a positional name silently serves shard 1's
-            # cached result when you asked for shard 1025.
-            out = ck / f"part_{Path(f).stem}.parquet"
-            if out.exists():
-                parts.append(out)
-                continue
-            url = f"hf://datasets/{self._TAHOE_REPO}/{f}"
-            q = f"{select_sql} FROM read_parquet('{url}') {where_sql}"
-            df = self._duck_retry(con, q, retries=retries, wait_s=wait_s)
-            df.to_parquet(out)
-            parts.append(out)
-            if verbose:
-                done = i + 1
-                el = time.time() - t0
-                eta = el / done * (n - done)
-                print(f"  shard {done}/{n}  rows={len(df):>7,}  "
-                      f"elapsed={el/60:5.1f}m  eta={eta/60:5.1f}m", flush=True)
-
-        if not parts:
-            return pd.DataFrame()
-        return pd.concat((pd.read_parquet(f) for f in parts), ignore_index=True)
-
     @staticmethod
     def _tahoe_cache_key(organs, cell_lines, drugs, genes) -> str:
         """Short hash of the query so different filters get different files.
@@ -1265,7 +888,7 @@ class MalignantCluster:
 
     def load_tahoe_de(
         self,
-        organs: Optional[Sequence[str]] = None,
+        organs: Optional[Sequence[str]] = ("Pancreas",),
         cell_lines: Optional[Sequence[str]] = None,
         drugs: Optional[Sequence[str]] = None,
         genes: Optional[Sequence[str]] = None,
@@ -1279,10 +902,6 @@ class MalignantCluster:
         hf_token: Optional[str] = None,
         http_retries: int = 8,
         http_retry_wait_s: float = 5.0,
-        checkpoint_dir=None,
-        verbose: bool = True,
-        _shard_limit: Optional[int] = None,
-        _shard_subset: Optional[Sequence[str]] = None,
         dtype=np.float32,
         stat_col: Optional[str] = None,
         gene_col: Optional[str] = None,
@@ -1315,10 +934,6 @@ class MalignantCluster:
             rather than returning a stale matrix. Pass `save_to=False` to
             disable caching entirely.
 
-        organs
-            Defaults to `self.organ` (set on the constructor). Must match
-            Tahoe's `Organ` vocabulary exactly; a mismatch now lists the valid
-            values instead of reporting an empty result.
         genes
             Restrict the gene universe. **Pass this.** Without it the pancreas
             subset alone is ~5e8 rows (~6 lines x 379 drugs x ~4 doses x ~54k
@@ -1347,9 +962,6 @@ class MalignantCluster:
 
         if mode not in ("stream", "download"):
             raise ValueError(f"mode must be 'stream' or 'download', got {mode!r}")
-
-        if organs is None and not cell_lines:
-            organs = (self.organ,)
 
         d = self.tahoe_dir(local_dir)
 
@@ -1416,10 +1028,7 @@ class MalignantCluster:
         if cell_lines:
             sel = sel[sel["cell_name"].isin(cell_lines)]
         if sel.empty:
-            raise ValueError(
-                f"no cell lines match organs={organs} lines={cell_lines}.\n"
-                f"Tahoe's Organ vocabulary (exact, case-sensitive): "
-                f"{sorted(cl_meta['Organ'].dropna().unique())}")
+            raise ValueError(f"no cell lines match organs={organs} lines={cell_lines}")
         cvcl = sorted(sel["Cell_ID_Cellosaur"].dropna().unique().tolist())
 
         # --- sniff schema -------------------------------------------------------
@@ -1427,10 +1036,23 @@ class MalignantCluster:
             f"SELECT * FROM read_parquet('{de_glob}') LIMIT 1"
         ).df().columns.tolist()
 
-        gcol = self._pick_col(cols, self._DE_GENE_CANDS, gene_col, "gene")
-        scol = self._pick_col(cols, self._DE_STAT_CANDS, stat_col, "statistic")
-        ccol = self._pick_col(cols, self._DE_CELL_CANDS, None, "cell line")
-        dcol = self._pick_col(cols, self._DE_DRUG_CANDS, None, "drug")
+        def _pick(cands, override):
+            if override:
+                return override
+            for c in cands:
+                for col in cols:
+                    if col.lower() == c:
+                        return col
+            for c in cands:
+                for col in cols:
+                    if c in col.lower():
+                        return col
+            raise KeyError(f"none of {cands} in DE schema {cols}")
+
+        gcol = _pick(["gene_symbol", "gene", "genes", "symbol"], gene_col)
+        scol = _pick(["log2fc", "logfoldchange", "lfc", "score", "stat", "log2_fold_change"], stat_col)
+        ccol = _pick(["cell_line_id", "cell_id_cellosaur", "cell_line"], None)
+        dcol = _pick(["drug", "drugname_drugconc", "treatment"], None)
 
         # --- per-cell-line fetch: one genes x conditions block at a time ----
         gene_filter = ""
@@ -1455,59 +1077,17 @@ class MalignantCluster:
         # them each time and gets you rate-limited (HTTP 429). With `genes`
         # restricted the combined result is small enough to pivot in pandas.
         cl_in = ",".join(repr(str(x)) for x in cvcl)
-        select_sql = (f"SELECT {ccol} AS cell_line_id, {dcol} AS drug, "
-                      f"{gcol} AS gene, avg({scol}) AS stat")
-        where_sql = (f"WHERE {ccol} IN ({cl_in}){gene_filter}{drug_filter} "
-                     f"GROUP BY 1, 2, 3")
-
-        if mode == "stream":
-            shards = _shard_subset or self.list_de_shards()
-            if _shard_limit:
-                shards = shards[:_shard_limit]
-            ckdir = Path(checkpoint_dir) if checkpoint_dir is not None \
-                else self.tahoe_dir(local_dir) / "_scan_ck" / \
-                     self._tahoe_cache_key(organs, cell_lines, drugs, genes)
-            if verbose:
-                print(f"scanning {len(shards)} DE shards -> {ckdir}", flush=True)
-            df = self._scan_de_sharded(con, shards, select_sql, where_sql,
-                                       ckdir, http_retries, http_retry_wait_s,
-                                       verbose=verbose)
-            if not df.empty:
-                df = (df.groupby(["cell_line_id", "drug", "gene"], observed=True,
-                                 as_index=False)["stat"].mean())
-        else:
-            q = f"{select_sql} FROM read_parquet('{de_glob}') {where_sql}"
-            df = self._duck_retry(con, q, retries=http_retries,
-                                  wait_s=http_retry_wait_s)
-
-        if df.empty and (_shard_limit or _shard_subset):
-            warnings.warn(
-                f"0 rows from the {_shard_limit or len(_shard_subset)} sampled "
-                "shard(s). Expected when "
-                "shards are clustered by cell line -- probe more shards, or "
-                "use find_shards_for() to locate the ones holding your lines.")
-            empty = pd.DataFrame(dtype=dtype)
-            return empty, pd.DataFrame(columns=["cell_line_id", "drug"])
-
+        q = f"""
+            SELECT {ccol} AS cell_line_id, {dcol} AS drug, {gcol} AS gene,
+                   avg({scol}) AS stat
+            FROM read_parquet('{de_glob}')
+            WHERE {ccol} IN ({cl_in}){gene_filter}{drug_filter}
+            GROUP BY 1, 2, 3
+        """
+        df = self._duck_retry(con, q, retries=http_retries,
+                              wait_s=http_retry_wait_s)
         if df.empty:
-            raise ValueError(
-                "Tahoe DE query returned 0 rows. This is almost always an "
-                "identifier-vocabulary mismatch, not an absent organ:\n"
-                f"  cell-line filter used {ccol} IN {cvcl[:3]}... "
-                f"({len(cvcl)} values from cell_line_metadata)\n"
-                f"  gene filter used {gcol} IN <"
-                f"{0 if genes is None else len(set(map(str, genes)))} symbols>\n"
-                "Run inspect_de_schema() to see what those columns actually "
-                "contain (CVCL ids vs cell names; HGNC symbols vs Ensembl ids "
-                "vs integer token ids).")
-
-        frac_neg = float((df["stat"] < 0).mean())
-        if not (0.05 < frac_neg < 0.95):
-            warnings.warn(
-                f"stat column {scol!r} is {frac_neg:.1%} negative -- it looks "
-                "unsigned (a p-value, |t|, or magnitude). WTCS needs a signed "
-                "statistic; pass stat_col= with the signed column, e.g. 'stat' "
-                "or 'log2FoldChange'.")
+            raise ValueError("Tahoe DE query returned nothing -- check filters.")
 
         df["stat"] = df["stat"].astype(dtype)
         df["condition"] = df["cell_line_id"].astype(str) + "|" + df["drug"].astype(str)
@@ -1584,13 +1164,27 @@ class MalignantCluster:
         cond: pd.DataFrame,
         normalize_within: str = "cell_line_id",
     ) -> pd.DataFrame:
-        """WTCS + within-cell-line normalised connectivity (NCS) for every
-        (cluster, condition) pair.
+        """
+        WTCS (Weighted Connectivity Score) and NCS (Normalized Connectivity Score)
+        are core metrics used in the LINCS and Connectivity Map (CMap) pipelines 
+        to compare query gene signatures against reference expression profiles. 
+        WTCS measures signature similarity from −1 to 1, 
+        while NCS normalizes these scores within specific cell lines and perturbagen types.
+        
+        WTCS + within-cell-line normalised connectivity (NCS) for every (cluster, condition) pair.
 
         Interpretation: rank by ascending `ncs` to get compounds predicted to
         *reverse* a cluster's malignant program; descending to find compounds whose
         transcriptional footprint *is* that program (mechanistic hypothesis for
         what the cluster's cells are doing).
+
+        Direction convention for Tahoe. 
+        score_clusters_vs_tahoe returns WTCS/NCS where 
+        - negative = the compound reverses the cluster's program (therapeutic hypothesis) and 
+        - positive = the compound's footprint is the program (mechanistic hypothesis for what those cells are doing). 
+        
+        Pancreas is one of the better-represented organs among Tahoe's 47 usable lines, 
+        and the DE query filters at the parquet scan so you never materialise the 4.1B-row table.
         """
         rows = []
         for c, s in sig.items():
@@ -1693,5 +1287,4 @@ class MalignantCluster:
 
         return pd.DataFrame(_cos(cents.values, shifts),
                             index=cents.index, columns=pert_emb.index)
-
-
+    
