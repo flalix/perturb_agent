@@ -72,7 +72,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.15.0"          # bump on every edit; check with pml.__version__
+__version__ = "0.16.0"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
 
@@ -1081,6 +1081,41 @@ class MalignantCluster:
         sel = cl[cl["Organ"] == (organ or self.organ)]
         return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
 
+    def index_coverage(self, column: str = "Cell_ID_Cellosaur", local_dir=None):
+        """Distinguish "not sampled yet" from "not in the DE table at all".
+
+        Refining the stride only helps for lines whose block is smaller than the
+        gap. If the index already resolves ~every line the table contains, a
+        target that is still missing is absent from the DE data (the atlas ships
+        metadata for more lines than survive QC), and no stride will find it.
+        """
+        idx = self.shard_index(column=column, local_dir=local_dir,
+                               stride=10 ** 6, verbose=False)
+        seen = sorted(idx["lo"].dropna().astype(str).unique())
+        blocks = (idx.dropna(subset=["lo"]).groupby("lo")["i"]
+                     .agg(["min", "max", "count"])
+                     .sort_values("min"))
+        out = {"n_probes": int(len(idx)),
+               "n_lines_seen": len(seen),
+               "lines_seen": seen,
+               "block_probe_counts": blocks["count"].describe().round(1)}
+
+        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
+        if f.exists():
+            cl = pd.read_parquet(f)
+            allc = set(cl["Cell_ID_Cellosaur"].dropna().astype(str))
+            out["n_lines_in_metadata"] = len(allc)
+            out["in_metadata_not_in_index"] = sorted(allc - set(seen))
+            gap = int(idx["i"].diff().median()) if len(idx) > 1 else 1
+            out["smallest_block_probes"] = int(blocks["count"].min())
+            out["verdict"] = (
+                f"index resolves {len(seen)} lines from {len(idx)} probes at "
+                f"gap~{gap}. Every block seen spans >= "
+                f"{int(blocks['count'].min())} probe(s). Lines still absent are "
+                f"most likely NOT in the DE table (metadata lists "
+                f"{len(allc)}), rather than under-sampled.")
+        return out
+
     def find_shards_for(self, values: Sequence[str],
                         column: str = "Cell_ID_Cellosaur",
                         report: bool = True, **kw) -> List[str]:
@@ -1128,9 +1163,13 @@ class MalignantCluster:
                   f"({len(shards)/len(all_shards):.0%})  "
                   f"~{len(shards)*4.3/60:.0f} min at 4.3 s/shard")
             if missing:
-                print(f"  NOT located (fall between stride-{step} probes): {missing}")
-                print(f"  -> rebuild with shard_index(stride={max(2, step//3)}) "
-                      f"to catch them")
+                print(f"  NOT located: {missing}")
+                n_seen = ok["lo"].dropna().astype(str).nunique()
+                print(f"  index resolves {n_seen} distinct {column} values "
+                      f"from {len(ok)} probes (gap~{step}).")
+                print("  -> run index_coverage(): if these are absent from the "
+                      "DE table, no stride will find them and you should "
+                      "proceed without them.")
 
         if missing:
             warnings.warn(
