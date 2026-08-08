@@ -72,7 +72,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.16.0"          # bump on every edit; check with pml.__version__
+__version__ = "0.17.1"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
 
@@ -1081,6 +1081,44 @@ class MalignantCluster:
         sel = cl[cl["Organ"] == (organ or self.organ)]
         return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
 
+    def shard_sizes(self, shards: Optional[Sequence[str]] = None) -> pd.DataFrame:
+        """Byte size of each DE shard, from the repo file listing."""
+        from huggingface_hub import HfApi
+        info = HfApi().repo_info(self._TAHOE_REPO, repo_type="dataset",
+                                 files_metadata=True)
+        sz = {s.rfilename: (s.size or 0) for s in info.siblings}
+        keep = list(shards) if shards is not None else self.list_de_shards()
+        return pd.DataFrame({"shard": keep,
+                             "bytes": [sz.get(f, 0) for f in keep]})
+
+    def download_shards(self, shards: Sequence[str], local_dir=None,
+                        max_workers: int = 8, dry_run: bool = False):
+        """Download a specific set of DE shards in parallel.
+
+        Why this exists: DuckDB's `hf://` reader fetches column chunks over
+        single-threaded HTTP range requests, so a shard that actually contains
+        matching rows costs minutes, not seconds -- while a shard that can be
+        skipped entirely via footer statistics costs seconds. Timing a scan on
+        skippable shards badly underestimates the real cost. Downloading the
+        shards you need, in parallel, then querying them locally is far faster.
+
+        Set HF_HUB_ENABLE_HF_TRANSFER=1 (pip install hf_transfer) for best speed.
+        """
+        from huggingface_hub import snapshot_download
+
+        sizes = self.shard_sizes(shards)
+        total = int(sizes["bytes"].sum())
+        print(f"{len(shards)} shards, {total/1e9:.2f} GB "
+              f"(median {sizes['bytes'].median()/1e6:.0f} MB/shard)")
+        if dry_run:
+            return sizes
+
+        d = self.tahoe_dir(local_dir)
+        snapshot_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
+                          allow_patterns=list(shards), local_dir=str(d),
+                          max_workers=max_workers)
+        return d
+
     def index_coverage(self, column: str = "Cell_ID_Cellosaur", local_dir=None):
         """Distinguish "not sampled yet" from "not in the DE table at all".
 
@@ -1433,13 +1471,23 @@ class MalignantCluster:
                     "No HF_TOKEN found. Streaming ~1026 remote parquet shards "
                     "anonymously will likely hit HTTP 429. Set HF_TOKEN, or "
                     "use mode='download'.")
-            de_glob = (f"hf://datasets/{self._TAHOE_REPO}/"
-                       "metadata/pseudobulk_differential_expression/*.parquet")
+            de_glob = ("'hf://datasets/" + self._TAHOE_REPO +
+                       "/metadata/pseudobulk_differential_expression/*.parquet'")
         elif mode == "download":
             de_dir = Path(d) / "metadata" / "pseudobulk_differential_expression"
-            if force or not any(de_dir.glob("*.parquet")):
-                self.download_tahoe(local_dir=d, de=True, force=force)
-            de_glob = str(de_dir / "*.parquet")
+            if _shard_subset:
+                local = [Path(d) / f for f in _shard_subset]
+                missing = [f for f in local if not f.exists()]
+                if missing:
+                    raise FileNotFoundError(
+                        f"{len(missing)} of {len(local)} shards not downloaded "
+                        f"(e.g. {missing[0]}). Run download_shards(shards) first.")
+                de_glob = "', '".join(str(f) for f in local)
+                de_glob = f"['{de_glob}']"
+            else:
+                if force or not any(de_dir.glob("*.parquet")):
+                    self.download_tahoe(local_dir=d, de=True, force=force)
+                de_glob = f"'{de_dir / '*.parquet'}'"
 
         cl_meta = con.execute(
             f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'cell_line_metadata.parquet'}')"
@@ -1453,17 +1501,35 @@ class MalignantCluster:
         if organs:
             sel = sel[sel["Organ"].isin(organs)]
         if cell_lines:
-            sel = sel[sel["cell_name"].isin(cell_lines)]
+            # Accept either Cellosaurus ids or cell names -- find_shards_for and
+            # organ_cell_lines both speak CVCL, so requiring names here made the
+            # natural call fail with a misleading "no cell lines match".
+            want = {str(x) for x in cell_lines}
+            m = sel["Cell_ID_Cellosaur"].astype(str).isin(want)
+            if "cell_name" in sel.columns:
+                m = m | sel["cell_name"].astype(str).isin(want)
+            matched = set(sel.loc[m, "Cell_ID_Cellosaur"].astype(str))
+            if "cell_name" in sel.columns:
+                matched |= set(sel.loc[m, "cell_name"].astype(str))
+            unknown = want - matched
+            if unknown:
+                warnings.warn(
+                    f"cell_lines not found in cell_line_metadata: "
+                    f"{sorted(unknown)}. Note the metadata catalogues ~102 "
+                    "lines but only ~50 were profiled, so presence here still "
+                    "does not guarantee rows in the DE table.")
+            sel = sel[m]
         if sel.empty:
             raise ValueError(
                 f"no cell lines match organs={organs} lines={cell_lines}.\n"
-                f"Tahoe's Organ vocabulary (exact, case-sensitive): "
+                f"cell_lines accepts Cell_ID_Cellosaur ids or cell_name values.\n"
+                f"Organ vocabulary (exact, case-sensitive): "
                 f"{sorted(cl_meta['Organ'].dropna().unique())}")
         cvcl = sorted(sel["Cell_ID_Cellosaur"].dropna().unique().tolist())
 
         # --- sniff schema -------------------------------------------------------
         cols = con.execute(
-            f"SELECT * FROM read_parquet('{de_glob}') LIMIT 1"
+            f"SELECT * FROM read_parquet({de_glob}) LIMIT 1"
         ).df().columns.tolist()
 
         gcol = self._pick_col(cols, self._DE_GENE_CANDS, gene_col, "gene")
@@ -1515,7 +1581,7 @@ class MalignantCluster:
                 df = (df.groupby(["cell_line_id", "drug", "gene"], observed=True,
                                  as_index=False)["stat"].mean())
         else:
-            q = f"{select_sql} FROM read_parquet('{de_glob}') {where_sql}"
+            q = f"{select_sql} FROM read_parquet({de_glob}) {where_sql}"
             df = self._duck_retry(con, q, retries=http_retries,
                                   wait_s=http_retry_wait_s)
 
