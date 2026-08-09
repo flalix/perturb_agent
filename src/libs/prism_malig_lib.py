@@ -17,7 +17,7 @@ Pipeline
     init()                                  # -> MalignantState
         |
     prepare_malignant_matrix()              # compartment CPM, share filter,
-        |                                   # purity decoupling, HVG
+        |                                   # purity decoupling, HVG - high-variable genes + keep_genes
     consensus_cluster()                     # k selection via PAC / silhouette
         |
     cluster_signatures()                    # one-vs-rest signed signatures
@@ -230,7 +230,8 @@ class MalignantCluster:
         Z_mal: Optional[pd.DataFrame] = None,
         recovered_genes: Optional[Sequence[str]] = None,
     ) -> MalignantState:
-        """Build a MalignantState straight from `prism.full_Z(res, df_bulk, ref)`.
+        """
+        Build a MalignantState straight from `prism.full_Z(res, df_bulk, ref)`.
 
         Preferred over `load_bayesprism_export` -- no R round-trip, and the
         per-gene compartment share is exact rather than reconstructed.
@@ -298,7 +299,8 @@ class MalignantCluster:
                 "Pass `samples=` to disambiguate."
             )
         sa, ga, ca = valid[0]
-        A = np.moveaxis(A, (sa, ga, ca), (0, 1, 2))          # samples x genes x ct
+        # samples x genes x ct
+        A = np.moveaxis(A, (sa, ga, ca), (0, 1, 2))          
 
         idx = pd.Index(samples) if samples is not None else pd.RangeIndex(A.shape[0])
         if cell_name not in cts:
@@ -620,6 +622,7 @@ class MalignantCluster:
                 f"X has {X.shape[1]} feature(s); nothing to cluster on. This "
                 "almost always means prepare_malignant_matrix() filtered out "
                 "every gene -- run diagnose_filters() to see which threshold.")
+        
         if X.shape[0] < 3:
             raise ValueError(f"X has {X.shape[0]} sample(s); need >= 3.")
 
@@ -806,7 +809,10 @@ class MalignantCluster:
 
     def download_tahoe(self, local_dir=None, de: bool = False,
                        force: bool = False) -> Path:
-        """Download Tahoe-100M metadata into a plain directory of your choice.
+        """
+        Download Tahoe-100M metadata into a plain directory of your choice.
+        How to load a Parquet file into a table
+        https://duckdb.org/docs/current/guides/overview
 
         Parameters
         ----------
@@ -833,6 +839,7 @@ class MalignantCluster:
         if de:
             patterns.append(self._TAHOE_DE_GLOB)
 
+        # huggingface_hub.snapshot_download
         snapshot_download(
             repo_id=self._TAHOE_REPO,
             repo_type="dataset",
@@ -904,7 +911,8 @@ class MalignantCluster:
 
     def inspect_de_schema(self, genes=None, shard: int = 0, n_distinct: int = 10,
                           n_rows: int = 500_000, local_dir=None):
-        """Report what the DE columns actually contain. Run on 0-row queries.
+        """
+        Report what the DE columns actually contain. Run on 0-row queries.
 
         Pulls ONE shard to disk and does every check in pandas. Inspecting over
         HTTP means a separate remote scan per column, which is why the previous
@@ -913,6 +921,11 @@ class MalignantCluster:
         Answers: does the cell-line column hold Cellosaurus ids or cell names,
         and does the gene column hold HGNC symbols, Ensembl ids, or integer
         token ids?
+        """
+
+        """
+        ParquetFile
+        https://github.com/ueshin/apache-arrow/blob/master/python/pyarrow/parquet.py
         """
         import pyarrow.parquet as pq
 
@@ -1077,8 +1090,11 @@ class MalignantCluster:
         f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if not f.exists():
             self.download_tahoe(local_dir=local_dir, de=False)
+
         cl = pd.read_parquet(f)
+        
         sel = cl[cl["Organ"] == (organ or self.organ)]
+
         return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
 
     def shard_sizes(self, shards: Optional[Sequence[str]] = None) -> pd.DataFrame:
@@ -1420,6 +1436,8 @@ class MalignantCluster:
         sniffed at runtime; override with `stat_col` / `gene_col` if the
         sniffing picks the wrong one.
         """
+
+        # DuckDB - https://duckdb.org/docs/current/guides/overview
         import duckdb
 
         if mode not in ("stream", "download"):
@@ -1689,13 +1707,27 @@ class MalignantCluster:
         cond: pd.DataFrame,
         normalize_within: str = "cell_line_id",
     ) -> pd.DataFrame:
-        """WTCS + within-cell-line normalised connectivity (NCS) for every
-        (cluster, condition) pair.
+        """
+        WTCS (Weighted Connectivity Score) and NCS (Normalized Connectivity Score)
+        are core metrics used in the LINCS and Connectivity Map (CMap) pipelines 
+        to compare query gene signatures against reference expression profiles. 
+        WTCS measures signature similarity from −1 to 1, 
+        while NCS normalizes these scores within specific cell lines and perturbagen types.
+        
+        WTCS + within-cell-line normalised connectivity (NCS) for every (cluster, condition) pair.
 
         Interpretation: rank by ascending `ncs` to get compounds predicted to
         *reverse* a cluster's malignant program; descending to find compounds whose
         transcriptional footprint *is* that program (mechanistic hypothesis for
         what the cluster's cells are doing).
+
+        Direction convention for Tahoe. 
+        score_clusters_vs_tahoe returns WTCS/NCS where 
+        - negative = the compound reverses the cluster's program (therapeutic hypothesis) and 
+        - positive = the compound's footprint is the program (mechanistic hypothesis for what those cells are doing). 
+        
+        Pancreas is one of the better-represented organs among Tahoe's 47 usable lines, 
+        and the DE query filters at the parquet scan so you never materialise the 4.1B-row table.
         """
         rows = []
         for c, s in sig.items():
