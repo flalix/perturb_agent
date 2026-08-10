@@ -66,14 +66,13 @@ from pathlib import Path
 
 from scipy.cluster.hierarchy import fcluster, linkage, cophenet
 from scipy.spatial.distance import pdist, squareform
-from scipy import stats
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.19.0"          # bump on every edit; check with pml.__version__
+__version__ = "0.17.1"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
 
@@ -141,8 +140,8 @@ class MalignantCluster:
                  cell_types: Optional[Sequence[str]] = None):
 
         self.prism, self.res, self.df_bulk, self.ref = prism, res, df_bulk, ref
-        self.root_mprog_cluster = create_dir(root_mprog_cluster)
-        self.root_mprog_tahoe = create_dir(root_mprog_cluster / "tahoe")
+        self.root_mprog_cluster = Path(root_mprog_cluster)
+        create_dir(self.root_mprog_cluster)
 
         self.__lib_version__ = __version__
         self.cell_name = cell_name
@@ -207,7 +206,7 @@ class MalignantCluster:
             # genes=X.columns is not optional: without it the pancreas subset
             # is ~5e8 rows. Callers may override, but never silently drop it.
             tkw = {"organs": (self.organ,), "genes": X.columns,
-                   "local_dir": self.root_mprog_tahoe,
+                   "local_dir": self.tahoe_dir(),
                    "save_to": self.tahoe_derived_dir()}
             tkw.update(tahoe_kw or {})
             if tkw.get("genes") is None:
@@ -217,7 +216,6 @@ class MalignantCluster:
             S, cond = self.load_tahoe_de(**tkw)
             out["tahoe"] = self.score_clusters_vs_tahoe(sig, S, cond)
             out["tahoe_S"], out["tahoe_cond"] = S, cond
-        
         return out
 
 
@@ -689,187 +687,14 @@ class MalignantCluster:
     # ===========================================================================
     # 4. Cluster signatures
     # ===========================================================================
-    @staticmethod
-    def _bh(p: pd.Series) -> pd.Series:
-        """Benjamini-Hochberg FDR."""
-        p = p.fillna(1.0)
-        n = len(p)
-        order = np.argsort(p.values)
-        ranked = p.values[order]
-        q = ranked * n / (np.arange(n) + 1)
-        q = np.minimum.accumulate(q[::-1])[::-1]
-        out = np.empty(n)
-        out[order] = np.clip(q, 0, 1)
-        return pd.Series(out, index=p.index)
-
-    def signature_table(
-        self,
-        X: pd.DataFrame,
-        labels: pd.Series,
-        heldout: Optional[Dict[int, pd.DataFrame]] = None,
-        min_abs_lfc: float = 0.0,
-        sort_by: str = "stat",
-    ) -> pd.DataFrame:
-        """Tidy per-cluster DE table: lfc, moderated stat, p, FDR.
-
-        One row per (cluster, gene). Columns:
-          lfc            difference of means on the clustering scale (log2 CPM,
-                         purity-residualised if decouple_purity was on -- so it
-                         is a log2 fold-change ONLY if that scale was log2 CPM)
-          stat           SAM-style moderated t used for the WTCS ranking
-          p_nominal      Welch t p-value, circular (see below)
-          fdr_nominal    BH across genes within each cluster
-          frac_splits_sig / median_p / fdr_of_median  if `heldout` is supplied
-
-        On k=2: one-vs-rest is a single contrast, so cluster 1 and cluster 2
-        rows are mirror images -- identical p, sign-flipped lfc. Report one.
-
-        p_nominal/fdr_nominal are anticonservative because the clusters were
-        chosen to separate these samples. Measured on null data: ~1-8% of genes
-        pass fdr_nominal<0.05 with no structure present, worsening as n falls.
-        Use them to rank; use `heldout` columns to claim.
-        """
-        sig = self.cluster_signatures(X, labels, n_top=X.shape[1],
-                                      min_abs_lfc=min_abs_lfc, pvalues=True)
-        rows = []
-        for c, v in sig.items():
-            df = pd.DataFrame({
-                "cluster": c,
-                "gene": v["stat"].index,
-                "lfc": v["lfc"].values,
-                "stat": v["stat"].values,
-                "p_nominal": v["p_nominal"].values,
-                "fdr_nominal": v["fdr_nominal"].values,
-                "n_cluster": v["n"],
-            })
-            if heldout is not None and c in heldout:
-                h = heldout[c]
-                df = df.merge(
-                    h[["median_p", "fdr_of_median", "frac_splits_sig"]],
-                    left_on="gene", right_index=True, how="left")
-            rows.append(df)
-
-        out = pd.concat(rows, ignore_index=True)
-        out["direction"] = np.where(out["lfc"] > 0, "up", "down")
-        out = out.sort_values(["cluster", sort_by],
-                              ascending=[True, False]).reset_index(drop=True)
-        out["rank"] = out.groupby("cluster").cumcount() + 1
-        return out
-
-    def heldout_signatures(
-        self,
-        X: pd.DataFrame,
-        k: int,
-        n_splits: int = 50,
-        frac: float = 0.5,
-        reference_labels: Optional[pd.Series] = None,
-        alpha: float = 0.05,
-        random_state: int = 0,
-        **cc_kw,
-    ) -> Dict[int, pd.DataFrame]:
-        """Valid p-values by sample splitting: cluster on A, test on B.
-
-        Each split clusters a random `frac` of samples (A), assigns the held-out
-        samples (B) to those clusters by nearest centroid, then runs a Welch
-        t-test **within B only**. Because B played no part in defining the
-        clusters, its p-values are not circular.
-
-        Clusters are matched to `reference_labels` (your full-data solution) by
-        majority overlap on A, so results are comparable across splits.
-
-        Returns {cluster: DataFrame(median_p, fdr_of_median, frac_splits_sig,
-        mean_lfc, n_splits_tested)}. `frac_splits_sig` is the useful column: a
-        gene significant in 45/50 splits is far more trustworthy than one with a
-        small p in a single split.
-
-        Caveat: each split halves n, so power drops sharply. Genes that fail
-        here are not shown to be null -- they are underpowered. Absence of
-        evidence, in a design that deliberately spends evidence on validity.
-        """
-        rng = np.random.default_rng(random_state)
-        samples = np.array(X.index)
-        n = len(samples)
-        acc: Dict[int, Dict[str, list]] = {}
-
-        for rep in range(n_splits):
-            idx = rng.permutation(n)
-            nA = max(k + 1, int(round(frac * n)))
-            A, B = samples[idx[:nA]], samples[idx[nA:]]
-            if len(B) < 2 * k:
-                continue
-
-            cc = self.consensus_cluster(X.loc[A], ks=[k],
-                                        random_state=int(rng.integers(1e6)),
-                                        **cc_kw)
-            labA = cc[k]["labels"]
-
-            cent = X.loc[A].groupby(labA).mean()
-            # assign B by max correlation to a cluster centroid
-            Bc = X.loc[B].sub(X.loc[B].mean(axis=1), axis=0)
-            Cc = cent.sub(cent.mean(axis=1), axis=0)
-            corr = (Bc.values @ Cc.values.T) / (
-                np.linalg.norm(Bc.values, axis=1)[:, None]
-                * np.linalg.norm(Cc.values, axis=1)[None, :] + 1e-12)
-            labB = pd.Series(cent.index[np.argmax(corr, axis=1)], index=B)
-
-            # relabel A-clusters to reference ids by majority overlap
-            if reference_labels is not None:
-                ct = pd.crosstab(labA, reference_labels.reindex(A))
-                mapping = ct.idxmax(axis=1).to_dict()
-                labB = labB.map(mapping)
-
-            for c in sorted(labB.dropna().unique()):
-                g1, g2 = X.loc[labB[labB == c].index], X.loc[labB[labB != c].index]
-                if len(g1) < 2 or len(g2) < 2:
-                    continue
-                d = g1.mean(axis=0) - g2.mean(axis=0)
-                v1, v2 = g1.var(axis=0, ddof=1), g2.var(axis=0, ddof=1)
-                n1, n2 = len(g1), len(g2)
-                se = np.sqrt(v1 / n1 + v2 / n2)
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    tw = d / se
-                    dfree = ((v1 / n1 + v2 / n2) ** 2 /
-                             ((v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)))
-                pv = pd.Series(2 * stats.t.sf(np.abs(tw.values), dfree.values),
-                               index=X.columns).fillna(1.0)
-                a_ = acc.setdefault(int(c), {"p": [], "lfc": []})
-                a_["p"].append(pv)
-                a_["lfc"].append(d)
-
-        out = {}
-        for c, v in acc.items():
-            P = pd.concat(v["p"], axis=1)
-            L = pd.concat(v["lfc"], axis=1)
-            med = P.median(axis=1)
-            sig_frac = P.apply(lambda col: self._bh(col) < alpha).mean(axis=1)
-            out[c] = pd.DataFrame({
-                "median_p": med,
-                "fdr_of_median": self._bh(med),
-                "frac_splits_sig": sig_frac,
-                "mean_lfc": L.mean(axis=1),
-                "n_splits_tested": P.shape[1],
-            }).sort_values("frac_splits_sig", ascending=False)
-        return out
-
     def cluster_signatures(
         self,
         X: pd.DataFrame,
         labels: pd.Series,
         n_top: int = 150,
         min_abs_lfc: float = 0.0,
-        pvalues: bool = False,
     ) -> Dict[int, Dict[str, object]]:
         """One-vs-rest signed signatures with a simple moderated t.
-
-        `pvalues=True` adds `p_nominal` / `fdr_nominal`. THESE ARE NOT VALID
-        INFERENCE. The clusters were chosen to maximise separation in this same
-        X, so testing that separation here is circular ("double dipping"): under
-        a null of one homogeneous group, any clustering still yields tiny
-        p-values. Use them to rank genes within a cluster, never to claim a
-        cluster is real or that a gene is "significantly" associated.
-
-        For p-values you can defend, use heldout_signatures(), which clusters on
-        one half of the samples and tests on the other.
 
         Returns {cluster: {"stat": Series (all genes, signed),
                         "up": [genes], "down": [genes]}}.
@@ -892,25 +717,9 @@ class MalignantCluster:
                 t = t.where(d.abs() >= min_abs_lfc, 0.0)
             up = t.sort_values(ascending=False).head(n_top)
             dn = t.sort_values().head(n_top)
-
-            entry_p = {}
-            if pvalues:
-                # Welch t WITHOUT the s0 offset: with s0 > 0 the statistic is
-                # not t-distributed, so p would be wrong even ignoring the
-                # circularity below.
-                na, nb = len(a), len(b)
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    t_w = d / se
-                    df = ((va / na + vb / nb) ** 2 /
-                          ((va / na) ** 2 / (na - 1) + (vb / nb) ** 2 / (nb - 1)))
-                pv = pd.Series(2 * stats.t.sf(np.abs(t_w.values), df.values),
-                               index=t.index).fillna(1.0)
-                entry_p = {"p_nominal": pv, "fdr_nominal": self._bh(pv)}
-
             sig[int(c)] = {
                 "stat": t,
                 "lfc": d,
-                **entry_p,
                 "up": [g for g, v in up.items() if v > 0],
                 "down": [g for g, v in dn.items() if v < 0],
                 "n": int((labels == c).sum()),
@@ -983,17 +792,23 @@ class MalignantCluster:
                     "metadata/sample_metadata.parquet"]
     _TAHOE_DE_GLOB = "metadata/pseudobulk_differential_expression/*.parquet"
 
+    def tahoe_dir(self, local_dir=None) -> Path:
+        """Resolve (and create) the directory Tahoe files are kept in."""
+        d = Path(local_dir) if local_dir is not None \
+            else Path(self.root_mprog_cluster) / "tahoe"
+        create_dir(d)
+        return d
 
     def tahoe_derived_dir(self, save_to=None) -> Path:
         """Where derived S/cond parquet is cached. Defaults to
         `<root_mprog_cluster>/tahoe/derived` so every call site shares it."""
         d = Path(save_to) if save_to not in (None, True) \
-            else self.root_mprog_tahoe / "derived"
+            else self.tahoe_dir() / "derived"
         create_dir(d)
         return d
 
-    def download_tahoe(self, de: bool = False,
-                       force: bool = False):
+    def download_tahoe(self, local_dir=None, de: bool = False,
+                       force: bool = False) -> Path:
         """
         Download Tahoe-100M metadata into a plain directory of your choice.
         How to load a Parquet file into a table
@@ -1002,8 +817,10 @@ class MalignantCluster:
         Parameters
         ----------
         local_dir
-            removed
-            all data downloade in the root -> self.root_mprog_tahoe
+            Target directory. Real files are written here (not the HF
+            blobs/snapshots cache layout), so the tree is portable and you can
+            point `load_tahoe_de(local_dir=...)` at it later, or move it to a
+            scratch volume. Defaults to `<root_mprog_cluster>/tahoe`.
         de
             Also pull the pseudobulk DE table. This is the expensive part: 21
             parquet shards covering 4.09e9 rows. Leave it False and use
@@ -1017,6 +834,7 @@ class MalignantCluster:
         """
         from huggingface_hub import snapshot_download
 
+        d = self.tahoe_dir(local_dir)
         patterns = list(self._TAHOE_SMALL)
         if de:
             patterns.append(self._TAHOE_DE_GLOB)
@@ -1026,10 +844,10 @@ class MalignantCluster:
             repo_id=self._TAHOE_REPO,
             repo_type="dataset",
             allow_patterns=patterns,
-            local_dir=self.root_mprog_tahoe,
+            local_dir=str(d),
             force_download=force,
         )
-   
+        return d
 
     # Column-name candidates for the DE table, most-specific first. The real
     # schema uses Cell_ID_Cellosaur / Cell_Name_Vevo / gene_name -- there is no
@@ -1081,17 +899,18 @@ class MalignantCluster:
             "drug": self._pick_col(cols, self._DE_DRUG_CANDS, None, "drug"),
         }
 
-    def fetch_de_shard(self, i: int = 0) -> Path:
+    def fetch_de_shard(self, i: int = 0, local_dir=None) -> Path:
         """Download a single DE shard to disk (cached). One file, not 1026."""
         from huggingface_hub import hf_hub_download
-        root_mprog_probe = create_dir(self.root_mprog_tahoe / "_probe")
+        d = self.tahoe_dir(local_dir) / "_probe"
+        create_dir(d)
         f = hf_hub_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
                             filename=self.list_de_shards()[i],
-                            local_dir=root_mprog_probe)
+                            local_dir=str(d))
         return Path(f)
 
     def inspect_de_schema(self, genes=None, shard: int = 0, n_distinct: int = 10,
-                          n_rows: int = 500_000):
+                          n_rows: int = 500_000, local_dir=None):
         """
         Report what the DE columns actually contain. Run on 0-row queries.
 
@@ -1110,7 +929,7 @@ class MalignantCluster:
         """
         import pyarrow.parquet as pq
 
-        f = self.fetch_de_shard(shard)
+        f = self.fetch_de_shard(shard, local_dir)
         pf = pq.ParquetFile(f)
         df = next(pf.iter_batches(batch_size=min(n_rows, 200_000))).to_pandas()
 
@@ -1131,7 +950,7 @@ class MalignantCluster:
                     if not pd.api.types.is_numeric_dtype(df[c])]
 
         # which of our cell-line vocabularies actually appears?
-        cl_path = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        cl_path = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if cl_path.exists():
             cl = pd.read_parquet(cl_path)
             out["cell_line_metadata_columns"] = list(cl.columns)
@@ -1153,7 +972,7 @@ class MalignantCluster:
                 n = df[c].astype(str).isin(gset).sum()
                 if n:
                     out[f"MATCH query genes -> DE.{c}"] = int(n)
-            gm = self.root_mprog_tahoe / "metadata" / "gene_metadata.parquet"
+            gm = Path(self.tahoe_dir(local_dir)) / "metadata" / "gene_metadata.parquet"
             if gm.exists():
                 g_meta = pd.read_parquet(gm)
                 out["gene_metadata_columns"] = list(g_meta.columns)
@@ -1194,7 +1013,7 @@ class MalignantCluster:
         return sorted(f for f in files if f.startswith(pre) and f.endswith(".parquet"))
 
     def shard_index(self, column: str = "Cell_ID_Cellosaur", force: bool = False,
-                    memory_limit: str = "4GB", verbose: bool = True,
+                    local_dir=None, memory_limit: str = "4GB", verbose: bool = True,
                     stride: int = 1):
         """Accumulate a per-shard min/max index over `column` from parquet footers.
 
@@ -1210,7 +1029,8 @@ class MalignantCluster:
         import duckdb
         import time
 
-        canon = self.root_mprog_tahoe / f"_shard_index_{column}.parquet"
+        d = self.tahoe_dir(local_dir)
+        canon = Path(d) / f"_shard_index_{column}.parquet"
         have = pd.DataFrame(columns=["i", "shard", "lo", "hi"])
         if canon.exists() and not force:
             have = pd.read_parquet(canon)
@@ -1264,15 +1084,16 @@ class MalignantCluster:
         idx.to_parquet(canon)
         return idx
 
-    def organ_cell_lines(self) -> List[str]:
+    def organ_cell_lines(self, organ: Optional[str] = None,
+                         local_dir=None) -> List[str]:
         """Cellosaurus ids for one organ, from the cached cell_line_metadata."""
-        f = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if not f.exists():
-            self.download_tahoe(de=False)
+            self.download_tahoe(local_dir=local_dir, de=False)
 
         cl = pd.read_parquet(f)
         
-        sel = cl[cl["Organ"] == self.organ]
+        sel = cl[cl["Organ"] == (organ or self.organ)]
 
         return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
 
@@ -1286,7 +1107,7 @@ class MalignantCluster:
         return pd.DataFrame({"shard": keep,
                              "bytes": [sz.get(f, 0) for f in keep]})
 
-    def download_shards(self, shards: Sequence[str],
+    def download_shards(self, shards: Sequence[str], local_dir=None,
                         max_workers: int = 8, dry_run: bool = False):
         """Download a specific set of DE shards in parallel.
 
@@ -1308,12 +1129,13 @@ class MalignantCluster:
         if dry_run:
             return sizes
 
+        d = self.tahoe_dir(local_dir)
         snapshot_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
-                          allow_patterns=list(shards), local_dir=self.root_mprog_tahoe,
+                          allow_patterns=list(shards), local_dir=str(d),
                           max_workers=max_workers)
-        return
+        return d
 
-    def index_coverage(self, column: str = "Cell_ID_Cellosaur"):
+    def index_coverage(self, column: str = "Cell_ID_Cellosaur", local_dir=None):
         """Distinguish "not sampled yet" from "not in the DE table at all".
 
         Refining the stride only helps for lines whose block is smaller than the
@@ -1321,7 +1143,8 @@ class MalignantCluster:
         target that is still missing is absent from the DE data (the atlas ships
         metadata for more lines than survive QC), and no stride will find it.
         """
-        idx = self.shard_index(column=column, stride=10 ** 6, verbose=False)
+        idx = self.shard_index(column=column, local_dir=local_dir,
+                               stride=10 ** 6, verbose=False)
         seen = sorted(idx["lo"].dropna().astype(str).unique())
         blocks = (idx.dropna(subset=["lo"]).groupby("lo")["i"]
                      .agg(["min", "max", "count"])
@@ -1331,7 +1154,7 @@ class MalignantCluster:
                "lines_seen": seen,
                "block_probe_counts": blocks["count"].describe().round(1)}
 
-        f = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if f.exists():
             cl = pd.read_parquet(f)
             allc = set(cl["Cell_ID_Cellosaur"].dropna().astype(str))
@@ -1539,6 +1362,7 @@ class MalignantCluster:
         cell_lines: Optional[Sequence[str]] = None,
         drugs: Optional[Sequence[str]] = None,
         genes: Optional[Sequence[str]] = None,
+        local_dir=None,
         mode: str = "stream",
         save_to=None,
         force: bool = False,
@@ -1568,12 +1392,13 @@ class MalignantCluster:
         Parameters
         ----------
         local_dir
-            removed
+            Where the small metadata tables are kept (and the DE shards, if
+            `mode="download"`). Defaults to `<root_mprog_cluster>/tahoe`.
         mode
             "stream" (default) queries the DE parquet shards directly over
             `hf://` with DuckDB and only materialises the filtered subset --
             nothing large touches disk. "download" fetches all 21 shards into
-            `self.root_mprog_tahoe` first, which is worth it only if you will re-query many
+            `local_dir` first, which is worth it only if you will re-query many
             times offline.
         save_to
             Directory to persist the derived `S` / `cond` as parquet. Defaults
@@ -1621,6 +1446,8 @@ class MalignantCluster:
         if organs is None and not cell_lines:
             organs = (self.organ,)
 
+        d = self.tahoe_dir(local_dir)
+
         # --- reuse a previously saved result --------------------------------
         # save_to=False disables caching; None means "use the default dir".
         if save_to is not False:
@@ -1632,9 +1459,9 @@ class MalignantCluster:
                 return pd.read_parquet(f_S), pd.read_parquet(f_c)
 
         # --- small tables always local (a few MB) ---------------------------
-        need = [self.root_mprog_tahoe / f for f in self._TAHOE_SMALL[:2]]
+        need = [Path(d) / f for f in self._TAHOE_SMALL[:2]]
         if force or not all(f.exists() for f in need):
-            self.download_tahoe(de=False, force=force)
+            self.download_tahoe(local_dir=d, de=False, force=force)
 
         con = duckdb.connect()
         con.execute(f"SET memory_limit='{memory_limit}'")
@@ -1665,9 +1492,9 @@ class MalignantCluster:
             de_glob = ("'hf://datasets/" + self._TAHOE_REPO +
                        "/metadata/pseudobulk_differential_expression/*.parquet'")
         elif mode == "download":
-            de_dir = self.root_mprog_tahoe / "metadata" / "pseudobulk_differential_expression"
+            de_dir = Path(d) / "metadata" / "pseudobulk_differential_expression"
             if _shard_subset:
-                local = [self.root_mprog_tahoe / f for f in _shard_subset]
+                local = [Path(d) / f for f in _shard_subset]
                 missing = [f for f in local if not f.exists()]
                 if missing:
                     raise FileNotFoundError(
@@ -1677,14 +1504,14 @@ class MalignantCluster:
                 de_glob = f"['{de_glob}']"
             else:
                 if force or not any(de_dir.glob("*.parquet")):
-                    self.download_tahoe(de=True, force=force)
+                    self.download_tahoe(local_dir=d, de=True, force=force)
                 de_glob = f"'{de_dir / '*.parquet'}'"
 
         cl_meta = con.execute(
-            f"SELECT * FROM read_parquet('{self.root_mprog_tahoe / 'metadata' / 'cell_line_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'cell_line_metadata.parquet'}')"
         ).df()
         drug_meta = con.execute(
-            f"SELECT * FROM read_parquet('{self.root_mprog_tahoe /'metadata'/'drug_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'drug_metadata.parquet'}')"
         ).df()
 
         # --- resolve which cell lines we want ----------------------------------
@@ -1761,7 +1588,7 @@ class MalignantCluster:
             if _shard_limit:
                 shards = shards[:_shard_limit]
             ckdir = Path(checkpoint_dir) if checkpoint_dir is not None \
-                else self.root_mprog_tahoe / "_scan_ck" / \
+                else self.tahoe_dir(local_dir) / "_scan_ck" / \
                      self._tahoe_cache_key(organs, cell_lines, drugs, genes)
             if verbose:
                 print(f"scanning {len(shards)} DE shards -> {ckdir}", flush=True)
