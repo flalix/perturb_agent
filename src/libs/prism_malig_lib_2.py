@@ -73,7 +73,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.20.4"          # bump on every edit; check with pml.__version__
+__version__ = "0.19.0"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
 
@@ -141,8 +141,8 @@ class MalignantCluster:
                  cell_types: Optional[Sequence[str]] = None):
 
         self.prism, self.res, self.df_bulk, self.ref = prism, res, df_bulk, ref
-        self.root_mprog_cluster = create_dir(root_mprog_cluster)
-        self.root_mprog_tahoe = create_dir(self.root_mprog_cluster / "tahoe")
+        self.root_mprog_cluster = Path(root_mprog_cluster)
+        create_dir(self.root_mprog_cluster)
 
         self.__lib_version__ = __version__
         self.cell_name = cell_name
@@ -192,7 +192,7 @@ class MalignantCluster:
         """Cluster the malignant compartment; optionally anchor against Tahoe.
 
         `**kw` goes to prepare_malignant_matrix; `tahoe_kw` to load_tahoe_de
-        (e.g. dict(mode="download", hf_token=..., threads=2)).
+        (e.g. dict(mode="download", local_dir=..., hf_token=..., threads=2)).
         """
         X, diag = self.prepare_malignant_matrix(keep_genes=self.program1_panel, **kw)
         cc = self.consensus_cluster(X, ks=ks)
@@ -207,6 +207,7 @@ class MalignantCluster:
             # genes=X.columns is not optional: without it the pancreas subset
             # is ~5e8 rows. Callers may override, but never silently drop it.
             tkw = {"organs": (self.organ,), "genes": X.columns,
+                   "local_dir": self.tahoe_dir(),
                    "save_to": self.tahoe_derived_dir()}
             tkw.update(tahoe_kw or {})
             if tkw.get("genes") is None:
@@ -216,7 +217,6 @@ class MalignantCluster:
             S, cond = self.load_tahoe_de(**tkw)
             out["tahoe"] = self.score_clusters_vs_tahoe(sig, S, cond)
             out["tahoe_S"], out["tahoe_cond"] = S, cond
-        
         return out
 
 
@@ -386,8 +386,6 @@ class MalignantCluster:
         share_frac_samples: float = 0.50,
         min_counts: float = 10.0,
         min_theta: float = 0.05,
-        keep_samples: Optional[Sequence[str]] = None,
-        drop_pattern: Optional[str] = None,
         n_hvg: int = 2000,
         decouple_purity: bool = True,
         extra_covariates: Optional[pd.DataFrame] = None,
@@ -426,28 +424,7 @@ class MalignantCluster:
         diag: Dict = {}
 
         # --- sample filter ------------------------------------------------------
-        # Normal / adjacent-tissue samples have no malignant compartment, so
-        # their Z_mal is close to pure BayesPrism prior -- the reference
-        # profile, not the sample. Left in, they dominate the first split and
-        # the "subtypes" are really tumour-vs-normal.
-        _idx = self.ms.Z.index
-        _sel = pd.Series(True, index=_idx)
-        if keep_samples is not None:
-            _want = set(map(str, keep_samples))
-            _sel &= pd.Series(_idx.astype(str).isin(_want), index=_idx)
-            _unk = _want - set(_idx.astype(str))
-            if _unk:
-                warnings.warn(f"keep_samples not in Z index: {sorted(_unk)[:5]}")
-        if drop_pattern:
-            _hit = pd.Series(_idx.astype(str).str.contains(drop_pattern, regex=True),
-                             index=_idx)
-            _sel &= ~_hit
-        _n_excl = int((~_sel).sum())
-        if _n_excl:
-            print(f"excluded {_n_excl}/{len(_idx)} samples by keep_samples/drop_pattern")
-        diag["samples_excluded_by_filter"] = list(_idx[~_sel])
-
-        keep_s = _sel & (self.ms.theta_mal.reindex(_idx) >= min_theta)
+        keep_s = self.ms.theta_mal >= min_theta
         if (~keep_s).any():
             warnings.warn(
                 f"dropping {int((~keep_s).sum())} samples with theta_{self.ms.cell_name}"
@@ -548,17 +525,6 @@ class MalignantCluster:
         diag["n_hvg"] = int(Xc.shape[1])
 
         # --- purity leakage check ----------------------------------------------
-        # Correlate PCs with theta on BOTH matrices. On the decoupled matrix
-        # this is ~0 by construction (residuals are orthogonal to the
-        # covariates), so it proves nothing -- the informative number is the
-        # pre-decoupling one.
-        if logx.shape[1] >= 2:
-            _p = PCA(n_components=min(5, min(logx.shape) - 1)).fit_transform(
-                (logx - logx.mean()).values)
-            diag["pc_theta_pearson_raw"] = [
-                float(np.corrcoef(_p[:, i], theta_mal.values)[0, 1])
-                for i in range(_p.shape[1])]
-
         if Xc.shape[1] >= 2:
             pcs = PCA(n_components=min(5, min(Xc.shape) - 1)).fit_transform(
                 (Xc - Xc.mean()).values
@@ -567,23 +533,7 @@ class MalignantCluster:
                 float(np.corrcoef(pcs[:, i], theta_mal.values)[0, 1])
                 for i in range(pcs.shape[1])
             ]
-        if decouple_purity:
-            diag["pc_theta_note"] = (
-                "pc_theta_pearson is ~0 by construction under "
-                "decouple_purity=True; read pc_theta_pearson_raw instead.")
-
-        # Global signal level per sample -- catches samples whose malignant
-        # compartment is near-empty or degraded. These cluster out on their own
-        # and look like a subtype until you notice every program is down.
-        diag["sample_mean_expr"] = Xc.mean(axis=1).round(3)
-        diag["sample_total_Z"] = self.ms.Z.loc[Xc.index].sum(axis=1)
-
         diag["theta_mal"] = theta_mal
-        diag["n_samples_used"] = int(len(theta_mal))
-        self.samples_used = list(theta_mal.index)
-        if _n_excl:
-            diag["theta_excluded"] = self.ms.theta_mal[~_sel].describe().round(4)
-            diag["theta_kept"] = self.ms.theta_mal[_sel].describe().round(4)
 
         return (Xc, diag) if return_diagnostics else (Xc, {})
 
@@ -646,9 +596,6 @@ class MalignantCluster:
     # ===========================================================================
     @staticmethod
     def _pac(consensus: np.ndarray, lo: float = 0.1, hi: float = 0.9) -> float:
-        # Accept a DataFrame too: cc[k]["consensus"] is one, and label-based
-        # __getitem__ would misread the positional triu indices.
-        consensus = np.asarray(consensus)
         iu = np.triu_indices_from(consensus, k=1)
         v = consensus[iu]
         return float(((v > lo) & (v < hi)).mean())
@@ -991,8 +938,6 @@ class MalignantCluster:
             raise ValueError(f"need >=2 non-malignant compartments, have {keep}")
 
         T = self.df_theta[keep]
-        if getattr(self, "samples_used", None):
-            T = T.reindex(self.samples_used)   # align with clustered set
         T = T.div(T.sum(axis=1), axis=0)
         L = np.log(T.values + pseudo)
         clr = pd.DataFrame(L - L.mean(axis=1, keepdims=True),
@@ -1037,17 +982,23 @@ class MalignantCluster:
                     "metadata/sample_metadata.parquet"]
     _TAHOE_DE_GLOB = "metadata/pseudobulk_differential_expression/*.parquet"
 
+    def tahoe_dir(self, local_dir=None) -> Path:
+        """Resolve (and create) the directory Tahoe files are kept in."""
+        d = Path(local_dir) if local_dir is not None \
+            else Path(self.root_mprog_cluster) / "tahoe"
+        create_dir(d)
+        return d
 
     def tahoe_derived_dir(self, save_to=None) -> Path:
         """Where derived S/cond parquet is cached. Defaults to
         `<root_mprog_cluster>/tahoe/derived` so every call site shares it."""
         d = Path(save_to) if save_to not in (None, True) \
-            else self.root_mprog_tahoe / "derived"
+            else self.tahoe_dir() / "derived"
         create_dir(d)
         return d
 
-    def download_tahoe(self, de: bool = False,
-                       force: bool = False):
+    def download_tahoe(self, local_dir=None, de: bool = False,
+                       force: bool = False) -> Path:
         """
         Download Tahoe-100M metadata into a plain directory of your choice.
         How to load a Parquet file into a table
@@ -1055,6 +1006,11 @@ class MalignantCluster:
 
         Parameters
         ----------
+        local_dir
+            Target directory. Real files are written here (not the HF
+            blobs/snapshots cache layout), so the tree is portable and you can
+            point `load_tahoe_de(local_dir=...)` at it later, or move it to a
+            scratch volume. Defaults to `<root_mprog_cluster>/tahoe`.
         de
             Also pull the pseudobulk DE table. This is the expensive part: 21
             parquet shards covering 4.09e9 rows. Leave it False and use
@@ -1068,6 +1024,7 @@ class MalignantCluster:
         """
         from huggingface_hub import snapshot_download
 
+        d = self.tahoe_dir(local_dir)
         patterns = list(self._TAHOE_SMALL)
         if de:
             patterns.append(self._TAHOE_DE_GLOB)
@@ -1077,10 +1034,10 @@ class MalignantCluster:
             repo_id=self._TAHOE_REPO,
             repo_type="dataset",
             allow_patterns=patterns,
-            local_dir=self.root_mprog_tahoe,
+            local_dir=str(d),
             force_download=force,
         )
-   
+        return d
 
     # Column-name candidates for the DE table, most-specific first. The real
     # schema uses Cell_ID_Cellosaur / Cell_Name_Vevo / gene_name -- there is no
@@ -1132,17 +1089,18 @@ class MalignantCluster:
             "drug": self._pick_col(cols, self._DE_DRUG_CANDS, None, "drug"),
         }
 
-    def fetch_de_shard(self, i: int = 0) -> Path:
+    def fetch_de_shard(self, i: int = 0, local_dir=None) -> Path:
         """Download a single DE shard to disk (cached). One file, not 1026."""
         from huggingface_hub import hf_hub_download
-        root_mprog_probe = create_dir(self.root_mprog_tahoe / "_probe")
+        d = self.tahoe_dir(local_dir) / "_probe"
+        create_dir(d)
         f = hf_hub_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
                             filename=self.list_de_shards()[i],
-                            local_dir=root_mprog_probe)
+                            local_dir=str(d))
         return Path(f)
 
     def inspect_de_schema(self, genes=None, shard: int = 0, n_distinct: int = 10,
-                          n_rows: int = 500_000):
+                          n_rows: int = 500_000, local_dir=None):
         """
         Report what the DE columns actually contain. Run on 0-row queries.
 
@@ -1161,7 +1119,7 @@ class MalignantCluster:
         """
         import pyarrow.parquet as pq
 
-        f = self.fetch_de_shard(shard)
+        f = self.fetch_de_shard(shard, local_dir)
         pf = pq.ParquetFile(f)
         df = next(pf.iter_batches(batch_size=min(n_rows, 200_000))).to_pandas()
 
@@ -1182,7 +1140,7 @@ class MalignantCluster:
                     if not pd.api.types.is_numeric_dtype(df[c])]
 
         # which of our cell-line vocabularies actually appears?
-        cl_path = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        cl_path = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if cl_path.exists():
             cl = pd.read_parquet(cl_path)
             out["cell_line_metadata_columns"] = list(cl.columns)
@@ -1204,7 +1162,7 @@ class MalignantCluster:
                 n = df[c].astype(str).isin(gset).sum()
                 if n:
                     out[f"MATCH query genes -> DE.{c}"] = int(n)
-            gm = self.root_mprog_tahoe / "metadata" / "gene_metadata.parquet"
+            gm = Path(self.tahoe_dir(local_dir)) / "metadata" / "gene_metadata.parquet"
             if gm.exists():
                 g_meta = pd.read_parquet(gm)
                 out["gene_metadata_columns"] = list(g_meta.columns)
@@ -1245,7 +1203,7 @@ class MalignantCluster:
         return sorted(f for f in files if f.startswith(pre) and f.endswith(".parquet"))
 
     def shard_index(self, column: str = "Cell_ID_Cellosaur", force: bool = False,
-                    memory_limit: str = "4GB", verbose: bool = True,
+                    local_dir=None, memory_limit: str = "4GB", verbose: bool = True,
                     stride: int = 1):
         """Accumulate a per-shard min/max index over `column` from parquet footers.
 
@@ -1261,7 +1219,8 @@ class MalignantCluster:
         import duckdb
         import time
 
-        canon = self.root_mprog_tahoe / f"_shard_index_{column}.parquet"
+        d = self.tahoe_dir(local_dir)
+        canon = Path(d) / f"_shard_index_{column}.parquet"
         have = pd.DataFrame(columns=["i", "shard", "lo", "hi"])
         if canon.exists() and not force:
             have = pd.read_parquet(canon)
@@ -1315,15 +1274,16 @@ class MalignantCluster:
         idx.to_parquet(canon)
         return idx
 
-    def organ_cell_lines(self) -> List[str]:
+    def organ_cell_lines(self, organ: Optional[str] = None,
+                         local_dir=None) -> List[str]:
         """Cellosaurus ids for one organ, from the cached cell_line_metadata."""
-        f = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if not f.exists():
-            self.download_tahoe(de=False)
+            self.download_tahoe(local_dir=local_dir, de=False)
 
         cl = pd.read_parquet(f)
         
-        sel = cl[cl["Organ"] == self.organ]
+        sel = cl[cl["Organ"] == (organ or self.organ)]
 
         return sorted(sel["Cell_ID_Cellosaur"].dropna().astype(str).unique())
 
@@ -1337,7 +1297,7 @@ class MalignantCluster:
         return pd.DataFrame({"shard": keep,
                              "bytes": [sz.get(f, 0) for f in keep]})
 
-    def download_shards(self, shards: Sequence[str],
+    def download_shards(self, shards: Sequence[str], local_dir=None,
                         max_workers: int = 8, dry_run: bool = False):
         """Download a specific set of DE shards in parallel.
 
@@ -1359,12 +1319,13 @@ class MalignantCluster:
         if dry_run:
             return sizes
 
+        d = self.tahoe_dir(local_dir)
         snapshot_download(repo_id=self._TAHOE_REPO, repo_type="dataset",
-                          allow_patterns=list(shards), local_dir=self.root_mprog_tahoe,
+                          allow_patterns=list(shards), local_dir=str(d),
                           max_workers=max_workers)
-        return
+        return d
 
-    def index_coverage(self, column: str = "Cell_ID_Cellosaur"):
+    def index_coverage(self, column: str = "Cell_ID_Cellosaur", local_dir=None):
         """Distinguish "not sampled yet" from "not in the DE table at all".
 
         Refining the stride only helps for lines whose block is smaller than the
@@ -1372,7 +1333,8 @@ class MalignantCluster:
         target that is still missing is absent from the DE data (the atlas ships
         metadata for more lines than survive QC), and no stride will find it.
         """
-        idx = self.shard_index(column=column, stride=10 ** 6, verbose=False)
+        idx = self.shard_index(column=column, local_dir=local_dir,
+                               stride=10 ** 6, verbose=False)
         seen = sorted(idx["lo"].dropna().astype(str).unique())
         blocks = (idx.dropna(subset=["lo"]).groupby("lo")["i"]
                      .agg(["min", "max", "count"])
@@ -1382,7 +1344,7 @@ class MalignantCluster:
                "lines_seen": seen,
                "block_probe_counts": blocks["count"].describe().round(1)}
 
-        f = self.root_mprog_tahoe / "metadata" / "cell_line_metadata.parquet"
+        f = Path(self.tahoe_dir(local_dir)) / "metadata" / "cell_line_metadata.parquet"
         if f.exists():
             cl = pd.read_parquet(f)
             allc = set(cl["Cell_ID_Cellosaur"].dropna().astype(str))
@@ -1590,6 +1552,7 @@ class MalignantCluster:
         cell_lines: Optional[Sequence[str]] = None,
         drugs: Optional[Sequence[str]] = None,
         genes: Optional[Sequence[str]] = None,
+        local_dir=None,
         mode: str = "stream",
         save_to=None,
         force: bool = False,
@@ -1618,11 +1581,14 @@ class MalignantCluster:
 
         Parameters
         ----------
+        local_dir
+            Where the small metadata tables are kept (and the DE shards, if
+            `mode="download"`). Defaults to `<root_mprog_cluster>/tahoe`.
         mode
             "stream" (default) queries the DE parquet shards directly over
             `hf://` with DuckDB and only materialises the filtered subset --
             nothing large touches disk. "download" fetches all 21 shards into
-            `self.root_mprog_tahoe` first, which is worth it only if you will re-query many
+            `local_dir` first, which is worth it only if you will re-query many
             times offline.
         save_to
             Directory to persist the derived `S` / `cond` as parquet. Defaults
@@ -1670,6 +1636,8 @@ class MalignantCluster:
         if organs is None and not cell_lines:
             organs = (self.organ,)
 
+        d = self.tahoe_dir(local_dir)
+
         # --- reuse a previously saved result --------------------------------
         # save_to=False disables caching; None means "use the default dir".
         if save_to is not False:
@@ -1681,9 +1649,9 @@ class MalignantCluster:
                 return pd.read_parquet(f_S), pd.read_parquet(f_c)
 
         # --- small tables always local (a few MB) ---------------------------
-        need = [self.root_mprog_tahoe / f for f in self._TAHOE_SMALL[:2]]
+        need = [Path(d) / f for f in self._TAHOE_SMALL[:2]]
         if force or not all(f.exists() for f in need):
-            self.download_tahoe(de=False, force=force)
+            self.download_tahoe(local_dir=d, de=False, force=force)
 
         con = duckdb.connect()
         con.execute(f"SET memory_limit='{memory_limit}'")
@@ -1714,9 +1682,9 @@ class MalignantCluster:
             de_glob = ("'hf://datasets/" + self._TAHOE_REPO +
                        "/metadata/pseudobulk_differential_expression/*.parquet'")
         elif mode == "download":
-            de_dir = self.root_mprog_tahoe / "metadata" / "pseudobulk_differential_expression"
+            de_dir = Path(d) / "metadata" / "pseudobulk_differential_expression"
             if _shard_subset:
-                local = [self.root_mprog_tahoe / f for f in _shard_subset]
+                local = [Path(d) / f for f in _shard_subset]
                 missing = [f for f in local if not f.exists()]
                 if missing:
                     raise FileNotFoundError(
@@ -1726,14 +1694,14 @@ class MalignantCluster:
                 de_glob = f"['{de_glob}']"
             else:
                 if force or not any(de_dir.glob("*.parquet")):
-                    self.download_tahoe(de=True, force=force)
+                    self.download_tahoe(local_dir=d, de=True, force=force)
                 de_glob = f"'{de_dir / '*.parquet'}'"
 
         cl_meta = con.execute(
-            f"SELECT * FROM read_parquet('{self.root_mprog_tahoe / 'metadata' / 'cell_line_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'cell_line_metadata.parquet'}')"
         ).df()
         drug_meta = con.execute(
-            f"SELECT * FROM read_parquet('{self.root_mprog_tahoe /'metadata'/'drug_metadata.parquet'}')"
+            f"SELECT * FROM read_parquet('{Path(d)/'metadata'/'drug_metadata.parquet'}')"
         ).df()
 
         # --- resolve which cell lines we want ----------------------------------
@@ -1810,7 +1778,7 @@ class MalignantCluster:
             if _shard_limit:
                 shards = shards[:_shard_limit]
             ckdir = Path(checkpoint_dir) if checkpoint_dir is not None \
-                else self.root_mprog_tahoe / "_scan_ck" / \
+                else self.tahoe_dir(local_dir) / "_scan_ck" / \
                      self._tahoe_cache_key(organs, cell_lines, drugs, genes)
             if verbose:
                 print(f"scanning {len(shards)} DE shards -> {ckdir}", flush=True)

@@ -73,7 +73,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.20.4"          # bump on every edit; check with pml.__version__
+__version__ = "0.20.0"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
 
@@ -548,17 +548,6 @@ class MalignantCluster:
         diag["n_hvg"] = int(Xc.shape[1])
 
         # --- purity leakage check ----------------------------------------------
-        # Correlate PCs with theta on BOTH matrices. On the decoupled matrix
-        # this is ~0 by construction (residuals are orthogonal to the
-        # covariates), so it proves nothing -- the informative number is the
-        # pre-decoupling one.
-        if logx.shape[1] >= 2:
-            _p = PCA(n_components=min(5, min(logx.shape) - 1)).fit_transform(
-                (logx - logx.mean()).values)
-            diag["pc_theta_pearson_raw"] = [
-                float(np.corrcoef(_p[:, i], theta_mal.values)[0, 1])
-                for i in range(_p.shape[1])]
-
         if Xc.shape[1] >= 2:
             pcs = PCA(n_components=min(5, min(Xc.shape) - 1)).fit_transform(
                 (Xc - Xc.mean()).values
@@ -567,17 +556,6 @@ class MalignantCluster:
                 float(np.corrcoef(pcs[:, i], theta_mal.values)[0, 1])
                 for i in range(pcs.shape[1])
             ]
-        if decouple_purity:
-            diag["pc_theta_note"] = (
-                "pc_theta_pearson is ~0 by construction under "
-                "decouple_purity=True; read pc_theta_pearson_raw instead.")
-
-        # Global signal level per sample -- catches samples whose malignant
-        # compartment is near-empty or degraded. These cluster out on their own
-        # and look like a subtype until you notice every program is down.
-        diag["sample_mean_expr"] = Xc.mean(axis=1).round(3)
-        diag["sample_total_Z"] = self.ms.Z.loc[Xc.index].sum(axis=1)
-
         diag["theta_mal"] = theta_mal
         diag["n_samples_used"] = int(len(theta_mal))
         self.samples_used = list(theta_mal.index)
@@ -646,9 +624,6 @@ class MalignantCluster:
     # ===========================================================================
     @staticmethod
     def _pac(consensus: np.ndarray, lo: float = 0.1, hi: float = 0.9) -> float:
-        # Accept a DataFrame too: cc[k]["consensus"] is one, and label-based
-        # __getitem__ would misread the positional triu indices.
-        consensus = np.asarray(consensus)
         iu = np.triu_indices_from(consensus, k=1)
         v = consensus[iu]
         return float(((v > lo) & (v < hi)).mean())
