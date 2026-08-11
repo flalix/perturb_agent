@@ -242,7 +242,7 @@ class MalignantCluster:
             Zmal = prism.state_expression(Z_full, genes_full, res, "Ductal cell type 2")
             cns = build_CellNameState_from_full_Z(Z_full, genes_full,
                             cell_types=list(s2t.values()),      # or ref cell types
-                            cell_name="Ductal cell type 2",
+                            cell_name=cell_name,
                             samples=df_bulk.index, Z_mal=Zmal)
 
         Axis order of `Z_full` is sniffed from the lengths of `genes_full`,
@@ -1676,18 +1676,18 @@ class MalignantCluster:
     #: PDAC program markers, per compartment. Override freely.
     PROGRAMS: Dict[str, Dict[str, Sequence[str]]] = {
         "malignant": {
-            "basal":     ["KRT5", "KRT6A", "KRT14", "KRT17", "KRT81", "S100A2",
-                          "TP63", "SPRR3", "DHRS9", "VGLL1", "SERPINB3", "LY6D"],
-            "classical": ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4",
-                          "CEACAM6", "CLDN18", "REG4", "ANXA10", "CTSE", "MUC13"],
+            "basal":     ["KRT5", "KRT6A", "KRT14", "KRT17", "KRT81", "S100A2", "TP63", "SPRR3", "DHRS9", "VGLL1", "SERPINB3", "LY6D"],
+            "classical": ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CEACAM6", "CLDN18", "REG4", "ANXA10", "CTSE", "MUC13"],
             "emt":       ["VIM", "ZEB1", "SNAI2", "CDH2", "FN1", "SPARC"],
             "prolif":    ["MKI67", "TOP2A", "CCNB1", "AURKA", "BIRC5", "PLK1"],
         },
+        '''
+        The terms myCAF, iCAF, and apCAF stand for three main types of cancer-associated fibroblasts found inside tumors. 
+        They are myofibroblastic CAF (myCAF), inflammatory CAF (iCAF), and antigen-presenting CAF (apCAF)
+        '''
         "fibroblast": {
-            "myCAF":  ["ACTA2", "TAGLN", "POSTN", "COL1A1", "COL1A2", "THBS2",
-                       "CTHRC1", "INHBA"],
-            "iCAF":   ["IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA",
-                       "C3", "CXCL14"],
+            "myCAF":  ["ACTA2", "TAGLN", "POSTN", "COL1A1", "COL1A2", "THBS2", "CTHRC1", "INHBA"],
+            "iCAF":   ["IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA", "C3", "CXCL14"],
             "apCAF":  ["CD74", "HLA-DRA", "HLA-DRB1", "SLPI", "SAA3"],
         },
         "immune": {

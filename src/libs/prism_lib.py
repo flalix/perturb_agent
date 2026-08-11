@@ -434,7 +434,7 @@ class PRISM(object):
         return Z
 
 
-    def full_Z(self, res: DeconvResult, 
+    def full_Z(self, res: DeconvResult | Any, 
                df_bulk: pd.DataFrame, 
                ref: pd.DataFrame, 
                chunk: int = 32) -> tuple[np.ndarray, list]:
