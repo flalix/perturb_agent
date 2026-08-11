@@ -14,7 +14,7 @@ with perturbation anchoring against Tahoe-100M and (optionally) scGPT.
 
 Pipeline
 --------
-    init()                                  # -> MalignantState
+    init()                                  # -> CellNameState
         |
     prepare_malignant_matrix()              # compartment CPM, share filter,
         |                                   # purity decoupling, HVG - high-variable genes + keep_genes
@@ -73,16 +73,16 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.32.0"          # bump on every edit; check with pml.__version__
+__version__ = "0.33.0"          # bump on every edit; check with pml.__version__
 
-__all__ = ["MalignantState", "MalignantCluster", "__version__"]
+__all__ = ["CellNameState", "MalignantCluster", "__version__"]
 
 
 # ===========================================================================
 # 0. Container
 # ===========================================================================
 @dataclass
-class MalignantState:
+class CellNameState:
     """Everything pulled out of a BayesPrism `res` for one compartment."""
 
     Z: pd.DataFrame                       # samples x genes, compartment counts
@@ -93,7 +93,7 @@ class MalignantState:
     meta: Dict = field(default_factory=dict)
 
     @property
-    def theta_mal(self) -> pd.Series:
+    def filt_cell_name_theta(self) -> pd.Series:
         return self.df_theta[self.cell_name]
 
     def compute_share(self) -> pd.DataFrame:
@@ -115,7 +115,7 @@ class MalignantState:
         else:
             raise TypeError(
                 "Z_all must be a dict {cell_type: samples x genes}. A raw 3-D "
-                "array from full_Z should go through MalignantCluster.from_full_Z, "
+                "array from full_Z should go through MalignantCluster.build_CellNameState_from_full_Z, "
                 "which resolves the axis order and computes `share` itself."
             )
 
@@ -137,7 +137,7 @@ class MalignantCluster:
     def __init__(self, prism, res, df_bulk, ref,
                  root_mprog_cluster: Path,
                  organ: str = "Pancreas",
-                 cell_name: str = "Ductal cell type 2",
+                 mal_cell_name: str = "Ductal cell type 2",
                  cell_types: Optional[Sequence[str]] = None):
 
         self.prism, self.res, self.df_bulk, self.ref = prism, res, df_bulk, ref
@@ -145,16 +145,17 @@ class MalignantCluster:
         self.root_mprog_tahoe = create_dir(self.root_mprog_cluster / "tahoe")
 
         self.__lib_version__ = __version__
-        self.cell_name = cell_name
+        self.mal_cell_name = mal_cell_name
         self.organ = organ
         self.df_theta = res.theta
 
-        if self.cell_name not in self.df_theta.columns:
+        if self.mal_cell_name not in self.df_theta.columns:
             raise KeyError(
-                f"'{self.cell_name}' not in df_theta columns {list(self.df_theta.columns)}. "
-                "With a Peng-2019 (CRA001160) reference the malignant label is "
-                "often 'Ductal cell type 2'."
+                f"'{self.mal_cell_name}' not in df_theta columns {list(self.df_theta.columns)}. "
             )
+        '''
+            Pancreas: particular case, Peng-2019 (CRA001160) reference the malignant label is often 'Ductal cell type 2'
+        '''
 
         self.program1_panel = ("FAM83A-AS1", "TFAP2A-AS2", "HOXA10-AS",
                                "HOXB-AS3", "HOXB-AS4", "LEMD1-AS1", "MIR7-3HG")
@@ -162,22 +163,22 @@ class MalignantCluster:
 
         self.Z_full, self.genes_full = prism.full_Z(res, df_bulk, ref)
         self.Z_mal = prism.state_expression(self.Z_full, self.genes_full,
-                                            res, self.cell_name)
+                                            res, self.mal_cell_name)
         self.cell_types = (list(cell_types) if cell_types is not None
                            else list(self.df_theta.columns))
 
-        # Route through from_full_Z so axis resolution, the state_expression
+        # Route through build_CellNameState_from_full_Z so axis resolution, the state_expression
         # concordance check and recovered-gene bookkeeping actually run.
-        self.ms = self.from_full_Z(
+        self.cns = self.build_CellNameState_from_full_Z(
             self.Z_full, self.genes_full,
             cell_types=self.cell_types,
-            cell_name=self.cell_name,
+            cell_name=self.mal_cell_name,
             samples=self.df_theta.index,
             df_theta=self.df_theta,
             Z_mal=self.Z_mal,
             recovered_genes=self.program1_panel,
         )
-        self.Z = self.ms.Z
+        self.Z = self.cns.Z
 
     # ===========================================================================
     # 1. run --> end-to-end convenience
@@ -220,7 +221,7 @@ class MalignantCluster:
         return out
 
 
-    def from_full_Z(
+    def build_CellNameState_from_full_Z(
         self,
         Z_full,
         genes_full: Sequence[str],
@@ -230,16 +231,16 @@ class MalignantCluster:
         df_theta: Optional[pd.DataFrame] = None,
         Z_mal: Optional[pd.DataFrame] = None,
         recovered_genes: Optional[Sequence[str]] = None,
-    ) -> MalignantState:
+    ) -> CellNameState:
         """
-        Build a MalignantState straight from `prism.full_Z(res, df_bulk, ref)`.
+        Build a CellNameState straight from `prism.full_Z(res, df_bulk, ref)`.
 
         Preferred over `load_bayesprism_export` -- no R round-trip, and the
         per-gene compartment share is exact rather than reconstructed.
 
             Z_full, genes_full = prism.full_Z(res, df_bulk, ref)
             Zmal = prism.state_expression(Z_full, genes_full, res, "Ductal cell type 2")
-            ms = from_full_Z(Z_full, genes_full,
+            cns = build_CellNameState_from_full_Z(Z_full, genes_full,
                             cell_types=list(s2t.values()),      # or ref cell types
                             cell_name="Ductal cell type 2",
                             samples=df_bulk.index, Z_mal=Zmal)
@@ -280,8 +281,8 @@ class MalignantCluster:
                 f"2-D matrices from full_Z, got shape {getattr(A, 'shape', None)}."
             )
 
-        genes, cts = list(genes_full), list(cell_types)
-        ng, nct = len(genes), len(cts)
+        genes, cell_type_list = list(genes_full), list(cell_types)
+        ng, nct = len(genes), len(cell_type_list)
         ns = len(samples) if samples is not None else None
 
         valid = []
@@ -304,9 +305,10 @@ class MalignantCluster:
         A = np.moveaxis(A, (sa, ga, ca), (0, 1, 2))          
 
         idx = pd.Index(samples) if samples is not None else pd.RangeIndex(A.shape[0])
-        if cell_name not in cts:
-            raise KeyError(f"'{cell_name}' not in cell_types {cts}")
-        ci = cts.index(cell_name)
+        if cell_name not in cell_type_list:
+            raise KeyError(f"'{cell_name}' not in cell_types {cell_type_list}")
+
+        ci = cell_type_list.index(cell_name)
 
         Zc = pd.DataFrame(np.ascontiguousarray(A[:, :, ci]),
                           index=idx, columns=genes)
@@ -324,7 +326,7 @@ class MalignantCluster:
         if df_theta is None:
             m = A.sum(axis=1, dtype=np.float64)
             df_theta = pd.DataFrame(m / m.sum(axis=1, keepdims=True),
-                                index=idx, columns=cts)
+                                index=idx, columns=cell_type_list)
             theta_source = "derived from Z_full (Z-implied, not theta_f)"
         else:
             df_theta = df_theta.reindex(index=idx)
@@ -373,7 +375,7 @@ class MalignantCluster:
             Zc = Zm.reindex(columns=Zm.columns)
             share = share.reindex(columns=Zc.columns)
 
-        return MalignantState(Z=Zc, df_theta=df_theta, cell_name=cell_name,
+        return CellNameState(Z=Zc, df_theta=df_theta, cell_name=cell_name,
                             share=share, meta=meta)
 
 
@@ -430,32 +432,36 @@ class MalignantCluster:
         # their Z_mal is close to pure BayesPrism prior -- the reference
         # profile, not the sample. Left in, they dominate the first split and
         # the "subtypes" are really tumour-vs-normal.
-        _idx = self.ms.Z.index
+        _idx = self.cns.Z.index
         _sel = pd.Series(True, index=_idx)
+
         if keep_samples is not None:
             _want = set(map(str, keep_samples))
             _sel &= pd.Series(_idx.astype(str).isin(_want), index=_idx)
             _unk = _want - set(_idx.astype(str))
             if _unk:
                 warnings.warn(f"keep_samples not in Z index: {sorted(_unk)[:5]}")
+
         if drop_pattern:
             _hit = pd.Series(_idx.astype(str).str.contains(drop_pattern, regex=True),
                              index=_idx)
             _sel &= ~_hit
+
         _n_excl = int((~_sel).sum())
         if _n_excl:
             print(f"excluded {_n_excl}/{len(_idx)} samples by keep_samples/drop_pattern")
+
         diag["samples_excluded_by_filter"] = list(_idx[~_sel])
 
-        keep_s = _sel & (self.ms.theta_mal.reindex(_idx) >= min_theta)
+        keep_s = _sel & (self.cns.filt_cell_name_theta.reindex(_idx) >= min_theta)
         if (~keep_s).any():
             warnings.warn(
-                f"dropping {int((~keep_s).sum())} samples with theta_{self.ms.cell_name}"
-                f" < {min_theta}: {list(self.ms.theta_mal.index[~keep_s])}"
+                f"dropping {int((~keep_s).sum())} samples with theta_{self.cns.cell_name}"
+                f" < {min_theta}: {list(self.cns.filt_cell_name_theta.index[~keep_s])}"
             )
-        Z = self.ms.Z.loc[keep_s]
-        theta_mal = self.ms.theta_mal.loc[keep_s]
-        diag["samples_dropped"] = list(self.ms.theta_mal.index[~keep_s])
+        Z = self.cns.Z.loc[keep_s]
+        theta_mal = self.cns.filt_cell_name_theta.loc[keep_s]
+        diag["samples_dropped"] = list(self.cns.filt_cell_name_theta.index[~keep_s])
 
         # --- compartment CPM ----------------------------------------------------
         lib = Z.sum(axis=1)
@@ -466,8 +472,8 @@ class MalignantCluster:
         expressed = (Z.median(axis=0) >= min_counts)
         diag["n_genes_expressed"] = int(expressed.sum())
 
-        if self.ms.share is not None:
-            sh = self.ms.share.reindex(index=Z.index, columns=Z.columns)
+        if self.cns.share is not None:
+            sh = self.cns.share.reindex(index=Z.index, columns=Z.columns)
             computable = sh.notna().any(axis=0)
             share_ok = (sh >= min_share).mean(axis=0) >= share_frac_samples
             diag["n_genes_share_not_computable"] = int((~computable).sum())
@@ -504,11 +510,11 @@ class MalignantCluster:
                 "  total genes in Z            : {tot}\n"
                 "  median count >= {mc:<10g}  : {ex}\n"
                 "  share computable            : {sc}\n"
-                "  >= {ms:g} share in >= {sf:.0%} samples : {so}\n"
+                "  >= {cns:g} share in >= {sf:.0%} samples : {so}\n"
                 "  intersection (kept)         : {n}\n"
                 "Most common causes: (a) Z is not on a count scale, so "
                 "min_counts={mc:g} removes everything -- check "
-                "Z.median().median()={zmed:.3g}; (b) min_share={ms:g} is too "
+                "Z.median().median()={zmed:.3g}; (b) min_share={cns:g} is too "
                 "strict for a gene_subset fit, where the share denominator "
                 "covers only the fitted compartments. Call "
                 "diagnose_filters() to sweep thresholds."
@@ -586,14 +592,14 @@ class MalignantCluster:
         # compartment is near-empty or degraded. These cluster out on their own
         # and look like a subtype until you notice every program is down.
         diag["sample_mean_expr"] = Xc.mean(axis=1).round(3)
-        diag["sample_total_Z"] = self.ms.Z.loc[Xc.index].sum(axis=1)
+        diag["sample_total_Z"] = self.cns.Z.loc[Xc.index].sum(axis=1)
 
         diag["theta_mal"] = theta_mal
         diag["n_samples_used"] = int(len(theta_mal))
         self.samples_used = list(theta_mal.index)
         if _n_excl:
-            diag["theta_excluded"] = self.ms.theta_mal[~_sel].describe().round(4)
-            diag["theta_kept"] = self.ms.theta_mal[_sel].describe().round(4)
+            diag["theta_excluded"] = self.cns.filt_cell_name_theta[~_sel].describe().round(4)
+            diag["theta_kept"] = self.cns.filt_cell_name_theta[_sel].describe().round(4)
 
         return (Xc, diag) if return_diagnostics else (Xc, {})
 
@@ -613,8 +619,8 @@ class MalignantCluster:
         a restricted share denominator, so shares run high and 0.5 may be
         either trivially permissive or, if compartments are collinear, fatal).
         """
-        keep_s = self.ms.theta_mal >= min_theta
-        Z = self.ms.Z.loc[keep_s]
+        keep_s = self.cns.filt_cell_name_theta >= min_theta
+        Z = self.cns.Z.loc[keep_s]
 
         out = {
             "n_samples_kept": int(keep_s.sum()),
@@ -629,11 +635,11 @@ class MalignantCluster:
             {c: int((med >= c).sum()) for c in min_counts_grid},
             name="n_genes").rename_axis("min_counts")
 
-        if self.ms.share is None:
+        if self.cns.share is None:
             out["share"] = "unavailable -- shrinkage guard would be OFF"
             return out
 
-        sh = self.ms.share.reindex(index=Z.index, columns=Z.columns)
+        sh = self.cns.share.reindex(index=Z.index, columns=Z.columns)
         out["n_genes_share_not_computable"] = int((~sh.notna().any(axis=0)).sum())
         out["share_quantiles"] = sh.stack().quantile(
             [0.05, 0.25, 0.5, 0.75, 0.95]).round(3)
@@ -1063,7 +1069,7 @@ class MalignantCluster:
         induces structure that Euclidean/correlation distance will happily
         cluster on.
         """
-        drop = {self.cell_name} | set(exclude or [])
+        drop = {self.mal_cell_name} | set(exclude or [])
         keep = [c for c in self.df_theta.columns if c not in drop]
         if len(keep) < 2:
             raise ValueError(f"need >=2 non-malignant compartments, have {keep}")
@@ -1727,18 +1733,23 @@ class MalignantCluster:
         min_theta: float = 0.02,
         decouple: bool = True,
     ) -> pd.DataFrame:
-        """log2-CPM profile of one compartment, normalised WITHIN that compartment.
+        """
+        compartment_matrix receives cell_name and build
+        cns = self.build_CellNameState_from_full_Z()
+        therefore, build_CellNameState_from_full_Z is for any cell type (cell name)
+
+        log2-CPM profile of one compartment, normalised WITHIN that compartment.
 
         Compartment-internal CPM is what makes cross-compartment comparison
         meaningful: raw Z scales with that compartment's abundance, so
         correlating two raw Z matrices mostly recovers the composition, not the
         biology.
         """
-        ms = self.from_full_Z(
+        cns = self.build_CellNameState_from_full_Z(
             self.Z_full, self.genes_full, cell_types=self.cell_types,
             cell_name=cell_name, samples=self.df_theta.index,
             df_theta=self.df_theta)
-        Z = ms.Z
+        Z = cns.Z
         if samples is not None:
             Z = Z.reindex([s for s in samples if s in Z.index])
 
@@ -1758,8 +1769,8 @@ class MalignantCluster:
             th = th.loc[Z.index]
 
         Z = Z.loc[:, Z.median(axis=0) >= min_counts]
-        if min_share > 0 and ms.share is not None:
-            sh = ms.share.reindex(index=Z.index, columns=Z.columns)
+        if min_share > 0 and cns.share is not None:
+            sh = cns.share.reindex(index=Z.index, columns=Z.columns)
             Z = Z.loc[:, (sh >= min_share).mean(axis=0) >= 0.5]
 
         # A sample can lose all its genes to the filters above; its row sum is
@@ -1895,7 +1906,7 @@ class MalignantCluster:
         """
         programs = programs or self.PROGRAMS
         if compartment_map is None:
-            compartment_map = {"malignant": self.cell_name}
+            compartment_map = {"malignant": self.mal_cell_name}
 
         out, cov = {}, []
         for key, ct in compartment_map.items():
@@ -1978,7 +1989,7 @@ class MalignantCluster:
         S = scores.dropna(axis=1, how="all").copy()
 
         if control_theta:
-            th = self.df_theta[self.cell_name].reindex(S.index)
+            th = self.df_theta[self.mal_cell_name].reindex(S.index)
             D = np.column_stack([np.ones(len(S)), th.fillna(th.mean()).values])
             beta, *_ = np.linalg.lstsq(D, S.fillna(S.mean()).values, rcond=None)
             S = pd.DataFrame(S.values - D @ beta, index=S.index, columns=S.columns)
