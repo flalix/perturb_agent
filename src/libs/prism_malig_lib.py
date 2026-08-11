@@ -72,11 +72,9 @@ from sklearn.metrics import silhouette_score
 
 from libs.Basic import pdwritecsv, create_dir
 
-
 __version__ = "0.31.1"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
-
 
 # ===========================================================================
 # 0. Container
