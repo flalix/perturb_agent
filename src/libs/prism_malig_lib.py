@@ -72,9 +72,11 @@ from sklearn.metrics import silhouette_score
 
 from libs.Basic import pdwritecsv, create_dir
 
-__version__ = "0.31.1"          # bump on every edit; check with pml.__version__
+
+__version__ = "0.32.0"          # bump on every edit; check with pml.__version__
 
 __all__ = ["MalignantState", "MalignantCluster", "__version__"]
+
 
 # ===========================================================================
 # 0. Container
@@ -2258,6 +2260,46 @@ class MalignantCluster:
                 "for diagonal concentration")
         return out
 
+
+
+    @staticmethod
+    def harmonize_scores(scores: pd.DataFrame, batch: pd.Series,
+                         scale: bool = True, report: bool = True) -> pd.DataFrame:
+        """Standardise program scores within batch (location and, optionally, scale).
+
+        Cohort effects on deconvolved scores are often heteroscedastic rather
+        than a mean shift: two cohorts can have identical means while one has
+        1.7x the SD. Mean-centring leaves that untouched, and every extreme --
+        hence every tail cluster -- then comes from the wider cohort.
+
+        `scale=True` z-scores within batch, equalising both. Use it when the
+        extra dispersion is technical. Be careful if it might be biological: a
+        cohort with genuinely more heterogeneous tumours will have its real
+        spread flattened too, and with no overlapping samples the two cannot be
+        distinguished. Reporting both versions is the honest option.
+        """
+        from scipy.stats import levene
+        batch = batch.reindex(scores.index)
+        out = scores.copy()
+        rows = []
+        for c in scores.columns:
+            g = scores[c].groupby(batch)
+            mu, sd = g.transform("mean"), g.transform("std")
+            out[c] = (scores[c] - mu) / (sd if scale else 1.0)
+            if report:
+                grp = [scores.loc[batch == b, c].dropna() for b in batch.unique()]
+                grp = [x for x in grp if len(x) > 2]
+                rows.append({
+                    "score": c,
+                    "sd_ratio": round(float(max(x.std() for x in grp) /
+                                            max(min(x.std() for x in grp), 1e-12)), 2),
+                    "mean_range": round(float(max(x.mean() for x in grp) -
+                                              min(x.mean() for x in grp)), 3),
+                    "levene_p": round(float(levene(*grp).pvalue), 5) if len(grp) > 1 else np.nan,
+                })
+        if report and rows:
+            print(pd.DataFrame(rows).to_string(index=False))
+        return out
 
     def axis_modality(self, scores: pd.DataFrame,
                       axes: Optional[Sequence[str]] = None,
