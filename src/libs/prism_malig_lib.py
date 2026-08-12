@@ -1674,15 +1674,64 @@ class MalignantCluster:
     # ===========================================================================
 
     #: PDAC program markers, per compartment. Override freely.
+    """
+    link: https://pathway-viewer.toolforge.org/embed/WP5078
+    better than a generic Treg pathway, because WP5078 describes how pancreatic cancer cells create a microenvironment 
+    by secreting cytokines and chemokines that recruit or activate stromal cells, 
+    promoting desmoplasia and immune evasion, 
+    with stromal cells inhibiting CD8+ T cells through factors like IL-10, TGFβ, PD-L1, and IDO. 
+    That's organised by emitting cell type, which maps onto your compartments.
+    """
+
     PROGRAMS: Dict[str, Dict[str, Sequence[str]]] = {
         "malignant": {
             "basal":     ["KRT5", "KRT6A", "KRT14", "KRT17", "KRT81", "S100A2", "TP63", "SPRR3", "DHRS9", "VGLL1", "SERPINB3", "LY6D"],
             "classical": ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CEACAM6", "CLDN18", "REG4", "ANXA10", "CTSE", "MUC13"],
             "emt":       ["VIM", "ZEB1", "SNAI2", "CDH2", "FN1", "SPARC"],
             "prolif":    ["MKI67", "TOP2A", "CCNB1", "AURKA", "BIRC5", "PLK1"],
+
+            """
+            WikiPathways WP5078 (T cell modulation and desmoplasia in PDAC)
+            Checkpoint ligands + immunosuppressive enzymes EMITTED by the tumour.
+            Scoreable even though your T-cell compartment is not: theta_mal is high,
+            so this measures the emitting side where the receptor side is pure prior.
+
+            Galectins collide with immune_evasion (LGALS1/3/9, all three), and 
+            IL10 collides cross-compartment with mdsc_suppressive. Shared genes make two scores partly the same measurement.
+            """
+           "immune_evasion": ["CD274", "PDCD1LG2", "CD276", "VTCN1", "VSIR", "IDO1",
+                              "LGALS1", "LGALS3", "LGALS9", "PVR", "NT5E", "ENTPD1"],
+            # Antigen-presentation loss: LOW score = escape active. Read inverted.
+            "antigen_presentation": ["B2M", "HLA-A", "HLA-B", "HLA-C", "TAP1", "TAP2", "NLRC5"],
+
+            """
+            "desmoplastic_secretome"
+            What the tumour secretes to build its own desmoplasia.
+            Why desmoplastic_secretome is the most valuable addition?
+                It gives you a directed hypothesis, which none of your current programs do. 
+                WP5078 says:
+                - the tumour emits PDGF/SHH/TGFβ and 
+                - stellate cells respond by depositing ECM. 
+            So malignant.desmoplastic_secretome ↔ fibroblast.myCAF is a specific, mechanistically motivated pair — 
+            not one of ~50 undirected correlations. Test it as a single pre-specified hypothesis rather than letting BH dilute it.
+
+            A program score is a mean of z-scores — meaningful only if the genes co-vary. 
+            Fibrogenic (PDGF/SHH/TGFβ), angiogenic (VEGF/PGF), and immunosuppressive (galectins/IL10) signals move independently, 
+            so the mean dilutes all three. Splitting them costs nothing and gains interpretability.
+
+            CCN2 (formerly CTGF) is a well-established PDAC desmoplasia driver and belongs here more than VEGF does.
+            IL1A/IL1B are the tumour-derived signals that induce the iCAF state specifically — 
+            which matters because it gives you a directed prediction with a sign: 
+                tumour IL-1 → iCAF up. 
+            Your one replicated finding is prolif ↔ iCAF negative, so this is a genuine test rather than a fishing expedition.
+            """
+            "desmoplastic_secretome": ["PDGFA", "PDGFB", "PDGFC", "PDGFD", "SHH", "TGFB1", "TGFB2", "TGFB3", "CCN2", "IL1A", "IL1B"],
+            "angiogenic_secretome":   ["VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "ANGPT2"],
+            # galectins stay in immune_evasion only; FAP and IL10 removed entirely
+
         },
         '''
-        The terms myCAF, iCAF, and apCAF stand for three main types of cancer-associated fibroblasts found inside tumors. 
+        The terms myCAF, iCAF, and apCAF stand for three main types of cancer-associated fibroblasts (CAF) found inside tumors. 
         They are myofibroblastic CAF (myCAF), inflammatory CAF (iCAF), and antigen-presenting CAF (apCAF)
         '''
         "fibroblast": {
@@ -1690,16 +1739,22 @@ class MalignantCluster:
             "iCAF":   ["IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA", "C3", "CXCL14"],
             "apCAF":  ["CD74", "HLA-DRA", "HLA-DRB1", "SLPI", "SAA3"],
         },
+
+
         "immune": {
             "cytotoxic":  ["CD8A", "GZMB", "PRF1", "GNLY", "NKG7", "IFNG"],
             "exhaustion": ["PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "TOX"],
-            "treg":       ["FOXP3", "IL2RA", "IKZF2", "CTLA4", "TNFRSF4"],
+            "treg":       ["FOXP3", "IL2RA", "IKZF2", "TNFRSF4", "CCR8"], # removed: "CTLA4", it's already in exhaustion:
+            "costim": ["CD28", "ICOS", "CD226", "CD40LG", "TNFRSF9"],   # opposes `exhaustion`
         },
+
         "macrophage": {
-            "M1":   ["IL1B", "TNF", "CXCL9", "CXCL10", "NOS2", "IL6", "CCL5"],
+            "M1":   ["IL1B", "TNF", "CXCL9", "CXCL10", "NOS2",  "CCL5"], # removed "IL6",
             "TAM":  ["CD163", "MRC1", "MSR1", "TREM2", "APOE", "C1QA", "C1QB"],
-            "SPP1": ["SPP1", "MARCO", "VEGFA", "FN1", "MMP9"],
+            "SPP1": ["SPP1", "MARCO", "VEGFA", "MMP9"],  # removed "FN1",
+            "mdsc_suppressive": ["ARG1", "IL10", "CCL17", "CCL22", "IL4", "IL13", "CD80", "CD86", "CD40"],
         },
+        
         "endothelial": {
             "tip_angio": ["ESM1", "ANGPT2", "DLL4", "APLN", "CXCR4", "KDR"],
             "lymphatic": ["PROX1", "LYVE1", "PDPN", "CCL21", "FLT4"],
@@ -1714,7 +1769,7 @@ class MalignantCluster:
         # gene-level clustering -- so treat any coupling involving them as a
         # composition artifact until shown otherwise.
         "ductal": {
-            "normal_duct": ["CFTR", "SCTR", "AQP1", "SPP1", "MMP7"],
+            "normal_duct": ["CFTR", "SCTR", "AQP1",  "MMP7"],  # removed "SPP1",
             "ADM":         ["SOX9", "KRT19", "ONECUT1", "HNF1B"],
         },
         "acinar": {
@@ -1909,15 +1964,19 @@ class MalignantCluster:
             compartment_map = {"malignant": self.mal_cell_name}
 
         out, cov = {}, []
-        for key, ct in compartment_map.items():
+        for key, cell_type in compartment_map.items():
             if key not in programs:
                 warnings.warn(f"no PROGRAMS entry for '{key}'; skipping")
                 continue
-            M = self.compartment_matrix(ct, samples=samples, **mat_kw)
+
+            M = self.compartment_matrix(cell_type, samples=samples, **mat_kw)
+
             Zs = (M - M.mean()) / M.std().replace(0, np.nan)
+
             for prog, genes in programs[key].items():
                 found = [g for g in genes if g in Zs.columns]
-                cov.append({"compartment": key, "cell_type": ct,
+
+                cov.append({"compartment": key, "cell_type": cell_type,
                             "program": prog, "n_found": len(found),
                             "n_total": len(genes),
                             "missing": [g for g in genes if g not in Zs.columns]})
@@ -1940,6 +1999,7 @@ class MalignantCluster:
             ok = scores[col].notna() & th.notna()
             rec["r_with_theta"] = (round(float(np.corrcoef(
                 scores.loc[ok, col], th[ok])[0, 1]), 3) if ok.sum() > 5 else np.nan)
+            
         # Signed axes are more stable than either pole alone. Name them with
         # their OWN compartment prefix so couple_compartments() still treats
         # them as belonging to it -- an "axis." prefix would make every axis
