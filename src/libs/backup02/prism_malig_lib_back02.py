@@ -73,7 +73,7 @@ from sklearn.metrics import silhouette_score
 from libs.Basic import pdwritecsv, create_dir
 
 
-__version__ = "0.35.0"          # bump on every edit; check with pml.__version__
+__version__ = "0.33.0"          # bump on every edit; check with pml.__version__
 
 __all__ = ["CellNameState", "MalignantCluster", "__version__"]
 
@@ -352,19 +352,6 @@ class MalignantCluster:
                     f"Z_mal looks transposed (index matches samples at "
                     f"{hit_rows:.0%}, columns at {hit_cols:.0%}); transposing.")
                 Zm = Zm.T
-            # An empty frame defeats the transpose heuristic above: with zero
-            # rows both hit rates are 0.0, so nothing is transposed and the
-            # error below reports an empty index instead of the real cause.
-            if 0 in Zm.shape:
-                raise ValueError(
-                    f"Z_mal is empty (shape {Zm.shape}); state_expression() "
-                    "returned nothing, so the failure is upstream of this "
-                    "method. Most likely the gene vocabularies disagree: after "
-                    "the ensembl switch df_bulk is ENSG-indexed, so full_Z() "
-                    "must be called with an ENSG-indexed reference too. "
-                    f"Check len(genes_full)={len(genes)}, "
-                    f"Z_full.shape={getattr(A, 'shape', None)}, and that "
-                    "res.theta.index is non-empty.")
             if not Zm.index.isin(idx).any():
                 raise ValueError(
                     "Z_mal shares no index labels with the sample index. "
@@ -1984,6 +1971,7 @@ class MalignantCluster:
     def program_scores(
         self,
         compartment_map: Optional[Dict[str, str]] = None,
+        programs: Optional[Dict[str, Dict[str, Sequence[str]]]] = None,
         samples: Optional[Sequence[str]] = None,
         min_genes: int = 3,
         **mat_kw,
@@ -2005,55 +1993,7 @@ class MalignantCluster:
         Returns (scores, coverage): samples x program, and how many markers of
         each program were found.
         """
-
-        # --- identifier vocabulary -------------------------------------------
-        # PROGRAMS are curated as gene symbols, but the matrices are ensembl-
-        # indexed once build_bulk_matrix(gene_key="geneid") is used. Translate
-        # on the fly rather than making the caller remember.
-        all_genes = [g for progs in self.PROGRAMS.values()
-                     for genes in progs.values() for g in genes]
-        if not all_genes:
-            raise ValueError(
-                "PROGRAMS contains no genes. If a previous call overwrote it "
-                "with an empty translation, restore from the class: "
-                "mc.PROGRAMS = MalignantCluster.PROGRAMS")
-        # Majority vote over every gene, not the first one of an arbitrary
-        # compartment: dict order is not meaningful and one stray entry should
-        # not decide the vocabulary for all of them.
-        n_ensg = sum(g.startswith("ENSG") for g in all_genes)
-        translate = n_ensg < len(all_genes) / 2
-        if 0 < n_ensg < len(all_genes):
-            warnings.warn(
-                f"PROGRAMS mixes vocabularies: {n_ensg}/{len(all_genes)} look "
-                "like ensembl ids. Translating the symbols only.")
-
-        programs = self.PROGRAMS
-        sym_missing = {}
-        if translate:
-            gene_map = self.prism.load_gene_map("geneid")
-            sym2id = {s: i for i, s in gene_map["symbol"].astype(str).items()}
-
-            # NOT written back to self.PROGRAMS: that made the transform
-            # destructive -- a translation that silently produced empty lists
-            # became its own input on the next call and could not be recovered.
-            programs = {
-                comp: {prog: [sym2id.get(g, g) if not g.startswith("ENSG") else g
-                              for g in genes
-                              if g.startswith("ENSG") or g in sym2id]
-                       for prog, genes in progs.items()}
-                for comp, progs in self.PROGRAMS.items()
-            }
-            sym_missing = {f"{c}.{p}": [g for g in gs
-                                        if not g.startswith("ENSG") and g not in sym2id]
-                           for c, ps in self.PROGRAMS.items() for p, gs in ps.items()}
-            n_lost = sum(len(v) for v in sym_missing.values())
-            if n_lost:
-                warnings.warn(
-                    f"{n_lost} marker symbol(s) have no ensembl id and were "
-                    "dropped before scoring; see the 'missing_symbol' column "
-                    "of the coverage table.")
-            self.PROGRAMS_ENSG = programs        # keep it, but do not clobber
-
+        programs = programs or self.PROGRAMS
         if compartment_map is None:
             compartment_map = {"malignant": self.mal_cell_name}
 
@@ -2073,8 +2013,7 @@ class MalignantCluster:
                 cov.append({"compartment": key, "cell_type": cell_type,
                             "program": prog, "n_found": len(found),
                             "n_total": len(genes),
-                            "missing": [g for g in genes if g not in Zs.columns],
-                            "missing_symbol": sym_missing.get(f"{key}.{prog}", [])})
+                            "missing": [g for g in genes if g not in Zs.columns]})
                 if len(found) < min_genes:
                     warnings.warn(
                         f"{key}/{prog}: only {len(found)}/{len(genes)} markers "

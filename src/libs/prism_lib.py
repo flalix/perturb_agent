@@ -265,6 +265,33 @@ class PRISM(object):
 
         return pdreadcsv(f"gene_map{suffix}.tsv", self.root_singc, index_col=0, verbose=verbose)
 
+
+    def get_harmonize_reference_to_ensembl(
+        self,
+        ref: pd.DataFrame,
+        verbose: bool = False,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+        filename_ref_new = self.root_singc/ self.fname_ref_new
+        filename_to_from = self.root_singc/ self.fname_to_from
+
+        if filename_ref_new.exists() and filename_to_from.exists():
+
+            ref_new = pdreadcsv(self.fname_ref_new, self.root_singc, index_col=0, verbose=verbose)
+            df_to_from = pdreadcsv(self.fname_to_from, self.root_singc, verbose=verbose)
+
+            # The cache is not keyed on the reference, so a different `ref`
+            # would silently return the previous one's mapping.
+            n_ref, n_cached = len(ref.columns), len(df_to_from)
+            if n_ref != n_cached:
+                warnings.warn(
+                    f"cached mapping covers {n_cached} symbols but `ref` has "
+                    f"{n_ref}; the cache is from a different reference. "
+                    "Re-run with force=True.")
+            return ref_new, df_to_from
+
+        return ref, pd.DataFrame(columns=["ref_symbol", "current_symbol", "geneid", "status", "renamed"])
+        
     def harmonize_reference_to_ensembl(
         self,
         bulk_symbs: pd.DataFrame,
