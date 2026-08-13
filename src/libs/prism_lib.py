@@ -110,6 +110,9 @@ class PRISM(object):
         self.fname_bulk = "bulk_matrix.tsv"
         self.fname_meta = "bulk_metadata.tsv"
 
+        self.fname_ref_new = f"ref_new_geneid.tsv"
+        self.fname_to_from = f"to_from_table.tsv"
+
         # =============================================================================
         # 6. DOWNSTREAM: purity-corrected PDAC subtyping on the malignant compartment
         # =============================================================================
@@ -152,6 +155,8 @@ class PRISM(object):
 
         # Cache per gene_key: a symbol-indexed and an ensembl-indexed matrix are
         # different artifacts and must not share a filename.
+        # bulk_matrix.tsv --> by symbol
+        # bulk_matrix_geneid.tsv --> by geneid
         suffix = "" if gene_key == "symbol" else f"_{gene_key}"
         fname_bulk = self.fname_bulk.replace(".tsv", f"{suffix}.tsv")
         fname_meta = self.fname_meta.replace(".tsv", f"{suffix}.tsv")
@@ -255,16 +260,18 @@ class PRISM(object):
     # ==========================================================================
     def load_gene_map(self, gene_key: str = "geneid", verbose: bool = False) -> pd.DataFrame:
         """The id <-> symbol <-> biotype table written by build_bulk_matrix."""
+
         suffix = "" if gene_key == "symbol" else f"_{gene_key}"
-        return pdreadcsv(f"gene_map{suffix}.tsv", self.root_singc,
-                         index_col=0, verbose=verbose)
+
+        return pdreadcsv(f"gene_map{suffix}.tsv", self.root_singc, index_col=0, verbose=verbose)
 
     def harmonize_reference_to_ensembl(
         self,
+        bulk_symbs: pd.DataFrame,
         ref: pd.DataFrame,
         gene_map: pd.DataFrame,
-        alias_map: dict | None = None,
-        verbose: bool = True,
+        force: bool = False,
+        verbose: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Re-index a symbol-keyed reference (cell types x genes) onto ensembl ids.
 
@@ -286,6 +293,33 @@ class PRISM(object):
         and why, because silent loss here is exactly what this method exists to
         prevent.
         """
+
+        filename_ref_new = self.root_singc/ self.fname_ref_new
+        filename_to_from = self.root_singc/ self.fname_to_from
+
+        if filename_ref_new.exists() and filename_to_from.exists() and not force:
+
+            ref_new = pdreadcsv(self.fname_ref_new, self.root_singc, index_col=0, verbose=verbose)
+            df_to_from = pdreadcsv(self.fname_to_from, self.root_singc, verbose=verbose)
+
+            return ref_new, df_to_from
+
+        import mygene
+
+        b, r = set(bulk_symbs.index), set(ref.columns)
+        lost = sorted(r - b)
+        self.lost = lost
+        print(f"ref-only: {len(lost)}")
+
+        if len(lost) == 0:
+            return ref, pd.DataFrame(columns=["ref_symbol", "current_symbol", "geneid", "status", "renamed"])
+
+        hits = mygene.MyGeneInfo().querymany(lost, scopes="symbol,alias", fields="symbol", species="human", as_dataframe=True)
+        rec = hits[hits["symbol"].isin(b)]
+        print(f"recoverable by alias: {len(rec)}")
+
+        alias_map = dict(zip(rec.index, rec["symbol"]))     # old symbol -> current
+
         alias_map = alias_map or {}
         sym2id = {}
         if "symbol" in gene_map.columns:                      # ensembl-indexed map
@@ -308,25 +342,29 @@ class PRISM(object):
                          "renamed": cur != sym})
             if gid:
                 mapping[sym] = gid
-        report = pd.DataFrame(rows)
+        df_to_from = pd.DataFrame(rows)
 
-        out = ref.loc[:, [c for c in ref.columns if c in mapping]].copy()
-        out.columns = [mapping[c] for c in out.columns]
+        ref_new = ref.loc[:, [c for c in ref.columns if c in mapping]].copy()
+        ref_new.columns = [mapping[c] for c in ref_new.columns]
 
         # Two old symbols can resolve to one ensembl id; summing profiles would
         # invent data, so drop both and record it.
-        dup = out.columns[out.columns.duplicated(keep=False)]
+        dup = ref_new.columns[ref_new.columns.duplicated(keep=False)]
         if len(dup):
-            report.loc[report["geneid"].isin(set(dup)), "status"] = "ambiguous_target"
-            out = out.loc[:, ~out.columns.duplicated(keep=False)]
+            df_to_from.loc[df_to_from["geneid"].isin(set(dup)), "status"] = "ambiguous_target"
+            ref_new = ref_new.loc[:, ~ref_new.columns.duplicated(keep=False)]
 
-        out.columns.name = "geneid"
+        ref_new.columns.name = "geneid"
         if verbose:
-            n_ok = int((report["status"] == "ok").sum())
+            n_ok = int((df_to_from["status"] == "ok").sum())
             print(f"reference: {len(ref.columns)} symbols -> {out.shape[1]} ensembl ids "
-                  f"({int(report['renamed'].sum())} via alias, "
-                  f"{len(report) - n_ok} unmapped)")
-        return out, report
+                  f"({int(df_to_from['renamed'].sum())} via alias, "
+                  f"{len(df_to_from) - n_ok} unmapped)")
+
+        _ = pdwritecsv(ref_new, self.fname_ref_new, self.root_singc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_to_from, self.fname_to_from, self.root_singc, verbose=verbose)
+            
+        return ref_new, df_to_from
 
     def resolve_symbols(self, symbols, gene_map: pd.DataFrame) -> dict:
         """Map a list of gene symbols to ensembl ids (for marker/program lists)."""
