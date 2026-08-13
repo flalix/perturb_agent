@@ -71,7 +71,7 @@ except Exception:  # pragma: no cover
     _HAS_TORCH = False
 
 
-__version__ = "1.2.0"          # bump on every edit; check with prism_lib.__version__
+__version__ = "1.1.0"          # bump on every edit; check with prism_lib.__version__
 # 1.1.0  gene_key="geneid" support: ensembl id normalisation (version suffix and
 #        _PAR_Y), _DROP_REGEX applied to symbols regardless of gene_key,
 #        per-gene_key cache filenames, persisted gene_map, plus
@@ -302,23 +302,11 @@ class PRISM(object):
             ref_new = pdreadcsv(self.fname_ref_new, self.root_singc, index_col=0, verbose=verbose)
             df_to_from = pdreadcsv(self.fname_to_from, self.root_singc, verbose=verbose)
 
-            # The cache is not keyed on the reference, so a different `ref`
-            # would silently return the previous one's mapping.
-            n_ref, n_cached = len(ref.columns), len(df_to_from)
-            if n_ref != n_cached:
-                warnings.warn(
-                    f"cached mapping covers {n_cached} symbols but `ref` has "
-                    f"{n_ref}; the cache is from a different reference. "
-                    "Re-run with force=True.")
             return ref_new, df_to_from
 
         import mygene
 
-        if isinstance(bulk_symbs, pd.DataFrame) and "symbol" in bulk_symbs.columns:
-            b = set(bulk_symbs["symbol"].astype(str))
-        else:
-            b = set(map(str, getattr(bulk_symbs, "index", bulk_symbs)))
-        r = set(ref.columns.astype(str))
+        b, r = set(bulk_symbs.index), set(ref.columns)
         lost = sorted(r - b)
         self.lost = lost
         print(f"ref-only: {len(lost)}")
@@ -330,25 +318,9 @@ class PRISM(object):
         rec = hits[hits["symbol"].isin(b)]
         print(f"recoverable by alias: {len(rec)}")
 
-        # --- alias guards. Without these the map corrupts profiles rather than
-        # recovering them; all three cases occur in the PAAD data.
-        # (a) one old symbol resolving to several current genes -- unresolvable
-        amb = set(rec.index[rec.index.duplicated(keep=False)])
-        # (b) target already present in ref: mygene can map an old symbol onto a
-        #     DIFFERENT gene that currently owns that name (IL25 -> MYDGF)
-        existing = set(ref.columns.astype(str))
-        alias_map = {k: v for k, v in zip(rec.index, rec["symbol"])
-                     if k not in amb and v not in existing}
-        # (c) two different old symbols claiming one current symbol
-        _tgt = pd.Series(list(alias_map.values()))
-        _many = set(_tgt[_tgt.duplicated(keep=False)])
-        alias_map = {k: v for k, v in alias_map.items() if v not in _many}
-        if verbose:
-            print(f"alias map: {len(alias_map)} applied of {len(rec)} candidates "
-                  f"({len(amb)} ambiguous source, {len(_many)} contested target, "
-                  f"rest collide with an existing symbol)")
-        self.alias_map = alias_map
+        alias_map = dict(zip(rec.index, rec["symbol"]))     # old symbol -> current
 
+        alias_map = alias_map or {}
         sym2id = {}
         if "symbol" in gene_map.columns:                      # ensembl-indexed map
             for gid, sym in gene_map["symbol"].astype(str).items():
@@ -385,7 +357,7 @@ class PRISM(object):
         ref_new.columns.name = "geneid"
         if verbose:
             n_ok = int((df_to_from["status"] == "ok").sum())
-            print(f"reference: {len(ref.columns)} symbols -> {ref_new.shape[1]} ensembl ids "
+            print(f"reference: {len(ref.columns)} symbols -> {out.shape[1]} ensembl ids "
                   f"({int(df_to_from['renamed'].sum())} via alias, "
                   f"{len(df_to_from) - n_ok} unmapped)")
 
