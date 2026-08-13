@@ -1681,31 +1681,18 @@ class MalignantCluster:
     promoting desmoplasia and immune evasion, 
     with stromal cells inhibiting CD8+ T cells through factors like IL-10, TGFβ, PD-L1, and IDO. 
     That's organised by emitting cell type, which maps onto your compartments.
-    """
 
-    PROGRAMS: Dict[str, Dict[str, Sequence[str]]] = {
-        "malignant": {
-            "basal":     ["KRT5", "KRT6A", "KRT14", "KRT17", "KRT81", "S100A2", "TP63", "SPRR3", "DHRS9", "VGLL1", "SERPINB3", "LY6D"],
-            "classical": ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CEACAM6", "CLDN18", "REG4", "ANXA10", "CTSE", "MUC13"],
-            "emt":       ["VIM", "ZEB1", "SNAI2", "CDH2", "FN1", "SPARC"],
-            "prolif":    ["MKI67", "TOP2A", "CCNB1", "AURKA", "BIRC5", "PLK1"],
 
-            """
-            WikiPathways WP5078 (T cell modulation and desmoplasia in PDAC)
+        1)  WikiPathways WP5078 (T cell modulation and desmoplasia in PDAC)
             Checkpoint ligands + immunosuppressive enzymes EMITTED by the tumour.
             Scoreable even though your T-cell compartment is not: theta_mal is high,
             so this measures the emitting side where the receptor side is pure prior.
 
             Galectins collide with immune_evasion (LGALS1/3/9, all three), and 
             IL10 collides cross-compartment with mdsc_suppressive. Shared genes make two scores partly the same measurement.
-            """
-           "immune_evasion": ["CD274", "PDCD1LG2", "CD276", "VTCN1", "VSIR", "IDO1",
-                              "LGALS1", "LGALS3", "LGALS9", "PVR", "NT5E", "ENTPD1"],
-            # Antigen-presentation loss: LOW score = escape active. Read inverted.
-            "antigen_presentation": ["B2M", "HLA-A", "HLA-B", "HLA-C", "TAP1", "TAP2", "NLRC5"],
 
-            """
-            "desmoplastic_secretome"
+        
+        2) "desmoplastic_secretome"
             What the tumour secretes to build its own desmoplasia.
             Why desmoplastic_secretome is the most valuable addition?
                 It gives you a directed hypothesis, which none of your current programs do. 
@@ -1715,29 +1702,79 @@ class MalignantCluster:
             So malignant.desmoplastic_secretome ↔ fibroblast.myCAF is a specific, mechanistically motivated pair — 
             not one of ~50 undirected correlations. Test it as a single pre-specified hypothesis rather than letting BH dilute it.
 
-            A program score is a mean of z-scores — meaningful only if the genes co-vary. 
+        3) A program score is a mean of z-scores — meaningful only if the genes co-vary. 
             Fibrogenic (PDGF/SHH/TGFβ), angiogenic (VEGF/PGF), and immunosuppressive (galectins/IL10) signals move independently, 
             so the mean dilutes all three. Splitting them costs nothing and gains interpretability.
 
-            CCN2 (formerly CTGF) is a well-established PDAC desmoplasia driver and belongs here more than VEGF does.
+        4) CCN2 (formerly CTGF) is a well-established PDAC desmoplasia driver and belongs here more than VEGF does.
             IL1A/IL1B are the tumour-derived signals that induce the iCAF state specifically — 
             which matters because it gives you a directed prediction with a sign: 
                 tumour IL-1 → iCAF up. 
-            Your one replicated finding is prolif ↔ iCAF negative, so this is a genuine test rather than a fishing expedition.
-            """
-            "desmoplastic_secretome": ["PDGFA", "PDGFB", "PDGFC", "PDGFD", "SHH", "TGFB1", "TGFB2", "TGFB3", "CCN2", "IL1A", "IL1B"],
-            "angiogenic_secretome":   ["VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF", "ANGPT2"],
+            Your one replicated finding is prolif ↔ iCAF negative, so this is a genuine test rather than a fishing expedition.        
+
+        5) CAF
+            The terms myCAF, iCAF, and apCAF stand for three main types of cancer-associated fibroblasts (CAF) found inside tumors. 
+            They are myofibroblastic CAF (myCAF), inflammatory CAF (iCAF), and antigen-presenting CAF (apCAF)
+
+            One caveat worth holding: apCAF is defined by MHC-II without costimulation, 
+            and MHC-II is far more abundantly expressed by macrophages and B cells than by fibroblasts. 
+            Given your compartments are correlated at r≈0.9, an apCAF score is at real risk of reading myeloid bleed rather than fibroblast biology. 
+            SLPI and CD74 are the least myeloid-specific of the set, which is thin protection.
+
+            So I'd treat any apCAF result with more scepticism than myCAF/iCAF, and check it against macrophage.TAM 
+            — if fibroblast.apCAF correlates strongly with a myeloid program, bleed is the likelier explanation than antigen-presenting fibroblasts.
+
+
+        6) Ductal
+            Normal-tissue compartments. Their programs largely index residual normal parenchyma 
+            -- i.e. the same cellularity gradient that derailed gene-level clustering -- 
+            so treat any coupling involving them as a composition artifact until shown otherwise.
+
+        7) Comments:
+            For ANGPT2 and IL1B, keep the compartment where the gene is canonically expressed
+            — ANGPT2 is an endothelial Weibel-Palade product, IL1B is predominantly myeloid. 
+            Putting them in the malignant secretome would correlate a tumour score against the very compartments those genes define. 
+            
+            VEGFA is the reverse: it's a classic tumour-hypoxia product, so keep it in malignant and drop it from the already-thin macrophage.SPP1.       
+
+        8) Comments2:
+            angiogenic_secretome won't survive. VEGFD and ANGPT2 are both absent from your matrix (you checked), 
+            and removing ANGPT2 leaves VEGFA, VEGFB, VEGFC, PGF — four, under the min_genes=5 you'd want. 
+            Either add ANGPTL4, HIF1A, SLC2A1, CA9 (hypoxia-response, tumour-intrinsic) or drop the program.
+
+            SHH and CCN2 are likely dead too. You confirmed CCN2 isn't in genes_full, though the harmonised ref_h may now recover it 
+            — worth re-checking after the re-run. SHH was present but is low-abundance and may not clear min_counts=10.
+
+            Also, malignant.emt has FN1 and SPARC, and fibroblast.myCAF has COL1A1/POSTN/THBS2 — no shared genes, 
+            but they're the same ECM biology in two compartments correlated at r≈0.9. 
+            An emt↔myCAF coupling would be hard to distinguish from bleed. Not a bug, but worth remembering when interpreting it.
+
+            Finally, 28 programs means couple_compartments runs ~340 cross-compartment pairs. 
+            Your prolif↔iCAF sat at FDR 0.041–0.050 with far fewer tests — it will not survive that burden. 
+            Run the WP5078 additions as a separate pre-specified family rather than folding them into one BH correction.
+
+    """
+
+    PROGRAMS: Dict[str, Dict[str, Sequence[str]]] = {
+        "malignant": {
+            "basal":     ["KRT5", "KRT6A", "KRT14", "KRT17", "KRT81", "S100A2", "TP63", "SPRR3", "DHRS9", "VGLL1", "SERPINB3", "LY6D"],
+            "classical": ["GATA6", "TFF1", "TFF2", "TFF3", "AGR2", "LGALS4", "CEACAM6", "CLDN18", "REG4", "ANXA10", "CTSE", "MUC13"],
+            "emt":       ["VIM", "ZEB1", "SNAI2", "CDH2", "FN1", "SPARC"],
+            "prolif":    ["MKI67", "TOP2A", "CCNB1", "AURKA", "BIRC5", "PLK1"],
             # galectins stay in immune_evasion only; FAP and IL10 removed entirely
+            "immune_evasion": ["CD274", "PDCD1LG2", "CD276", "VTCN1", "VSIR", "IDO1", "LGALS1", "LGALS3", "LGALS9", "PVR", "NT5E", "ENTPD1"],
+            # Antigen-presentation loss: LOW score = escape active. Read inverted.
+            "antigen_presentation": ["B2M", "HLA-A", "HLA-B", "HLA-C", "TAP1", "TAP2", "NLRC5"],
+            "desmoplastic_secretome": ["PDGFA", "PDGFB", "PDGFC", "PDGFD", "SHH", "TGFB1", "TGFB2", "TGFB3", "CCN2", "IL1A"], # "IL1B"
+            "angiogenic_secretome":   ["VEGFA", "VEGFB", "VEGFC", "VEGFD", "PGF"],  # , "ANGPT2"
 
         },
-        '''
-        The terms myCAF, iCAF, and apCAF stand for three main types of cancer-associated fibroblasts (CAF) found inside tumors. 
-        They are myofibroblastic CAF (myCAF), inflammatory CAF (iCAF), and antigen-presenting CAF (apCAF)
-        '''
         "fibroblast": {
             "myCAF":  ["ACTA2", "TAGLN", "POSTN", "COL1A1", "COL1A2", "THBS2", "CTHRC1", "INHBA"],
             "iCAF":   ["IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA", "C3", "CXCL14"],
-            "apCAF":  ["CD74", "HLA-DRA", "HLA-DRB1", "SLPI", "SAA3"],
+            # Elyada's human apCAF signature rests on MHC class II, and your list already has three of those:
+            # "SAA3" is a maouse gene
+            "apCAF":  ["CD74", "HLA-DRA", "HLA-DRB1", "HLA-DPA1", "HLA-DQA1", "SLPI"],
         },
 
 
@@ -1745,13 +1782,13 @@ class MalignantCluster:
             "cytotoxic":  ["CD8A", "GZMB", "PRF1", "GNLY", "NKG7", "IFNG"],
             "exhaustion": ["PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "TOX"],
             "treg":       ["FOXP3", "IL2RA", "IKZF2", "TNFRSF4", "CCR8"], # removed: "CTLA4", it's already in exhaustion:
-            "costim": ["CD28", "ICOS", "CD226", "CD40LG", "TNFRSF9"],   # opposes `exhaustion`
+            "costim":     ["CD28", "ICOS", "CD226", "CD40LG", "TNFRSF9"],   # opposes `exhaustion`
         },
 
         "macrophage": {
             "M1":   ["IL1B", "TNF", "CXCL9", "CXCL10", "NOS2",  "CCL5"], # removed "IL6",
             "TAM":  ["CD163", "MRC1", "MSR1", "TREM2", "APOE", "C1QA", "C1QB"],
-            "SPP1": ["SPP1", "MARCO", "VEGFA", "MMP9"],  # removed "FN1",
+            "SPP1": ["SPP1", "MARCO",  "MMP9"],  # removed "FN1", "VEGFA",
             "mdsc_suppressive": ["ARG1", "IL10", "CCL17", "CCL22", "IL4", "IL13", "CD80", "CD86", "CD40"],
         },
         
@@ -1764,17 +1801,13 @@ class MalignantCluster:
             "TLS":    ["CXCL13", "CR2", "FDCSP", "MS4A1", "CD79A", "CCL19"],
             "plasma": ["MZB1", "JCHAIN", "XBP1", "DERL3", "TNFRSF17"],
         },
-        # Normal-tissue compartments. Their programs largely index residual
-        # normal parenchyma -- i.e. the same cellularity gradient that derailed
-        # gene-level clustering -- so treat any coupling involving them as a
-        # composition artifact until shown otherwise.
+
         "ductal": {
             "normal_duct": ["CFTR", "SCTR", "AQP1",  "MMP7"],  # removed "SPP1",
             "ADM":         ["SOX9", "KRT19", "ONECUT1", "HNF1B"],
         },
         "acinar": {
-            "acinar_identity": ["PRSS1", "CPA1", "CPB1", "CELA3A", "CTRB1",
-                                "PNLIP", "CLPS"],
+            "acinar_identity": ["PRSS1", "CPA1", "CPB1", "CELA3A", "CTRB1", "PNLIP", "CLPS"],
             "stress":          ["REG1A", "REG3A", "CLU", "MT1G"],
         },
     }

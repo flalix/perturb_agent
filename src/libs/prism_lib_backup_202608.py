@@ -71,14 +71,6 @@ except Exception:  # pragma: no cover
     _HAS_TORCH = False
 
 
-__version__ = "1.1.0"          # bump on every edit; check with prism_lib.__version__
-# 1.1.0  gene_key="geneid" support: ensembl id normalisation (version suffix and
-#        _PAR_Y), _DROP_REGEX applied to symbols regardless of gene_key,
-#        per-gene_key cache filenames, persisted gene_map, plus
-#        harmonize_reference_to_ensembl() / load_gene_map() / resolve_symbols().
-# 1.0.0  pre-ensembl baseline (symbol-indexed only).
-
-
 # =============================================================================
 # 1. BULK MATRIX ASSEMBLY  (df_tumor + df_normal + metadata -> counts matrix)
 # =============================================================================
@@ -131,7 +123,7 @@ class PRISM(object):
         df_normal: pd.DataFrame,
         df_metadata: pd.DataFrame | None = None,
         keep_biotypes: Sequence[str] | None = DEFAULT_BIOTYPES,
-        gene_key: str = "geneid",
+        gene_key: str = "symbol",
         drop_regex: re.Pattern = _DROP_REGEX,
         min_count: int = 10,
         min_samples_frac: float = 0.05,
@@ -150,19 +142,12 @@ class PRISM(object):
         df_meta : DataFrame (samples x metadata), aligned & ordered to df_bulk.columns
         """
 
-        # Cache per gene_key: a symbol-indexed and an ensembl-indexed matrix are
-        # different artifacts and must not share a filename.
-        suffix = "" if gene_key == "symbol" else f"_{gene_key}"
-        fname_bulk = self.fname_bulk.replace(".tsv", f"{suffix}.tsv")
-        fname_meta = self.fname_meta.replace(".tsv", f"{suffix}.tsv")
-        fname_gmap = f"gene_map{suffix}.tsv"
-
-        filename_bulk = self.root_singc / fname_bulk
-        filename_meta = self.root_singc / fname_meta
+        filename_bulk = self.root_singc / self.fname_bulk
+        filename_meta = self.root_singc / self.fname_meta
 
         if filename_bulk.exists() and filename_meta.exists() and not force:
-            df_bulk = pdreadcsv(fname_bulk, self.root_singc, index_col=0, verbose=verbose)
-            df_meta = pdreadcsv(fname_meta, self.root_singc, index_col=0, verbose=verbose)
+            df_bulk = pdreadcsv(self.fname_bulk, self.root_singc, index_col=0, verbose=verbose)
+            df_meta = pdreadcsv(self.fname_meta, self.root_singc, index_col=0, verbose=verbose)
 
             return df_bulk, df_meta
 
@@ -187,38 +172,15 @@ class PRISM(object):
         if keep_biotypes is not None and "biotype" in df_bulk.columns:
             df_bulk = df_bulk[df_bulk["biotype"].isin(keep_biotypes)]
 
-        # --- normalise ensembl ids ------------------------------------------
-        # GDC ships versioned ids ("ENSG00000141510.16") and _PAR_Y suffixes on
-        # pseudoautosomal genes. Both break any intersection with a reference
-        # carrying bare ENSG, and they fail silently.
-        if "geneid" in df_bulk.columns:
-            df_bulk["geneid"] = (df_bulk["geneid"].astype(str)
-                                 .str.replace(r"\..*$", "", regex=True)
-                                 .str.replace("_PAR_Y", "", regex=False))
-
-        # --- drop MT / ribosomal / hemoglobin -------------------------------
-        # Applied to SYMBOLS regardless of gene_key: _DROP_REGEX matches symbol
-        # patterns (MT-, RPL, RPS, HB...), so on an ensembl index it would match
-        # nothing and silently keep every mitochondrial and ribosomal gene.
-        if "symbol" in df_bulk.columns:
-            drop_mask = df_bulk["symbol"].astype(str).str.match(drop_regex)
-            if verbose:
-                print(f"drop_regex removed {int(drop_mask.sum())} genes (matched on symbol)")
-            df_bulk = df_bulk[~drop_mask]
-
-        # --- keep the id <-> symbol <-> biotype map before collapsing -------
-        _map_cols = [c for c in id_cols if c in df_bulk.columns]
-        gene_map = (df_bulk[_map_cols].astype(str)
-                    .drop_duplicates(subset=[gene_key]).set_index(gene_key)
-                    if gene_key in _map_cols else
-                    pd.DataFrame(index=pd.Index([], name=gene_key)))
-
-        # --- collapse duplicated ids by summing counts ----------------------
+        # --- collapse duplicated symbols by summing counts ------------------
         genes = df_bulk[gene_key].astype(str)
         df_bulk = df_bulk.drop(columns=[c for c in id_cols if c in df_bulk.columns])
         df_bulk = df_bulk.apply(pd.to_numeric, errors="coerce").fillna(0.0)
         df_bulk.index = genes.values
         df_bulk = df_bulk.groupby(level=0).sum()
+
+        # --- drop MT / ribosomal / hemoglobin -------------------------------
+        df_bulk = df_bulk[~df_bulk.index.to_series().str.match(drop_regex)]
 
         # --- expression filter ----------------------------------------------
         keep = (df_bulk >= min_count).mean(axis=1) >= min_samples_frac
@@ -240,101 +202,11 @@ class PRISM(object):
         else:
             df_meta = pd.DataFrame(index=df_bulk.columns)
 
-        gene_map = gene_map.loc[gene_map.index.intersection(df_bulk.index)]
-
-        _ = pdwritecsv(df_bulk, fname_bulk, self.root_singc, index=True, verbose=verbose)
-        _ = pdwritecsv(df_meta, fname_meta, self.root_singc, index=True, verbose=verbose)
-        _ = pdwritecsv(gene_map, fname_gmap, self.root_singc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_bulk, self.fname_bulk, self.root_singc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_meta, self.fname_meta, self.root_singc, index=True, verbose=verbose)
 
         return df_bulk, df_meta
 
-
-
-    # ==========================================================================
-    # Gene-identifier harmonisation
-    # ==========================================================================
-    def load_gene_map(self, gene_key: str = "geneid", verbose: bool = False) -> pd.DataFrame:
-        """The id <-> symbol <-> biotype table written by build_bulk_matrix."""
-        suffix = "" if gene_key == "symbol" else f"_{gene_key}"
-        return pdreadcsv(f"gene_map{suffix}.tsv", self.root_singc,
-                         index_col=0, verbose=verbose)
-
-    def harmonize_reference_to_ensembl(
-        self,
-        ref: pd.DataFrame,
-        gene_map: pd.DataFrame,
-        alias_map: dict | None = None,
-        verbose: bool = True,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Re-index a symbol-keyed reference (cell types x genes) onto ensembl ids.
-
-        Why this is needed: scRNA-seq references are published with the gene
-        symbols current at the time. Peng 2019 (CRA001160) carries pre-2018 HGNC
-        symbols (CTGF, CYR61, FIGF, SEPT7, MARCH1...), while GDC bulk carries
-        today's (CCN2, CCN1, VEGFD, SEPTIN7, MARCHF1). Intersecting the two on
-        symbols silently drops every renamed gene -- ~990 in the PAAD case,
-        including the complete CCN, SEPTIN and MARCHF families. Ensembl ids do
-        not get renamed, so once both sides are on ENSG the problem cannot recur.
-
-        Mapping chain: ref symbol -> (alias_map) -> current symbol -> (gene_map)
-        -> ENSG. `alias_map` should come from a resolver such as mygene, with
-        ambiguous and colliding entries already removed -- an alias that maps
-        two old symbols onto one current gene, or onto a gene that already
-        exists, corrupts the profile rather than recovering it.
-
-        Returns (ref_ensg, report). The report names every symbol that failed
-        and why, because silent loss here is exactly what this method exists to
-        prevent.
-        """
-        alias_map = alias_map or {}
-        sym2id = {}
-        if "symbol" in gene_map.columns:                      # ensembl-indexed map
-            for gid, sym in gene_map["symbol"].astype(str).items():
-                sym2id.setdefault(sym, gid)
-        elif "geneid" in gene_map.columns:                    # symbol-indexed map
-            for sym, gid in gene_map["geneid"].astype(str).items():
-                sym2id.setdefault(str(sym), gid)
-        else:
-            raise ValueError(f"gene_map needs a 'symbol' or 'geneid' column, "
-                             f"has {list(gene_map.columns)}")
-
-        rows, mapping = [], {}
-        for sym in ref.columns.astype(str):
-            cur = alias_map.get(sym, sym)
-            gid = sym2id.get(cur)
-            rows.append({"ref_symbol": sym, "current_symbol": cur,
-                         "geneid": gid,
-                         "status": "ok" if gid else "no_ensembl_id",
-                         "renamed": cur != sym})
-            if gid:
-                mapping[sym] = gid
-        report = pd.DataFrame(rows)
-
-        out = ref.loc[:, [c for c in ref.columns if c in mapping]].copy()
-        out.columns = [mapping[c] for c in out.columns]
-
-        # Two old symbols can resolve to one ensembl id; summing profiles would
-        # invent data, so drop both and record it.
-        dup = out.columns[out.columns.duplicated(keep=False)]
-        if len(dup):
-            report.loc[report["geneid"].isin(set(dup)), "status"] = "ambiguous_target"
-            out = out.loc[:, ~out.columns.duplicated(keep=False)]
-
-        out.columns.name = "geneid"
-        if verbose:
-            n_ok = int((report["status"] == "ok").sum())
-            print(f"reference: {len(ref.columns)} symbols -> {out.shape[1]} ensembl ids "
-                  f"({int(report['renamed'].sum())} via alias, "
-                  f"{len(report) - n_ok} unmapped)")
-        return out, report
-
-    def resolve_symbols(self, symbols, gene_map: pd.DataFrame) -> dict:
-        """Map a list of gene symbols to ensembl ids (for marker/program lists)."""
-        if "symbol" in gene_map.columns:
-            s2i = {s: i for i, s in gene_map["symbol"].astype(str).items()}
-        else:
-            s2i = {str(s): str(i) for s, i in gene_map["geneid"].astype(str).items()}
-        return {s: s2i[s] for s in symbols if s in s2i}
 
     def qc_report(self, df_bulk: pd.DataFrame, df_meta: pd.DataFrame | None = None) -> pd.DataFrame:
         """
