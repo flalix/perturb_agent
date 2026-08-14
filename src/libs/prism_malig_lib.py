@@ -2114,15 +2114,16 @@ class MalignantCluster:
     def couple_compartments(
         self,
         scores: pd.DataFrame,
+        cell_name: str,
         n_perm: int = 2000,
         method: str = "spearman",
         control_theta: bool = True,
         random_state: int = 0,
     ) -> pd.DataFrame:
-        """Test coupling between programs in DIFFERENT compartments.
+        """
+        Test coupling between programs in DIFFERENT compartments.
 
-        Two confounds make the naive correlation untrustworthy, and both are
-        handled here:
+        Two confounds make the naive correlation untrustworthy, and both are handled here:
 
         1. Compositional coupling. Z_mal and Z_fib are constrained to sum to the
            observed bulk, so they are negatively coupled by construction.
@@ -2144,8 +2145,8 @@ class MalignantCluster:
         S = scores.dropna(axis=1, how="all").copy()
 
         if control_theta:
-            th = self.df_theta[self.mal_cell_name].reindex(S.index)
-            D = np.column_stack([np.ones(len(S)), th.fillna(th.mean()).values])
+            df_th = self.df_theta[cell_name].reindex(S.index)
+            D = np.column_stack([np.ones(len(S)), df_th.fillna(df_th.mean()).values])
             beta, *_ = np.linalg.lstsq(D, S.fillna(S.mean()).values, rcond=None)
             S = pd.DataFrame(S.values - D @ beta, index=S.index, columns=S.columns)
 
@@ -2169,6 +2170,7 @@ class MalignantCluster:
                 r = _corr(x[ok], y[ok])
                 null = np.empty(n_perm)
                 for p_ in range(n_perm):
+                    # correlation good x with permutation good y
                     null[p_] = _corr(x[ok], rng.permutation(y[ok]))
                 pval = (np.sum(np.abs(null) >= abs(r)) + 1) / (n_perm + 1)
                 rows.append({"program_a": a, "program_b": b, "r": round(r, 4),
