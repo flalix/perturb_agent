@@ -2114,6 +2114,72 @@ class MalignantCluster:
                 scores["immune.cytotoxic"] - scores["immune.exhaustion"])
         return scores, pd.DataFrame(cov)
 
+
+    def compare_coupled_compartments(
+        self,
+        program_list: list,
+        coh: pd.Series,
+        cmap: dict,
+        scores: pd.DataFrame,
+        n_perm: int = 2000,
+        control_theta: bool = True,
+        force: bool = False,
+        verbose: bool = False,
+    ) -> pd.DataFrame:
+
+        if not isinstance(program_list, list) or len(program_list) != 2:
+            print("Error: program_list should be like ['TCGA', 'CPTAC']")
+            return pd.DataFrame()
+
+        program_a = program_list[0]
+        program_b = program_list[1]
+
+        fname = f"corr_coupled_{program_a}_x_{program_b}_n_perm={n_perm}_ctr_theta_{control_theta}.tsv"
+        fname = title_replace(fname)
+        filename = self.root_prism / fname
+
+        if filename.exists() and not force:
+            return pdreadcsv(fname, self.root_prism, verbose=verbose)
+
+        from scipy.stats import norm
+        from statsmodels.stats.multitest import multipletests
+
+        full = {}
+        for name in program_list:
+            print(name)
+            idx = list(scores.index[coh == name])
+            sc_c, _ = self.program_scores(compartment_map=cmap, samples=idx)
+
+            fname_corr=f"prog_corr_scores_x_malig_for_{name}_n{len(sc_c.index)}"
+            full[name] = self.couple_compartments(scores=sc_c, fname_corr=fname_corr, cell_name=self.mal_cell_name, n_perm=n_perm, force=False, verbose=verbose)
+
+        print("----------- end --------------")
+        key = ["program_a", "program_b"]
+
+        df_meta = full[program_a].merge(full[program_b], on=key, suffixes=("_t", "_c"))
+
+        z1, z2 = np.arctanh(df_meta.r_t), np.arctanh(df_meta.r_c)
+        w1, w2 = df_meta.n_t - 3, df_meta.n_c - 3
+
+        se = np.sqrt(1/w1 + 1/w2)
+        df_meta["z_het"] = (z1 - z2) / se
+        df_meta["p_het"] = 2 * norm.sf(np.abs(df_meta.z_het))
+
+        df_meta["z_meta"]   = (z1*w1 + z2*w2) / (w1 + w2)
+        df_meta["r_meta"]   = np.tanh(df_meta.z_meta)                       # identical to before
+        df_meta["p_meta"]   = 2 * norm.sf(np.abs(df_meta.z_meta) * np.sqrt(w1 + w2))
+        df_meta["fdr_meta"] = multipletests(df_meta.p_meta, method="fdr_bh")[1]
+
+        Q = w1*(z1 - df_meta.z_meta)**2 + w2*(z2 - df_meta.z_meta)**2       # Cochran's Q, ~chi2_1
+        df_meta["I2"] = np.clip((Q - 1) / Q, 0, 1)
+
+        df_meta["concordant"] = np.sign(df_meta.r_t) == np.sign(df_meta.r_c)
+
+        _ = pdwritecsv(df_meta, fname, self.root_prism, verbose=verbose)    
+
+        return df_meta
+    
+    
     def couple_compartments(
         self,
         scores: pd.DataFrame,
