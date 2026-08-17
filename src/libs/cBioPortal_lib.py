@@ -92,7 +92,7 @@ class cBioPortal(object):
         self.root_gtex  = create_dir(self.root_colab, "GTEx")
 
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
-        self.root_singc = create_dir(self.root0_data, "single_cell")
+        self.root_prism = Path()
         self.root_mprog_disease = Path()
         self.root_mprog_lfc = Path()
 
@@ -406,6 +406,9 @@ class cBioPortal(object):
 
         self.root_mprog_disease = create_dir(self.root_mprog, self.disease_cd)
         self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
+        self.root_prism     = create_dir(self.root_mprog_disease, "prism")
+        self.root_cluster   = create_dir(self.root_mprog_disease, "cluster")
+        self.root_tahoe     = create_dir(self.root_mprog_disease, "tahoe")
 
         #------------- create dirs ------------------
         self.root_disease = create_dir(self.root_project, self.psi_id)

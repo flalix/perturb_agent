@@ -103,9 +103,7 @@ class PRISM(object):
 
         self.root_colab = Path()
         self.root_gtex  = Path()
-
-        self.root_mprog = Path()
-        self.root_singc = Path()
+        self.root_prism = Path()
 
         self.fname_bulk = "bulk_matrix.tsv"
         self.fname_meta = "bulk_metadata.tsv"
@@ -128,6 +126,16 @@ class PRISM(object):
                                     "INHBA", "WNT2", "SFRP2", "THBS2", "CTHRC1", "FAP"]
         self.MOFFITT_NORMAL_STROMA = ["ACTA2", "MYH11", "DES", "VIM", "IGF1", "RSPO3", "SPOCK1"]
 
+
+    def set_program_and_primary_site(self, prog_id:str, psi_id:str, verbose:bool=False) -> pd.DataFrame:
+        df_psi = self.cbio.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
+        self.df_psi = df_psi
+
+        self.root_colab = self.cbio.root_colab
+        self.root_gtex  = self.cbio.root_gtex
+        self.root_prism = self.cbio.root_prism
+
+        return df_psi
 
     def build_bulk_matrix(self,
         df_tumor: pd.DataFrame,
@@ -162,12 +170,12 @@ class PRISM(object):
         fname_meta = self.fname_meta.replace(".tsv", f"{suffix}.tsv")
         fname_gmap = f"gene_map{suffix}.tsv"
 
-        filename_bulk = self.root_singc / fname_bulk
-        filename_meta = self.root_singc / fname_meta
+        filename_bulk = self.root_prism / fname_bulk
+        filename_meta = self.root_prism / fname_meta
 
         if filename_bulk.exists() and filename_meta.exists() and not force:
-            df_bulk = pdreadcsv(fname_bulk, self.root_singc, index_col=0, verbose=verbose)
-            df_meta = pdreadcsv(fname_meta, self.root_singc, index_col=0, verbose=verbose)
+            df_bulk = pdreadcsv(fname_bulk, self.root_prism, index_col=0, verbose=verbose)
+            df_meta = pdreadcsv(fname_meta, self.root_prism, index_col=0, verbose=verbose)
 
             return df_bulk, df_meta
 
@@ -247,12 +255,11 @@ class PRISM(object):
 
         gene_map = gene_map.loc[gene_map.index.intersection(df_bulk.index)]
 
-        _ = pdwritecsv(df_bulk, fname_bulk, self.root_singc, index=True, verbose=verbose)
-        _ = pdwritecsv(df_meta, fname_meta, self.root_singc, index=True, verbose=verbose)
-        _ = pdwritecsv(gene_map, fname_gmap, self.root_singc, index=True, verbose=verbose)
+        _ = pdwritecsv(df_bulk, fname_bulk, self.root_prism, index=True, verbose=verbose)
+        _ = pdwritecsv(df_meta, fname_meta, self.root_prism, index=True, verbose=verbose)
+        _ = pdwritecsv(gene_map, fname_gmap, self.root_prism, index=True, verbose=verbose)
 
         return df_bulk, df_meta
-
 
 
     # ==========================================================================
@@ -263,7 +270,7 @@ class PRISM(object):
 
         suffix = "" if gene_key == "symbol" else f"_{gene_key}"
 
-        return pdreadcsv(f"gene_map{suffix}.tsv", self.root_singc, index_col=0, verbose=verbose)
+        return pdreadcsv(f"gene_map{suffix}.tsv", self.root_prism, index_col=0, verbose=verbose)
 
 
     def get_harmonize_reference_to_ensembl(
@@ -272,13 +279,13 @@ class PRISM(object):
         verbose: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
 
-        filename_ref_new = self.root_singc/ self.fname_ref_new
-        filename_to_from = self.root_singc/ self.fname_to_from
+        filename_ref_new = self.root_prism/ self.fname_ref_new
+        filename_to_from = self.root_prism/ self.fname_to_from
 
         if filename_ref_new.exists() and filename_to_from.exists():
 
-            ref_new = pdreadcsv(self.fname_ref_new, self.root_singc, index_col=0, verbose=verbose)
-            df_to_from = pdreadcsv(self.fname_to_from, self.root_singc, verbose=verbose)
+            ref_new = pdreadcsv(self.fname_ref_new, self.root_prism, index_col=0, verbose=verbose)
+            df_to_from = pdreadcsv(self.fname_to_from, self.root_prism, verbose=verbose)
 
             # The cache is not keyed on the reference, so a different `ref`
             # would silently return the previous one's mapping.
@@ -321,13 +328,13 @@ class PRISM(object):
         prevent.
         """
 
-        filename_ref_new = self.root_singc/ self.fname_ref_new
-        filename_to_from = self.root_singc/ self.fname_to_from
+        filename_ref_new = self.root_prism/ self.fname_ref_new
+        filename_to_from = self.root_prism/ self.fname_to_from
 
         if filename_ref_new.exists() and filename_to_from.exists() and not force:
 
-            ref_new = pdreadcsv(self.fname_ref_new, self.root_singc, index_col=0, verbose=verbose)
-            df_to_from = pdreadcsv(self.fname_to_from, self.root_singc, verbose=verbose)
+            ref_new = pdreadcsv(self.fname_ref_new, self.root_prism, index_col=0, verbose=verbose)
+            df_to_from = pdreadcsv(self.fname_to_from, self.root_prism, verbose=verbose)
 
             # The cache is not keyed on the reference, so a different `ref`
             # would silently return the previous one's mapping.
@@ -416,8 +423,8 @@ class PRISM(object):
                   f"({int(df_to_from['renamed'].sum())} via alias, "
                   f"{len(df_to_from) - n_ok} unmapped)")
 
-        _ = pdwritecsv(ref_new, self.fname_ref_new, self.root_singc, index=True, verbose=verbose)
-        _ = pdwritecsv(df_to_from, self.fname_to_from, self.root_singc, verbose=verbose)
+        _ = pdwritecsv(ref_new, self.fname_ref_new, self.root_prism, index=True, verbose=verbose)
+        _ = pdwritecsv(df_to_from, self.fname_to_from, self.root_prism, verbose=verbose)
             
         return ref_new, df_to_from
 
@@ -748,7 +755,7 @@ class PRISM(object):
         verbose: bool = False,
     ) -> DeconvResult | None:
         self.fname_dec = "deconv.h5ad"
-        filename_ad = self.root_singc / self.fname_dec
+        filename_ad = self.root_prism / self.fname_dec
 
         if filename_ad.exists():
             res = DeconvResult.load(filename_ad, verbose=verbose)
@@ -777,7 +784,7 @@ class PRISM(object):
         """
 
         self.fname_dec = "deconv.h5ad"
-        filename_ad = self.root_singc / self.fname_dec
+        filename_ad = self.root_prism / self.fname_dec
 
         if filename_ad.exists() and not force:
             res = DeconvResult.load(filename_ad, verbose=verbose)
@@ -1105,19 +1112,6 @@ class PRISM(object):
         report["problems"] = problems
         return report
 
-
-    def set_program_and_primary_site(self, prog_id:str, psi_id:str, verbose:bool=False) -> pd.DataFrame:
-        df_psi = self.cbio.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
-
-        self.root_colab = self.cbio.root_colab
-        self.root_gtex  = self.cbio.root_gtex
-
-        self.root_mprog = self.cbio.root_mprog
-        self.root_singc = self.cbio.root_singc
-
-        self.df_psi = df_psi
-        return df_psi
-
     def load_and_view_matrix_txt(self, 
                                  fname: str | Path, 
                                  sep: str | None = None, 
@@ -1127,7 +1121,7 @@ class PRISM(object):
         orientation (genes as rows vs cells as rows) and the separator.
         """
 
-        filename = self.root_singc / fname
+        filename = self.root_prism / fname
 
         if not filename.exists():
             print(f"File not found: {filename}")
@@ -1191,7 +1185,7 @@ class PRISM(object):
         fname_ad = str(fname).replace('.txt', '.h5ad')
         if not fname_ad.endswith('.h5ad'):
             fname_ad += '.h5ad'
-        filename_ad = self.root_singc / fname_ad
+        filename_ad = self.root_prism / fname_ad
 
         if filename_ad.exists() and not force:
             adata = ad.read_h5ad(filename_ad)
@@ -1200,7 +1194,7 @@ class PRISM(object):
             return adata
 
         
-        filename = self.root_singc / fname
+        filename = self.root_prism / fname
 
         if not filename.exists():
             print(f"File not found: {filename}")
@@ -1265,7 +1259,7 @@ class PRISM(object):
         the right ones explicitly.
         """
 
-        filename = self.root_singc / fname_celltype
+        filename = self.root_prism / fname_celltype
 
         df_ct = pd.read_csv(filename, sep="\t", index_col=0)
         if verbose:
