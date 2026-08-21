@@ -56,7 +56,11 @@ option_list <- list(
   make_option("--pair-col", type = "character", default = NULL,
               help = "Meta column of matched-pair IDs -> ~ pair + condition"),
   make_option("--prior-count", type = "double", default = 0.5,
-              help = "Offset added before log2 in continuous mode")
+              help = "Offset added before log2 in continuous mode"),
+  make_option("--array-weights", action = "store_true", default = FALSE,
+              help = "Estimate per-sample weights (limma::arrayWeights) and use them in lmFit.
+                      Use when sample precision varies -- e.g. deconvolved psi where noise
+                      scales with 1/theta, so low-abundance samples are noisier.")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -168,8 +172,14 @@ run_limma <- function(mat, meta, gene_annot, out_file, mode = "trend") {
     y <- DGEList(counts = round(mat))
     y <- calcNormFactors(y)
     v <- voom(y, design, plot = FALSE)
-    fit <- eBayes(lmFit(v, design), robust = TRUE)
-    method_lab <- "limma_voom"
+    wts <- NULL
+    if (opt$`array-weights`) {
+      wts <- arrayWeights(v, design)
+      cat(sprintf("[calc_degs] array weights: min=%.3f median=%.3f max=%.3f\n",
+                  min(wts), median(wts), max(wts)))
+    }
+    fit <- eBayes(lmFit(v, design, weights = wts), robust = TRUE)
+    method_lab <- if (opt$`array-weights`) "limma_voom_aw" else "limma_voom"
     ave <- fit$Amean
   } else {
     E <- if (opt$`already-log`) mat else log2(mat + opt$`prior-count`)
@@ -179,7 +189,18 @@ run_limma <- function(mat, meta, gene_annot, out_file, mode = "trend") {
     } else {
       method_lab <- "limma_trend"
     }
-    fit <- eBayes(lmFit(E, design), trend = TRUE, robust = TRUE)
+    wts <- NULL
+    if (opt$`array-weights`) {
+      wts <- arrayWeights(E, design)
+      method_lab <- paste0(method_lab, "_aw")
+      cat(sprintf("[calc_degs] array weights: min=%.3f median=%.3f max=%.3f\n",
+                  min(wts), median(wts), max(wts)))
+      wr <- data.frame(sample = colnames(E), weight = as.numeric(wts))
+      wr <- wr[order(wr$weight), ]
+      cat("[calc_degs] five lowest-weight samples:\n")
+      print(utils::head(wr, 5), row.names = FALSE)
+    }
+    fit <- eBayes(lmFit(E, design, weights = wts), trend = TRUE, robust = TRUE)
     ave <- fit$Amean
   }
 

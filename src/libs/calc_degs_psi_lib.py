@@ -17,7 +17,7 @@ Two changes from the parent, both blocking for this use case:
    ``normal_1..N``. Those IDs are needed downstream to join RIN, tissue source
    site, cohort and theta for cluster diagnostics, and to identify matched
    tumour/normal pairs. Here the original ID is carried in ``orig_sample`` and the
-   matrix column is prefixed only to avoid collisions.
+   df_matrix column is prefixed only to avoid collisions.
 
 Also adds ``--pair-col`` plumbing, so CPTAC3 matched adjacent normals can be run
 as a within-patient contrast.
@@ -59,20 +59,19 @@ class CALC_DEGS_PSI(CALC_DEGS):
             raise FileNotFoundError(f"R script not found: {self.rscript_calc_degs}")
 
     # ------------------------------------------------------------------ #
-    # matrix assembly
+    # df_matrix assembly
     # ------------------------------------------------------------------ #
 
     def build_psi_matrix_and_metadata(
         self,
         psi_tumor: pd.DataFrame,
         psi_normal: pd.DataFrame,
-        *,
         pairs: Mapping[str, str] | None = None,
         sample_meta: pd.DataFrame | None = None,
         how: Literal["inner", "outer"] = "inner",
         gene_index_name: str = "geneid",
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Assemble the matrix and metadata for one compartment.
+        """Assemble the df_matrix and metadata for one compartment.
 
         Parameters
         ----------
@@ -91,12 +90,13 @@ class CALC_DEGS_PSI(CALC_DEGS):
 
         Returns
         -------
-        (matrix, meta)
-            ``matrix`` has ``geneid`` plus one column per sample.
-            ``meta`` has ``sample, orig_sample, condition`` and any extras.
+        (df_matrix, df_meta)
+            ``df_matrix`` has ``geneid`` plus one column per sample.
+            ``df_meta`` has ``sample, orig_sample, condition`` and any extras.
         """
         if psi_tumor.empty or psi_normal.empty:
-            raise ValueError("psi_tumor and psi_normal must both be non-empty")
+            print("psi_tumor and psi_normal must both be non-empty")
+            return pd.DataFrame(), pd.DataFrame()
 
         t = psi_tumor.copy()
         n = psi_normal.copy()
@@ -107,7 +107,8 @@ class CALC_DEGS_PSI(CALC_DEGS):
                  else t.index.union(n.index))
         genes = pd.Index(sorted(set(genes)), name=gene_index_name)
         if len(genes) == 0:
-            raise ValueError("no genes shared between tumour and normal psi")
+            print("no genes shared between tumour and normal psi")
+            return pd.DataFrame(), pd.DataFrame()
 
         t = t.reindex(index=genes).astype(float)
         n = n.reindex(index=genes).astype(float)
@@ -122,15 +123,18 @@ class CALC_DEGS_PSI(CALC_DEGS):
 
         mat = pd.concat([n, t], axis=1)
         if mat.isna().any().any():
-            raise ValueError("NaN in assembled matrix; check gene indices")
+            print("NaN in assembled df_matrix; check gene indices")
+            return pd.DataFrame(), pd.DataFrame()
+
         if (mat < 0).any().any():
-            raise ValueError("negative values in psi; expected non-negative expression")
+            print("negative values in psi; expected non-negative expression")
+            return pd.DataFrame(), pd.DataFrame()
 
-        matrix = mat.reset_index().rename(columns={"index": gene_index_name})
-        if gene_index_name not in matrix.columns:
-            matrix.insert(0, gene_index_name, genes)
+        df_matrix = mat.reset_index().rename(columns={"index": gene_index_name})
+        if gene_index_name not in df_matrix.columns:
+            df_matrix.insert(0, gene_index_name, genes)
 
-        meta = pd.DataFrame({
+        df_meta = pd.DataFrame({
             "sample": n_cols + t_cols,
             "orig_sample": list(psi_normal.columns) + list(psi_tumor.columns),
             "condition": ["normal"] * n.shape[1] + ["tumor"] * t.shape[1],
@@ -139,38 +143,38 @@ class CALC_DEGS_PSI(CALC_DEGS):
         if pairs:
             inv = {v: k for k, v in pairs.items()}
             lab = []
-            for s, cond in zip(meta["orig_sample"], meta["condition"]):
+            for s, cond in zip(df_meta["orig_sample"], df_meta["condition"]):
                 if cond == "tumor" and s in pairs:
                     lab.append(f"P_{s}")
                 elif cond == "normal" and s in inv:
                     lab.append(f"P_{inv[s]}")
                 else:
                     lab.append(f"U_{cond}_{s}")
-            meta["pair"] = lab
+            df_meta["pair"] = lab
             n_pair = sum(1 for x in lab if x.startswith("P_")) // 2
             print(f"  paired patients: {n_pair} "
-                  f"({meta.shape[0] - 2*n_pair} unmatched samples)")
+                  f"({df_meta.shape[0] - 2*n_pair} unmatched samples)")
 
         if sample_meta is not None:
-            extra = sample_meta.reindex(meta["orig_sample"]).reset_index(drop=True)
+            extra = sample_meta.reindex(df_meta["orig_sample"]).reset_index(drop=True)
             for c in extra.columns:
-                if c not in meta.columns:
-                    meta[c] = extra[c].to_numpy()
+                if c not in df_meta.columns:
+                    df_meta[c] = extra[c].to_numpy()
 
-        self._sanity_report(mat, meta)
-        return matrix, meta
+        self._sanity_report(mat, df_meta)
+        return df_matrix, df_meta
 
     @staticmethod
-    def _sanity_report(mat: pd.DataFrame, meta: pd.DataFrame) -> None:
+    def _sanity_report(mat: pd.DataFrame, df_meta: pd.DataFrame) -> None:
         """Print the numbers that decide whether the contrast is estimable."""
         for cond in ("normal", "tumor"):
-            cols = meta.loc[meta.condition == cond, "sample"]
+            cols = df_meta.loc[df_meta.condition == cond, "sample"]
             sub = mat[cols]
             zf = float((sub == 0).mean().mean())
             print(f"  {cond:6s} n={len(cols):3d}  "
                   f"median={np.median(sub.to_numpy()):.4g}  "
                   f"zero_frac={zf:.3f}")
-        if meta.groupby("condition").size().min() < 3:
+        if df_meta.groupby("condition").size().min() < 3:
             warnings.warn("fewer than 3 samples in one condition; "
                           "moderated t will be unstable", stacklevel=3)
 
@@ -182,7 +186,6 @@ class CALC_DEGS_PSI(CALC_DEGS):
         self,
         psi_tumor: pd.DataFrame,
         psi_normal: pd.DataFrame,
-        *,
         mode: Literal["limma_trend", "limma_voom"] = "limma_trend",
         pairs: Mapping[str, str] | None = None,
         sample_meta: pd.DataFrame | None = None,
@@ -190,6 +193,7 @@ class CALC_DEGS_PSI(CALC_DEGS):
         pair_col: str | None = None,
         already_log: bool = False,
         normalize: Literal["none", "quantile", "scale"] = "none",
+        array_weights: bool = False,
         min_prop_detected: float = 0.20,
         prior_count: float = 0.5,
         merge_how: Literal["inner", "outer"] = "inner",
@@ -199,38 +203,44 @@ class CALC_DEGS_PSI(CALC_DEGS):
     ) -> pd.DataFrame:
         """Run limma for one compartment and return the results table.
 
-        ``covariates`` are meta column names added to the design. A covariate
+        ``covariates`` are df_meta column names added to the design. A covariate
         perfectly confounded with condition -- tumours from one cohort and normals
         from another -- makes the design rank-deficient and the R script will
         refuse it rather than fit something meaningless.
         """
-        matrix, meta = self.build_psi_matrix_and_metadata(
+        df_matrix, df_meta = self.build_psi_matrix_and_metadata(
             psi_tumor, psi_normal, pairs=pairs,
             sample_meta=sample_meta, how=merge_how)
 
+        if df_matrix.empty or df_meta.empty:
+            print("Matrix assembly failed; See message above.")
+            return pd.DataFrame()
+
         if covariates:
-            miss = [c for c in covariates if c not in meta.columns]
+            miss = [c for c in covariates if c not in df_meta.columns]
             if miss:
-                raise ValueError(f"covariates not in metadata: {miss}; "
-                                 f"pass them via sample_meta")
-        if pair_col and pair_col not in meta.columns:
-            raise ValueError(f"pair_col '{pair_col}' not in metadata; "
-                             f"pass pairs= to create it")
+                print(f"covariates not in metadata: {miss};  pass them via sample_meta")
+                return pd.DataFrame()
+            
+        if pair_col and pair_col not in df_meta.columns:
+            print(f"pair_col '{pair_col}' not in metadata;  pass pairs= to create it")
+            return pd.DataFrame()
 
         tmpdir_obj = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_obj.name)
         try:
-            f_mat = tmpdir / "matrix.tsv"
-            f_meta = tmpdir / "meta.tsv"
-            f_out = tmpdir / "limma_results.tsv"
-            matrix.to_csv(f_mat, sep="\t", index=False)
-            meta.to_csv(f_meta, sep="\t", index=False)
+            fname_mat = tmpdir / "df_matrix.tsv"
+            fname_meta = tmpdir / "df_meta.tsv"
+            fname_out = tmpdir / "limma_results.tsv"
+            
+            df_matrix.to_csv(fname_mat, sep="\t", index=False)
+            df_meta.to_csv(fname_meta, sep="\t", index=False)
 
             cmd = [
                 "Rscript", str(self.rscript_calc_degs),
-                "--counts", str(f_mat),
-                "--meta", str(f_meta),
-                "--out", str(f_out),
+                "--counts", str(fname_mat),
+                "--meta", str(fname_meta),
+                "--out", str(fname_out),
                 "--method", mode,
                 "--min-prop-detected", str(min_prop_detected),
                 "--prior-count", str(prior_count),
@@ -238,6 +248,8 @@ class CALC_DEGS_PSI(CALC_DEGS):
             ]
             if already_log:
                 cmd.append("--already-log")
+            if array_weights:
+                cmd.append("--array-weights")
             if covariates:
                 cmd += ["--covariates", ",".join(covariates)]
             if pair_col:
@@ -247,15 +259,24 @@ class CALC_DEGS_PSI(CALC_DEGS):
 
             proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if proc.returncode != 0:
-                raise RuntimeError(
-                    f"limma run failed.\nCommand: {' '.join(cmd)}\n\n"
-                    f"STDOUT:\n{proc.stdout.strip()}\n\nSTDERR:\n{proc.stderr.strip()}")
+                print(f"limma run failed.\nCommand: {' '.join(cmd)}\n\n STDOUT:\n{proc.stdout.strip()}\n\nSTDERR:\n{proc.stderr.strip()}")
+                return pd.DataFrame()
+
             if verbose and proc.stdout.strip():
                 print(proc.stdout.strip())
-            if not f_out.exists():
-                raise RuntimeError(f"R finished without error but wrote no output: {f_out}")
+            if not fname_out.exists():
+                print(f"R finished without error but wrote no output: {fname_out}")
+                return pd.DataFrame()
 
-            df = pd.read_csv(f_out, sep="\t")
+            df = pd.read_csv(fname_out, sep="\t")
+
+            try:
+                df = df.rename(columns={"padj": "fdr", "log2FoldChange": "lfc"})
+                df["abs_lfc"] = df["lfc"].abs()
+            except KeyError as e:
+                print(f"unexpected R output schema: {e}; columns={list(df.columns)}")
+                return pd.DataFrame()
+            
             if keep_temp:
                 print(f"temp kept at: {tmpdir}")
                 tmpdir_obj = None
@@ -283,15 +304,21 @@ class CALC_DEGS_PSI(CALC_DEGS):
         out = {}
         for comp in psi_tumor:
             if comp not in psi_normal:
-                warnings.warn(f"no normal psi for compartment {comp!r}; skipped",
-                              stacklevel=2)
+                warnings.warn(f"no normal psi for compartment {comp!r}; skipped", stacklevel=2)
                 continue
+
             print(f"\n=== {comp} ===")
             df = self.run_limma(psi_tumor[comp], psi_normal[comp], **kw)
+            if df.empty:
+                out[comp] = df
+                continue
+        
             df["compartment"] = comp
-            n_sig = int((df["padj"] < 0.05).sum())
-            n_up = int(((df["padj"] < 0.05) & (df["log2FoldChange"] > 0)).sum())
-            print(f"  padj<0.05: {n_sig}  (up {n_up} / down {n_sig - n_up})")
+
+            n_degs = df[ (df["fdr"] < 0.05) & (df["abs_lfc"] >= 1)].shape[0]
+            n_up   = df[ (df["fdr"] < 0.05) & (df["lfc"] >= 1) ].shape[0]
+            n_dw   = df[ (df["fdr"] < 0.05) & (df["lfc"] <= -1) ].shape[0]
+            print(f" cutoffs: fdr=0.05 lfc=1: {n_degs} DEGs (up {n_up} / down {n_dw})")
             out[comp] = df
         return out
 
@@ -339,8 +366,7 @@ def panel_summary(deg: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
     g = d.groupby("panel")
     return pd.DataFrame({
         "n": g.size(),
-        "n_sig": g.apply(lambda x: int((x["padj"] < alpha).sum()), include_groups=False),
-        "median_lfc": g["log2FoldChange"].median(),
-        "frac_up": g.apply(lambda x: float((x["log2FoldChange"] > 0).mean()),
-                           include_groups=False),
+        "n_degs": g.apply(lambda x: int((x["fdr"] < alpha).sum()), include_groups=False),
+        "median_lfc": g["lfc"].median(),
+        "frac_up": g.apply(lambda x: float((x["lfc"] > 0).mean()), include_groups=False),
     }).sort_values("median_lfc")
