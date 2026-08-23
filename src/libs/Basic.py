@@ -266,7 +266,7 @@ def read_txt(
 
 # encondig = 'utf-8',
 def pdreadcsv(
-    filename: str,
+    fname: str,
     path: Path = Path("./"),
     sep: str = "\t",
     dtype: dict = {},
@@ -285,7 +285,7 @@ def pdreadcsv(
         print(f"Path does not exists: '{path}'")
         return pd.DataFrame()
 
-    filename = path / filename
+    filename = path / fname
 
     if not filename.exists():
         print(f"File does not exist: '{filename}'")
@@ -593,7 +593,7 @@ def prepare_figname(figname, endtype="png"):
     return figname
 
 
-def title_replace(title):
+def title_replace(title: str) -> str:
     title = title.strip()
     if title[-1] == ".":
         title = title[:-1]

@@ -1345,9 +1345,9 @@ class MalignantCluster:
         files = HfApi().list_repo_files(self._TAHOE_REPO, repo_type="dataset")
         return sorted(f for f in files if f.startswith(pre) and f.endswith(".parquet"))
 
-    def shard_index(self, column: str = "Cell_ID_Cellosaur", force: bool = False,
+    def shard_index(self, column: str = "Cell_ID_Cellosaur",
                     memory_limit: str = "4GB", verbose: bool = True,
-                    stride: int = 1):
+                    stride: int = 1, force: bool = False,):
         """Accumulate a per-shard min/max index over `column` from parquet footers.
 
         Incremental: results merge into one canonical file keyed by shard index,
