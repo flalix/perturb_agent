@@ -190,7 +190,7 @@ def run_lfc(
     sample_meta: pd.DataFrame | None = None,
     array_weights: bool = True,
     min_prop_detected: float = 0.50,
-    root_prism: str | Path = '.',
+    root_lfc: str | Path = '.',
     force: bool = False,
     verbose: bool = False,
     **limma_kw,
@@ -202,7 +202,7 @@ def run_lfc(
     truncation manufactures apparent structure.
     """
 
-    root_prism = Path(root_prism)
+    root_lfc = Path(root_lfc)
 
     print(f"\n=== {compartment} ===")
     print(" tumour arm:")
@@ -227,10 +227,10 @@ def run_lfc(
     compt = compartment.lower()
     fname = f"prism_lfc_compartment_{compt}_min_theta_tumor_{min_theta_tumor}_x_min_theta_normal_{min_theta_normal}_req_stat_{require_states}_min_prop_detected_{min_prop_detected}.tsv"
     fname = title_replace(fname)
-    filename =  root_prism / fname
+    filename =  root_lfc / fname
 
     if filename.exists() and not force:
-        df_lfc = pdreadcsv(fname, root_prism, verbose=verbose)
+        df_lfc = pdreadcsv(fname, root_lfc, verbose=verbose)
 
         info = {
             "compartment": compartment,
@@ -289,6 +289,6 @@ def run_lfc(
     id2sym = df_gene_map["symbol"].astype(str).to_dict()
     df_lfc.insert(1, "symbol", df_lfc["geneid"].map(id2sym))
 
-    pdwritecsv(df_lfc, fname, root_prism, verbose=verbose)
+    pdwritecsv(df_lfc, fname, root_lfc, verbose=verbose)
     
     return df_lfc, info

@@ -140,24 +140,3 @@ def plot_compartment_resid(
     fig.tight_layout()
     return fig, d
 
-
-if __name__ == "__main__":
-    # Panels whose expected direction is known in advance, so they test the
-    # pipeline rather than only describing it.
-    QUIESCENT = ["C7", "MFAP4", "COL14A1", "THBS4", "ABCA6", "ABCA8", "ABCA9",
-                 "ABCA10", "CHRDL1", "SFRP1", "TNXB", "ADAMTSL3", "GPC3"]
-    ACINAR_CORE = ["PRSS1", "CPA1", "CPB1", "CELA3A", "CTRB1", "PNLIP", "CLPS",
-                   "AMY2A", "CEL", "CTRC", "GP2", "PLA2G1B"]
-    BMP_TARGET = ["ID1", "ID2", "ID3", "BAMBI"]
-
-    # df_merge2 must carry: symbol, lfc_fib, lfc_aci, AveExpr_fib
-    fig, d = plot_compartment_resid(
-        df_merge2,
-        panels={"quiescent fibroblast": QUIESCENT,
-                "acinar core": ACINAR_CORE,
-                "BMP targets": BMP_TARGET},
-    )
-    fig.savefig("compartment_resid.png", dpi=200, bbox_inches="tight")
-    print(d.reindex(d["resid"].abs().sort_values(ascending=False).index)
-            .head(15)[["symbol", "lfc_fib", "lfc_aci", "resid", "AveExpr_fib"]]
-            .round(3).to_string(index=False))

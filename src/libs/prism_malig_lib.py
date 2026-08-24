@@ -146,6 +146,7 @@ class MalignantCluster:
         self.root_cluster = create_dir(root_mprog_disease / "cluster")
         self.root_tahoe   = create_dir(root_mprog_disease / "tahoe")
         self.root_prism   = create_dir(root_mprog_disease / "deconv")
+        self.root_lfc     = create_dir(root_mprog_disease / "lfc")
 
         self.__lib_version__ = __version__
         self.mal_cell_name = mal_cell_name
@@ -1815,6 +1816,7 @@ class MalignantCluster:
             "activated": ["VCAM1", "ICAM1", "SELE", "ACKR1"],
         },
         "humoral": {
+            # Tertiary Lymphoid Structures (TLS)
             "TLS":    ["CXCL13", "CR2", "FDCSP", "MS4A1", "CD79A", "CCL19"],
             "plasma": ["MZB1", "JCHAIN", "XBP1", "DERL3", "TNFRSF17"],
         },
@@ -1828,6 +1830,149 @@ class MalignantCluster:
             "stress":          ["REG1A", "REG3A", "CLU", "MT1G"],
         },
     }
+
+    SIGNATURES: Dict[str, Dict[str, Sequence[str]]] = {
+        # --------------------------------------------------------------------------- #
+        # ACINAR
+        # --------------------------------------------------------------------------- #
+
+        'ACINAR_CORE': {
+            # serine proteases / zymogens -- the highest-abundance transcripts in pancreas
+            "proteases": [
+                "PRSS1", "PRSS2", "PRSS3", "CTRB1", "CTRB2", "CTRC", "CTRL",
+                "CELA2A", "CELA2B", "CELA3A", "CELA3B", "CELA1",
+                "CPA1", "CPA2", "CPB1", "CPO",
+            ],
+            # lipases, amylases, other digestive enzymes
+            "lipase_amylase": [
+                "PNLIP", "PNLIPRP1", "PNLIPRP2", "CLPS", "CEL", "PLA2G1B",
+                "AMY2A", "AMY2B", "AMY1A",
+            ],
+            # zymogen granule / regulated secretory machinery
+            "secretory_machinery": [
+                "SYCN", "GP2", "CUZD1", "ZG16", "PDIA2", "ERP27", "SEC11C",
+                "AQP8", "AQP12A", "AQP12B", "SERPINI2", "KLK1", "DPEP1",
+            ],
+            # acinar identity transcription factors
+            "identity_tf": [
+                "PTF1A", "RBPJL", "BHLHA15", "NR5A2", "GATA4", "MYRF",
+            ],
+        },
+
+        'ACINAR_FLAGGED': {
+            "regenerating_adm": ["REG1A", "REG1B", "REG3A", "REG3G", "REG4"],
+            "shared_epithelial": ["SPINK1", "RNASE1", "MUC1", "TFF1", "TFF2", "LGALS4"],
+            "stress_metaplasia": ["ONECUT1", "SOX9", "KRT19", "CFTR"],
+        },
+
+        # --------------------------------------------------------------------------- #
+        # FIBROBLAST / STELLATE
+        # --------------------------------------------------------------------------- #
+        'FIBROBLAST_CORE': {
+            "collagens": [
+                "COL1A1", "COL1A2", "COL3A1", "COL5A1", "COL5A2", "COL5A3",
+                "COL6A1", "COL6A2", "COL6A3", "COL8A1", "COL10A1", "COL11A1",
+                "COL12A1", "COL14A1", "COL15A1", "COL16A1",
+            ],
+            "ecm_glycoprotein": [
+                "FBN1", "FBLN1", "FBLN2", "FBLN5", "THBS2", "TNC", "POSTN",
+                "VCAN", "LUM", "DCN", "FMOD", "OGN", "ASPN", "PRELP", "MGP",
+                "ELN", "EMILIN1", "LTBP1", "LTBP2", "MFAP2", "MFAP4", "MFAP5",
+                "NID2", "SPON1", "ISLR",
+            ],
+            "remodeling_crosslink": [
+                "LOX", "LOXL1", "LOXL2", "PLOD1", "PLOD2", "SERPINH1",
+                "MMP2", "MMP11", "MMP14", "MMP23B", "TIMP2", "TIMP3",
+                "ADAM12", "ADAMTS2", "ADAMTS12", "SULF1", "PCOLCE",
+            ],
+            "identity_receptor": [
+                "PDGFRA", "PDGFRB", "FAP", "THY1", "CD248", "ITGA11", "DDR2",
+                "LRRC15", "ANTXR1", "GLI1", "PDPN",
+            ],
+            "identity_tf": [
+                "TWIST1", "TWIST2", "PRRX1", "SNAI2", "FOXF1", "FOXF2", "EBF1",
+            ],
+            "matricellular": [
+                "CCN1", "CCN2", "CCN3", "CCN5", "SPARCL1",
+            ],
+        },
+
+        # Schwann — as an attribution control, not a biology panel. PLP1, SOX10, MPZ, S100B, EGR2, CDH19, PMP22 are Schwann-restricted with no ECM annotation. Peng's reference has no neural cell type, so nerve-derived transcripts must land somewhere, and this panel measures where. That makes it the same class of instrument as your "acinar core in fibroblast" check: known expected answer, tests the pipeline rather than describing it.
+        # Crucially it must exclude NGFR and RELN, which you've now correctly placed in quiescent_stellate. Keeping them in both would make the two panels correlate by construction — the exact thing the zero-duplicate design avoids.
+        'CONTROL': {
+            # No neural cell type in the Peng reference, so nerve-derived transcripts
+            # have nowhere to go. Non-zero here means the compartment is absorbing them.
+            # NGFR and RELN deliberately excluded -- shared with quiescent stellate.
+            "schwann_attribution": ["PLP1", "SOX10", "MPZ", "S100B", "EGR2", "CDH19", "PMP22"],
+        },
+
+        'FIBROBLAST_FLAGGED': {
+            "pericyte_smc_overlap": ["ACTA2", "TAGLN", "MYL9", "CNN1", "TPM1",
+                                    "TPM2", "PDLIM3", "RGS5", "NOTCH3", "MYH11"],
+            "broadly_expressed":   ["VIM", "SPARC", "FN1", "THBS1", "TIMP1", "S100A4"],
+            "immune_shared":       ["IL6", "CXCL1", "CXCL2", "CXCL12", "CCL2",
+                                    "C3", "C7", "CFD", "C1S", "C1R", "LIF", "IL11",
+                                    "HAS1", "HAS2", "PTGDS"],
+            "quiescent_stellate":  ["LRAT", "DES", "NGFR", "CYGB", "RELN", "PDZRN4"],
+
+            # FLAGGED rather than CORE because your own tier definition is "real markers, but each carries an attribution or interpretation risk." 
+            # This panel's risk is circularity: 
+            # it was derived from this cohort's fibroblast residuals, so scoring it here isn't independent evidence. 
+            # That's exactly what FLAGGED exists to isolate — score CORE alone first, then add FLAGGED and see whether conclusions move.
+            "quiescent_fibroblast_derived": [
+                                    "C7", "MFAP4", "COL14A1", "THBS4", "ABCA6", "ABCA8", "ABCA9",
+                                    "ABCA10", "CHRDL1", "SFRP1", "TNXB", "ADAMTSL3", "GPC3"],
+        },
+
+        'RISK': {
+            # ---- acinar ----
+            "regenerating_adm": (
+                "REG family is induced by inflammation and acinar-to-ductal metaplasia. "
+                "In adjacent-normal PDAC tissue (pancreatitis, ADM) these are up for reasons "
+                "unrelated to acinar abundance, so they corrupt the normal arm of the contrast."
+            ),
+            "shared_epithelial": (
+                "Expressed by ductal and malignant cells. SPINK1 in particular is elevated in "
+                "PDAC -- including it puts a tumour-up gene inside a compartment that is "
+                "tumour-down, which inverts the contrast."
+            ),
+            "stress_metaplasia": (
+                "Ductal-programme genes switched on during ADM. High values mean acinar cells "
+                "are becoming ductal, i.e. the compartment identity itself is unstable -- "
+                "which breaks the same-compartment-two-states assumption."
+            ),
+            # ---- fibroblast ----
+            "pericyte_smc_overlap": (
+                "Shared with pericytes and vascular smooth muscle. Direct attribution risk "
+                "against the endothelial compartment; RGS5 is a pericyte marker first. "
+                "Any fibroblast<->endothelial correlation built on these is suspect."
+            ),
+            "broadly_expressed": (
+                "Expressed at meaningful levels by most cell types including malignant. "
+                "Low compartment share, so BayesPrism's split is prior-dominated -- exactly "
+                "the genes that manufacture cross-compartment coupling."
+            ),
+            "immune_shared": (
+                "The iCAF programme proper, but overlapping macrophage and endothelial "
+                "signatures. These are the genes most likely to be carrying the "
+                "pan-compartment inflammatory axis rather than fibroblast biology."
+            ),
+            "quiescent_stellate": (
+                "Marks quiescent PSCs, near-absent in PDAC. Useful for the NORMAL arm and for "
+                "a chronic-pancreatitis comparator; near-zero and prior-dominated in tumour."
+            ),
+            "quiescent_fibroblast_derived": (
+                "Derived from the PAAD fibroblast-vs-acinar residual in this cohort "
+                "(median resid -0.566, 13/13 negative, AveExpr_fib 5.2-9.9, no abundance "
+                "gradient). Scoring it on the same data is circular -- it describes rather "
+                "than tests. Independent evidence requires a second cohort or reference. "
+                "Distinct from quiescent_stellate, which is canonical and largely "
+                "unmeasurable here (LRAT absent)."
+            ),
+        }
+    }
+
+
 
     def compartment_matrix(
         self,
