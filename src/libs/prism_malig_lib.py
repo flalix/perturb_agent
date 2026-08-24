@@ -1872,12 +1872,12 @@ class MalignantCluster:
             "collagens": [
                 "COL1A1", "COL1A2", "COL3A1", "COL5A1", "COL5A2", "COL5A3",
                 "COL6A1", "COL6A2", "COL6A3", "COL8A1", "COL10A1", "COL11A1",
-                "COL12A1", "COL14A1", "COL15A1", "COL16A1",
+                "COL12A1", "COL15A1", "COL16A1",
             ],
             "ecm_glycoprotein": [
                 "FBN1", "FBLN1", "FBLN2", "FBLN5", "THBS2", "TNC", "POSTN",
                 "VCAN", "LUM", "DCN", "FMOD", "OGN", "ASPN", "PRELP", "MGP",
-                "ELN", "EMILIN1", "LTBP1", "LTBP2", "MFAP2", "MFAP4", "MFAP5",
+                "ELN", "EMILIN1", "LTBP1", "LTBP2", "MFAP2", "MFAP5",
                 "NID2", "SPON1", "ISLR",
             ],
             "remodeling_crosslink": [
@@ -1911,7 +1911,7 @@ class MalignantCluster:
                                     "TPM2", "PDLIM3", "RGS5", "NOTCH3", "MYH11"],
             "broadly_expressed":   ["VIM", "SPARC", "FN1", "THBS1", "TIMP1", "S100A4"],
             "immune_shared":       ["IL6", "CXCL1", "CXCL2", "CXCL12", "CCL2",
-                                    "C3", "C7", "CFD", "C1S", "C1R", "LIF", "IL11",
+                                    "C3", "CFD", "C1S", "C1R", "LIF", "IL11",
                                     "HAS1", "HAS2", "PTGDS"],
             "quiescent_stellate":  ["LRAT", "DES", "NGFR", "CYGB", "RELN", "PDZRN4"],
 
@@ -1969,10 +1969,27 @@ class MalignantCluster:
                 "Distinct from quiescent_stellate, which is canonical and largely "
                 "unmeasurable here (LRAT absent)."
             ),
+            "schwann_attribution": (
+                "Not a biology panel -- an attribution control. The Peng reference has no "
+                "neural cell type, so nerve-derived transcripts must be absorbed by some "
+                "compartment. Expected value is ~zero; non-zero means the compartment is "
+                "taking up nerve signal. NGFR and RELN are deliberately excluded (shared "
+                "with quiescent_stellate) so the two panels stay independent."
+            ),            
         }
     }
 
-
+    @classmethod
+    def check_signatures(cls):
+        from collections import Counter
+        sig = {k: v for k, v in cls.SIGNATURES.items() if k != "RISK"}
+        c = Counter(g for ps in sig.values() for gs in ps.values() for g in gs)
+        dup = {g: n for g, n in c.items() if n > 1}
+        assert not dup, f"genes in >1 panel (inflates panel correlation by k/n): {dup}"
+        missing = [f"{t}.{p}" for t, ps in sig.items() if "FLAGGED" in t or "CONTROL" in t
+                for p in ps if p not in cls.SIGNATURES.get("RISK", {})]
+        assert not missing, f"FLAGGED/CONTROL panels without RISK text: {missing}"
+        return True
 
     def compartment_matrix(
         self,
@@ -2432,6 +2449,7 @@ class MalignantCluster:
         joint_label: pd.Series,
         exclude_program_genes: bool = True,
         min_per_group: int = 10,
+        verbose: bool = False,
         **sig_kw,
     ) -> pd.DataFrame:
         """DE table for program-defined joint states, marker genes removed.
@@ -2463,8 +2481,7 @@ class MalignantCluster:
             drop = set(self.program_genes())
             n0 = Xs.shape[1]
             Xs = Xs.loc[:, [g for g in Xs.columns if g not in drop]]
-            print(f"excluded {n0 - Xs.shape[1]} program marker genes; "
-                  f"{Xs.shape[1]} remain")
+            if verbose: print(f"excluded {n0 - Xs.shape[1]} program marker genes; {Xs.shape[1]} remain")
 
         codes = pd.Series(pd.Categorical(lab).codes, index=lab.index)
         mapping = dict(enumerate(pd.Categorical(lab).categories))
@@ -2481,6 +2498,7 @@ class MalignantCluster:
         axis_b: Optional[str] = None,
         exclude_program_genes: bool = True,
         high_label: str = "high",
+        verbose: bool = False,
     ) -> pd.DataFrame:
         """Two-way factorial DE for a 2x2 state design.
 
@@ -2515,8 +2533,8 @@ class MalignantCluster:
             drop = set(self.program_genes())
             n0 = Xs.shape[1]
             Xs = Xs.loc[:, [g for g in Xs.columns if g not in drop]]
-            print(f"excluded {n0 - Xs.shape[1]} program marker genes; "
-                  f"{Xs.shape[1]} remain")
+            if verbose:
+                print(f"excluded {n0 - Xs.shape[1]} program marker genes;  {Xs.shape[1]} remain")
 
         A = (d[axis_a] == high_label).astype(float).values
         B = (d[axis_b] == high_label).astype(float).values
@@ -2546,10 +2564,11 @@ class MalignantCluster:
             out[f"p_{nm}"] = pv.values
             out[f"fdr_{nm}"] = self._bh(pv).values
 
-        R = pd.DataFrame(out).set_index("gene")
-        R["n_samples"] = n
-        R["cell_counts"] = str(d.groupby(list(d.columns)).size().to_dict())
-        return R.sort_values("fdr_interaction")
+        dfr = pd.DataFrame(out).set_index("gene")
+        dfr["n_samples"] = n
+        dfr["cell_counts"] = str(d.groupby(list(d.columns)).size().to_dict())
+        dfr = dfr.sort_values("fdr_interaction")
+        return dfr
 
     # ===========================================================================
     # 3d. Joint multi-compartment states (instead of a Cartesian product)
