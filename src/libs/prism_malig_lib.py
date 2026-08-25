@@ -393,8 +393,7 @@ class MalignantCluster:
             Zc = Zm.reindex(columns=Zm.columns)
             share = share.reindex(columns=Zc.columns)
 
-        return CellNameState(Z=Zc, df_theta=df_theta, cell_name=cell_name,
-                            share=share, meta=meta)
+        return CellNameState(Z=Zc, df_theta=df_theta, cell_name=cell_name, share=share, meta=meta)
 
 
     # ===========================================================================
