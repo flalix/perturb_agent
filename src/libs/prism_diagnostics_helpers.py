@@ -10,7 +10,14 @@ Requires at module top:
     import pandas as pd
     from scipy.stats import fisher_exact, hypergeom
 """
+import re
+from collections import defaultdict
+from pathlib import Path
+import numpy as np
+import pandas as pd
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from scipy.stats import hypergeom, fisher_exact
 
 def gene_corr(A, B, min_samples=3):
     """Per-gene Pearson r between two sample x gene matrices, aligned on the
@@ -110,7 +117,7 @@ def boot_median_gap(r, group, n_boot=2000, seed=0):
     return float(np.median(a) - np.median(b)), float(lo), float(hi), len(a), len(b)
 
 
-def pc1(M, return_loadings=False):
+def pc1(M, return_loadings=False) -> Tuple[pd.DataFrame, float]:
     """First principal component of a sample x gene matrix, gene-standardised.
 
     Returns (scores, variance_explained), or (scores, variance_explained,
@@ -176,3 +183,68 @@ def batch_axis_check(M, batch, gene_lengths=None, top=30):
             out["top_len_ratio"] = round(
                 float(np.exp(L.reindex(t).dropna().median() - L.median())), 2)
     return out
+
+
+def build_data_gene_lengths(root_colab:Path):
+
+    GFF = root_colab / "refseq/Homo_sapiens.GRCh38.116.chr.gff3"
+
+    tx2gene, exons, span = {}, defaultdict(list), {}
+
+    with open(GFF) as fh:
+        for line in fh:
+            if line[0] == "#":
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 9:
+                continue
+            feat, start, end, attr = f[2], int(f[3]), int(f[4]), f[8]
+
+            if feat == "gene":
+                gid = re.search(r"gene_id=([^;]+)", attr)
+                if gid:
+                    span[gid.group(1)] = end - start + 1
+
+            elif feat in ("mRNA", "transcript", "lnc_RNA", "processed_transcript",
+                        "unconfirmed_transcript", "ncRNA", "miRNA", "snRNA",
+                        "snoRNA", "rRNA", "scRNA", "tRNA", "pseudogenic_transcript"):
+                tid = re.search(r"ID=transcript:([^;]+)", attr)
+                gid = re.search(r"Parent=gene:([^;]+)", attr)
+                if tid and gid:
+                    tx2gene[tid.group(1)] = gid.group(1)
+
+            elif feat == "exon":
+                tid = re.search(r"Parent=transcript:([^;]+)", attr)
+                if tid:
+                    exons[tid.group(1)].append((start, end))
+
+    return tx2gene, exons, span
+
+
+def calc_gene_lengths(root_colab:Path):
+
+    tx2gene, exons, span = build_data_gene_lengths(root_colab)
+
+    # exonic length per transcript, then take the longest transcript per gene
+    def union_len(iv):
+        iv = sorted(iv)
+        tot, cs, ce = 0, *iv[0]
+        for s, e in iv[1:]:
+            if s <= ce + 1:
+                ce = max(ce, e)
+            else:
+                tot += ce - cs + 1
+                cs, ce = s, e
+        return tot + ce - cs + 1
+
+    gene_len = defaultdict(int)
+    
+    for tid, iv in exons.items():
+        g = tx2gene.get(tid)
+        if g:
+            gene_len[g] = max(gene_len[g], union_len(iv))
+
+    return gene_len
+
+
+
