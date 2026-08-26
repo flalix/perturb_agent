@@ -166,6 +166,9 @@ def batch_axis_check(M, batch, gene_lengths=None, top=30):
     out = {"var_explained": round(var, 3),
            "participation_ratio": int(round(1.0 / (load ** 4).sum())),
            "n_levels": len(lv)}
+
+    out = dict(out)
+    
     if len(lv) == 2:
         y = (batch.loc[idx] == lv[0]).astype(float)
         out["pc1_vs_batch_r"] = round(abs(scores.corr(y)), 3)
