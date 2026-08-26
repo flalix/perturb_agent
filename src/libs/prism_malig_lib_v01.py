@@ -1991,17 +1991,14 @@ class MalignantCluster:
         return True
 
     def compartment_matrix(
-            self,
-            cell_name: str,
-            min_share: float = 0.0,
-            min_counts: float = 1.0,
-            samples: Optional[Sequence[str]] = None,
-            min_theta: float = 0.02,
-            decouple: bool = True,
-            batch: Optional[pd.Series] = None,
-            batch_scale: bool = False,
-            cond_warn: float = 100.0,
-        ) -> pd.DataFrame:
+        self,
+        cell_name: str,
+        min_share: float = 0.0,
+        min_counts: float = 1.0,
+        samples: Optional[Sequence[str]] = None,
+        min_theta: float = 0.02,
+        decouple: bool = True,
+    ) -> pd.DataFrame:
         """
         compartment_matrix receives cell_name and build
         cns = self.build_CellNameState_from_full_Z()
@@ -2013,55 +2010,20 @@ class MalignantCluster:
         meaningful: raw Z scales with that compartment's abundance, so
         correlating two raw Z matrices mostly recovers the composition, not the
         biology.
-
-        `batch` residualises a cohort label alongside theta and depth. Without
-        it, a multi-cohort bulk passes its batch structure straight through:
-        BayesPrism corrects reference-vs-bulk mismatch, not batch WITHIN the
-        bulk, so every compartment inherits the same cohort axis and
-        cross-compartment correlations measure cohort membership. Observed on
-        TCGA+CPTAC3 PAAD: compartment PC1 explained ~38% of variance, separated
-        the cohorts at point-biserial r = 0.89, and its gene loadings agreed
-        across compartments at r = 0.996.
-
-        One coefficient per gene per batch level, so the correction absorbs
-        gene-specific batch effects -- including the length-dependent ones that
-        come from differing library prep, which a single global shift cannot
-        touch. It is still a LOCATION correction: see `batch_scale` and the
-        note in `harmonize_scores` on heteroscedastic cohort effects.
-
-        Parameters
-        ----------
-        batch : Series indexed by sample, or None
-            Cohort label. Any dtype; converted to dummies with the first level
-            absorbed into the intercept.
-        batch_scale : bool
-            Also equalise per-gene within-batch SD. Off by default: a cohort
-            with genuinely more heterogeneous tumours would have real spread
-            flattened, and with no overlapping samples the two cases cannot be
-            distinguished. Report both versions when it matters.
-        cond_warn : float
-            Warn when cond(D) exceeds this. theta and log(lib) are near
-            collinear by construction -- Z scales with theta, so
-            log(lib) ~ log(theta) + log(depth) -- and the rank check below only
-            catches EXACT collinearity. Simulated cond for that pair alone is
-            ~430, so a rank-3-of-3 design can still be badly conditioned and
-            split shared variance between the two columns arbitrarily.
         """
-
         cns = self.build_CellNameState_from_full_Z(
             self.Z_full, self.genes_full, cell_types=self.cell_types,
-            cell_name=cell_name, samples=self.df_theta.index, df_theta=self.df_theta)
-        
+            cell_name=cell_name, samples=self.df_theta.index,
+            df_theta=self.df_theta)
         Z = cns.Z
         if samples is not None:
             Z = Z.reindex([s for s in samples if s in Z.index])
 
-        '''
-        Drop samples with essentially none of this cell type. Their Z is the
-        reference prior, not a measurement -- BayesPrism can return theta on
-        the order of 1e-50, and such a sample will still receive a program
-        score, usually an extreme one, and can single-handedly create a "subtype".
-        '''
+        # Drop samples with essentially none of this cell type. Their Z is the
+        # reference prior, not a measurement -- BayesPrism can return theta on
+        # the order of 1e-50, and such a sample will still receive a program
+        # score, usually an extreme one, and can single-handedly create a
+        # "subtype".
         th = self.df_theta[cell_name].reindex(Z.index)
         low = th < min_theta
         if low.any():
@@ -2073,37 +2035,9 @@ class MalignantCluster:
             th = th.loc[Z.index]
 
         Z = Z.loc[:, Z.median(axis=0) >= min_counts]
-
         if min_share > 0 and cns.share is not None:
             sh = cns.share.reindex(index=Z.index, columns=Z.columns)
-            keep = (sh >= min_share).mean(axis=0) >= 0.5
-            '''
-            The share filter selects on composition: a gene must clear
-            min_share in half the samples, and in low-theta samples nothing
-            can. So the surviving gene set is chosen by the high-theta half
-            of the cohort. If theta differs systematically between batches,
-            the gene set is batch-selected too -- report it rather than
-            silently inheriting it.
-            '''
-            if batch is not None:
-                b = batch.reindex(Z.index)
-                per_b = {lv: set(Z.columns[(sh.loc[b == lv] >= min_share)
-                                        .mean(axis=0) >= 0.5])
-                        for lv in b.dropna().unique()}
-                if len(per_b) > 1:
-                    sets = list(per_b.values())
-                    shared = set.intersection(*sets)
-                    union = set.union(*sets)
-                    if union and len(shared) / len(union) < 0.8:
-                        warnings.warn(
-                            f"{cell_name}: min_share={min_share} selects "
-                            f"different gene sets per batch "
-                            f"({ {k: len(v) for k, v in per_b.items()} }, "
-                            f"Jaccard {len(shared)/len(union):.2f}). The gene "
-                            "filter is partly a batch filter; consider "
-                            "intersecting per-batch sets or lowering "
-                            "min_share.")
-            Z = Z.loc[:, keep]
+            Z = Z.loc[:, (sh >= min_share).mean(axis=0) >= 0.5]
 
         # A sample can lose all its genes to the filters above; its row sum is
         # then 0 and CPM becomes 0/0. Drop those before they poison the design
@@ -2125,98 +2059,30 @@ class MalignantCluster:
         logx = np.log2(cpm + 1.0)
         logx = logx.loc[:, np.isfinite(logx.values).all(axis=0)]
 
-        # Keep the covariates that built this matrix reachable. Recomputing
-        # them outside means re-deriving every filter above, which silently
-        # diverges the moment a filter changes.
-        self._last_covariates = {"cell_name": cell_name, "theta": th.copy(),
-                                "lib": lib.copy(),
-                                "batch": (batch.reindex(logx.index).copy()
-                                        if batch is not None else None)}
-
         if decouple and logx.shape[1] >= 2 and float(th.std()) > 0:
             # Same argument as prepare_malignant_matrix: shrinkage toward the
             # reference is graded by this compartment's own abundance, so
             # residualise on it before scoring programs.
-            cols = [np.ones(len(th)), th.values, np.log(lib.values)]
-            names = ["intercept", "theta", "log_lib"]
-
-            if batch is not None:
-                b = batch.reindex(logx.index)
-                if b.isna().any():
-                    raise ValueError(
-                        f"{cell_name}: batch is missing for "
-                        f"{int(b.isna().sum())} sample(s), e.g. "
-                        f"{list(b.index[b.isna()])[:5]}. Dropping them "
-                        "silently would change the sample set between "
-                        "compartments; supply a complete label.")
-                lv = list(pd.unique(b))
-                if len(lv) < 2:
-                    warnings.warn(f"{cell_name}: batch has one level "
-                                f"({lv[0]!r}); no batch term added.")
-                else:
-                    counts = b.value_counts()
-                    if counts.min() < 3:
-                        warnings.warn(
-                            f"{cell_name}: batch level(s) with <3 samples "
-                            f"{counts[counts < 3].to_dict()}; their "
-                            "coefficient is fit on almost no data.")
-                    # drop-first: the reference level lives in the intercept
-                    for level in lv[1:]:
-                        cols.append((b == level).values.astype(float))
-                        names.append(f"batch[{level}]")
-
-            D = np.column_stack(cols)
-
+            D = np.column_stack([np.ones(len(th)), th.values,
+                                 np.log(lib.values)])
             if not np.isfinite(D).all():
                 warnings.warn(f"{cell_name}: non-finite covariates; "
-                            "skipping purity decoupling.")
+                              "skipping purity decoupling.")
             elif np.linalg.matrix_rank(D) < D.shape[1]:
-                warnings.warn(
-                    f"{cell_name}: covariates are collinear (rank "
-                    f"{np.linalg.matrix_rank(D)} < {D.shape[1]}: {names}); "
-                    "skipping purity decoupling.")
+                warnings.warn(f"{cell_name}: covariates are collinear "
+                              "(rank-deficient); skipping purity decoupling.")
             else:
-                cond = float(np.linalg.cond(D))
-                if cond > cond_warn:
-                    warnings.warn(
-                        f"{cell_name}: cond(D) = {cond:.0f} over {names}. The "
-                        "fitted values and residuals are fine, but individual "
-                        "coefficients are not identified -- do not read beta "
-                        "as 'the theta effect' or 'the batch effect' "
-                        "separately.")
                 try:
                     # lstsq can fail to converge on badly scaled input; the
                     # normal equations via pinv are slower but robust.
                     beta, *_ = np.linalg.lstsq(D, logx.values, rcond=None)
                 except np.linalg.LinAlgError:
                     warnings.warn(f"{cell_name}: lstsq did not converge; "
-                                "falling back to pinv.")
+                                  "falling back to pinv.")
                     beta = np.linalg.pinv(D) @ logx.values
                 logx = pd.DataFrame(
                     logx.values - D @ beta + logx.values.mean(axis=0),
                     index=logx.index, columns=logx.columns)
-                self._last_covariates.update(beta=beta, design_names=names,
-                                            cond=cond)
-
-        # Location correction leaves per-gene within-batch dispersion intact.
-        # See harmonize_scores: cohort effects on deconvolved values are often
-        # heteroscedastic, and mean-centring alone leaves every extreme -- and
-        # so every tail cluster -- coming from the wider cohort.
-        if batch_scale and batch is not None:
-            b = batch.reindex(logx.index)
-            if b.nunique() > 1:
-                grand = logx.std(axis=0)
-                for level in b.unique():
-                    m = (b == level).values
-                    if m.sum() < 3:
-                        continue
-                    sub = logx.loc[m]
-                    sd = sub.std(axis=0).replace(0.0, np.nan)
-                    logx.loc[m] = (((sub - sub.mean(axis=0))
-                                    .div(sd, axis=1).fillna(0.0)
-                                    .mul(grand, axis=1))
-                                + sub.mean(axis=0))
-
         return logx
 
 
@@ -2243,7 +2109,7 @@ class MalignantCluster:
         for key, ct in compartment_map.items():
             if ct not in self.df_theta.columns:
                 rows.append({"compartment": key, "cell_type": ct,
-                            "verdict": "MISSING from df_theta"})
+                             "verdict": "MISSING from df_theta"})
                 continue
             th = self.df_theta[ct]
             try:
@@ -2251,13 +2117,13 @@ class MalignantCluster:
                 n_genes = M.shape[1]
             except Exception as e:
                 rows.append({"compartment": key, "cell_type": ct,
-                            "theta_median": round(float(th.median()), 4),
-                            "verdict": f"matrix failed: {str(e)[:40]}"})
+                             "theta_median": round(float(th.median()), 4),
+                             "verdict": f"matrix failed: {str(e)[:40]}"})
                 continue
 
             progs = programs.get(key, {})
             cov = {pr: len([g for g in gs if g in M.columns])
-                for pr, gs in progs.items()}
+                   for pr, gs in progs.items()}
             thin = [pr for pr, n in cov.items() if n < min_markers]
 
             if not progs:
@@ -2272,11 +2138,11 @@ class MalignantCluster:
                 verdict = "OK"
 
             rows.append({"compartment": key, "cell_type": ct,
-                        "theta_median": round(float(th.median()), 4),
-                        "theta_min": round(float(th.min()), 4),
-                        "n_genes_after_share": n_genes,
-                        "marker_coverage": cov,
-                        "verdict": verdict})
+                         "theta_median": round(float(th.median()), 4),
+                         "theta_min": round(float(th.min()), 4),
+                         "n_genes_after_share": n_genes,
+                         "marker_coverage": cov,
+                         "verdict": verdict})
         return pd.DataFrame(rows)
 
     def program_scores(
