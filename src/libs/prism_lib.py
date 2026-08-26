@@ -752,9 +752,15 @@ class PRISM(object):
     '''
 
     def open_bayesprism(self, 
+        old: bool = False,
         verbose: bool = False,
     ) -> DeconvResult | None:
-        self.fname_dec = "deconv.h5ad"
+
+        if old:
+            self.fname_dec = "deconv_old.h5ad"
+        else:
+            self.fname_dec = "deconv.h5ad"
+
         filename_ad = self.root_prism / self.fname_dec
 
         if filename_ad.exists():
