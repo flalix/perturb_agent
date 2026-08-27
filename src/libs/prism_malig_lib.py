@@ -2247,7 +2247,7 @@ class MalignantCluster:
                 continue
             th = self.df_theta[ct]
             try:
-                M = self.compartment_matrix(ct, min_share=min_share)
+                M = self.compartment_matrix(ct, min_share=min_share, min_counts=MIN_COUNTS, batch=batch, )
                 n_genes = M.shape[1]
             except Exception as e:
                 rows.append({"compartment": key, "cell_type": ct,
@@ -2284,6 +2284,9 @@ class MalignantCluster:
         compartment_map: Optional[Dict[str, str]] = None,
         samples: Optional[Sequence[str]] = None,
         min_genes: int = 3,
+        min_share: float = 0.1,
+        min_counts: int = 10,
+        batch: pd.Series | Optional[str] = None,
         **mat_kw,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Continuous program scores per sample, across compartments.
@@ -2361,7 +2364,7 @@ class MalignantCluster:
                 warnings.warn(f"no PROGRAMS entry for '{key}'; skipping")
                 continue
 
-            M = self.compartment_matrix(cell_type, samples=samples, **mat_kw)
+            M = self.compartment_matrix(cell_type, min_share=min_share, min_counts=min_counts, batch=batch, samples=samples, **mat_kw)
 
             Zs = (M - M.mean()) / M.std().replace(0, np.nan)
 
@@ -3416,5 +3419,4 @@ class MalignantCluster:
 
         return pd.DataFrame(_cos(cents.values, shifts),
                             index=cents.index, columns=pert_emb.index)
-
 

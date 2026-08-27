@@ -298,7 +298,27 @@ class PRISM(object):
             return ref_new, df_to_from
 
         return ref, pd.DataFrame(columns=["ref_symbol", "current_symbol", "geneid", "status", "renamed"])
-        
+
+    def open_new_reference(self, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+        filename_ref_new = self.root_prism/ self.fname_ref_new
+        filename_to_from = self.root_prism/ self.fname_to_from
+
+        if filename_ref_new.exists():
+            ref_new = pdreadcsv(self.fname_ref_new, self.root_prism, index_col=0, verbose=verbose)
+        else:
+            print(f"Reference new file not found {filename_ref_new}.")
+            ref_new = pd.DataFrame()
+
+        if filename_to_from.exists():
+            df_to_from = pdreadcsv(self.fname_to_from, self.root_prism, verbose=verbose)
+        else:
+            print(f"Mapping file not found {filename_to_from}.")
+            df_to_from = pd.DataFrame()
+
+        return ref_new, df_to_from
+
+
     def harmonize_reference_to_ensembl(
         self,
         bulk_symbs: pd.DataFrame,
