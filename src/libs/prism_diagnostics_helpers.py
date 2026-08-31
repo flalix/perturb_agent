@@ -117,6 +117,30 @@ def boot_median_gap(r, group, n_boot=2000, seed=0):
     return float(np.median(a) - np.median(b)), float(lo), float(hi), len(a), len(b)
 
 
+# ----------------------------------------------------------------------------
+# 4. FITTED vs UNMODELED, with intervals.
+#
+#    min_share=0.3 on BOTH matrices removes exactly the genes where fibroblast
+#    holds most of the signal, so only 34 of 696 fitted genes survive into the
+#    fib x mal intersection. Bootstrap noise at n=34 is about +/- 0.026 --
+#    wider than the +0.014 gap v1 reported. Run relaxed as well.
+# ----------------------------------------------------------------------------
+ 
+def gap_report(name, A, B, group, label="fitted"):
+    r, n_s, n_g = gene_corr(A, B)
+    d, lo, hi, na, nb = boot_median_gap(r, group)
+    print(f"{name}  ({n_s} samples, {n_g} genes)")
+    if np.isnan(d):
+        print(f"  too few in one class ({label} {na}, other {nb})")
+        return r
+    m = r.index.isin(set(group))
+    print(f"  {label:<9} n={na:>5}  median r {r[m].median():.3f}")
+    print(f"  unmodeled n={nb:>5}  median r {r[~m].median():.3f}")
+    print(f"  gap {d:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]"
+          f"{'  (excludes 0)' if lo > 0 or hi < 0 else '  (includes 0)'}")
+    return r
+ 
+
 def pc1(M, return_loadings=False) -> Tuple[pd.DataFrame, float]:
     """First principal component of a sample x gene matrix, gene-standardised.
 

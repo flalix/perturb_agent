@@ -165,6 +165,8 @@ class MalignantCluster:
                                "HOXB-AS3", "HOXB-AS4", "LEMD1-AS1", "MIR7-3HG")
         self._TAHOE_REPO = "tahoebio/Tahoe-100M"
 
+        self.program_gene_list = []
+
         self.Z_full, self.genes_full = prism.full_Z(res, df_bulk, ref)
         self.Z_mal = prism.state_expression(self.Z_full, self.genes_full,
                                             res, self.mal_cell_name)
@@ -2141,6 +2143,9 @@ class MalignantCluster:
             names = ["intercept", "theta", "log_lib"]
 
             if batch is not None:
+
+                print("Fixing cohort batch effects...")
+
                 b = batch.reindex(logx.index)
                 if b.isna().any():
                     raise ValueError(
@@ -2572,12 +2577,18 @@ class MalignantCluster:
         tell you nothing. What is informative is which OTHER genes track the
         labels.
         """
+
+        if self.program_gene_list:
+            return self.program_gene_list
+    
         keys = compartments or list(self.PROGRAMS)
         out = set()
         for k in keys:
             for gs in self.PROGRAMS.get(k, {}).values():
                 out.update(gs)
-        return sorted(out)
+
+        self.program_gene_list = list(out)
+        return list(self.program_gene_list )
 
     def state_signatures(
         self,
@@ -2662,6 +2673,7 @@ class MalignantCluster:
             raise ValueError(f"need >=2 discretised axes, got {cols}")
 
         d = disc[[axis_a, axis_b]].dropna()
+        # common samples
         idx = X.index.intersection(d.index)
         d, Xs = d.loc[idx], X.loc[idx]
 
