@@ -153,6 +153,7 @@ class cBioPortal(object):
         self.df_gtex_counts = pd.DataFrame()
         self.df_gtex_pheno = pd.DataFrame()
         self.df_gtex_meta = pd.DataFrame()
+        self.df_metadata = pd.DataFrame()
   
         self.fname_exp_tumor = 'expression_tumor_for_%s.tsv'
         self.fname_exp_normal = 'expression_normal_for_%s.tsv'
@@ -4185,7 +4186,7 @@ class cBioPortal(object):
             df_metadata = pdreadcsv(self.fname_metadata, self.root_mprog_lfc, verbose=verbose)
             df_metadata.set_index('cols', inplace=True)
         else:
-            print("Warning: could not find file: {filename}")
+            print(f"Warning: could not find file: {filename}")
             df_metadata = pd.DataFrame()
 
         self.df_metadata = df_metadata
