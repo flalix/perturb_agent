@@ -1,0 +1,249 @@
+# 🧪  perturb_agent
+
+Perturb Agent is a computational framework to identify **patient-specific pathway perturbations** from TCGA transcriptomic data and map them to **potential therapeutic targets**.
+
+**Status**: 🚧 Under development
+
+
+## ⚙️ Pipeline Overview
+
+The pipeline integrates:
+
+1. **[Streamlit](https://streamlit.io/)** for interactive exploration and visualization  
+
+   > streamlit==1.55.0  
+   > protobuf==3.20.3  
+   > click==8.0.4  
+
+2. **[Docker](https://docker-curriculum.com/)** for reproducibility and R interface
+3. **[Nextflow](https://www.nextflow.io/)** for scalable, reproducible data processing  
+4. **Python (ML/AI layer)** — pathway scoring, feature attribution, and target prioritization
+5. **[uv](https://docs.astral.sh/uv/)** Python project and dependency management
+6. **[ruff](https://docs.astral.sh/ruff/)** Python code formater and fixer.
+  - uv run ruff check src/libs/*.py --fix > ruff.txt
+  - uv run ruff format src/libs/*.py
+
+---
+
+## ⚙️ First results
+
+### 💡 The running version can be found at
+
+https://perturb-agent.onrender.com/
+
+
+### Interfacing GDC TCGA data, results:
+- 57 primary sites.
+- 11428 cases.
+- 245657 samples.
+- 480826 annotated mutations.
+- 18961 different genes.
+
+---
+
+## 💡 GDC + cBioPortal
+
+> project → project_id - gdc.list_gdc_progams()  
+> primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
+> cases → case_id (UUID) - gdc.build_cases(pid=pid, subtype=subtype, stage=stage)  
+  - subtypes → cancer subtypes, tissue subtypes
+  - stages →  stage_id (AJCC)
+
+> samples → sample type: [tumor, normal] and file access  
+> barcodes → patients  
+> annotated mutations (from [cBioPortal](https://www.cbioportal.org/))  
+
+
+See: tcga_gdc_and_cBioPortal_mutations_loop.ipynb
+
+---
+
+## 💡 Core components
+
+1. **GDC-TCGA**
+   * First approach; next, incorporate cBioPortal
+   * Query any [GDC/TCGA](https://portal.gdc.cancer.gov/analysis_page?app=Projects) cancer type.
+
+---
+
+2. **cBioPortal**
+   * GDC protects mutational data;
+   * cBioPortal has patient demographics and mutational annotation (anonymized)
+
+---
+
+3. **Mutation clustering** - ERROR! 
+   1. Given a disease;
+   2. Retrieve all mutations;
+   3. Create a pivot table: barcodes x symbols;
+   4. Clustering:
+      * Pairwise distance using Jaccard distance - pairwise_distances(X, metric="jaccard");
+      * Hierarchical clustering + dendrogram (seaborn);
+      * Cluster with UMAP;
+      * Find groups using **knn** with k=8;
+   5. Error: could not cluster well; perhaps insufficient data.
+
+**Jaccard distance**
+
+Jaccard distance is a measure of dissimilarity between two sets, derived directly from Jaccard similarity. While Jaccard similarity measures how much two sets overlap, Jaccard distance measures how different they are. It is defined as one minus the Jaccard similarity.
+
+$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
+
+---------
+
+   6. Most mutated genes for disease = 'Esophagus'
+
+![mutation frequency](./figures/most_mutated_genes_esophagus.png)
+
+
+   7. Mutation heatmap for disease = 'Esophagus'
+
+![heatmap](./figures/esophagus_mutation_plot.png)
+
+   8. UMAP applying knn with k = 8
+
+![UMAP](./figures/esophagus_UMAP_k=8.png)
+
+---
+
+4. **Bulk Transcriptomics - Differential Expression** - ERROR
+   1. Retrieve all patient cases (barcodes)
+   2. For each patient:
+      * Obtain gene expression (raw counts)
+   3. Compute DEGs per patient:
+      * Control: TCGA solid tissue normal samples;
+      * Method: [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html);
+      * DEGs' thresholds:
+        * |log2FC| ≥ 1;
+        * FDR < 0.05.
+   4. Notebooks:
+      * Calculate Differential Expression (DE):
+         * DE: mtp_cBio_63_PAAD_prepare_expression;
+         * Use Combat: mtp_cBio_62_PAAD_Combat_DE_Cluster;
+   5. Error: bulk transcriptomics does not split DEGs by cell type.
+   
+---
+
+5. **HCA-UMAP cluster analyses** - ERROR
+    1. Could be split into meaningful groups;
+    2. Claude (AI) observed that the first cluster (lncRNA) is not biologically possible;
+    3. There is an error in the read counting (strand x unstrand reads);
+    4. Notebook: mtp_cBio_64_PAAD_claude_critic_lncRNA_not_bio
+
+---
+
+6. **Patient Demographics** 
+    1. Notebook: mtp_cBio_60_PSI_all_programs_CasesSamplesMut_Demographics
+    2. Get demographic data from cBioPortal: 
+      - cbio.check_clinical_attributes()
+      - cbio.loop_program_psi_get_cases_samples_mut()
+
+---
+
+7. **Bayes Prism bulk-transcriptomics deconvolution** 
+    1. BayesPrism perform bulk-transcriptomics deconvolution
+    2. Reference: Peng 2019
+    3. Notebook: mtp_cBio_65_PAAD_run_bayesprism
+
+BayesPrism: Chu, T. et al. & Danko, C.G.  
+https://www.nature.com/articles/s43018-022-00356-3  
+https://github.com/Danko-Lab/BayesPrism  
+
+Peng J, Sun BF, Chen CY, Zhou JY, Chen YS, Chen H, Liu L, Huang D, Jiang J, Cui GS, Yang Y, Wang W, Guo D, Dai M, Guo J, Zhang T, Liao Q, Liu Y, Zhao YL, Han DL, Zhao Y, Yang YG, Wu W. Single-cell RNA-seq highlights intra-tumoral heterogeneity and malignant progression in pancreatic ductal adenocarcinoma. Cell Res. 2019 Sep;29(9):725-738. doi: 10.1038/s41422-019-0195-y. Epub 2019 Jul 4. Erratum in: Cell Res. 2019 Sep;29(9):777. doi: 10.1038/s41422-019-0212-1. PMID: 31273297; PMCID: PMC6796938.
+
+---
+
+5. **Pathway Perturbation Modeling** 
+    1. Retrieve Reactome pathways and gene sets
+    2. Map DEGs onto [Reactome](https://reactome.org/) pathways
+    3. For each pathway:
+        * Identify DEGs present in the pathway
+        * Expand DEG signal using the Reactome functional interaction graph:
+           * Include first-order neighbors (1-hop) of DEGs within the pathway graph
+           * Expansion is restricted to pathway-local topology
+    4. Pathway selection
+        * Find the minimum N according to the hypergeometric statistics
+        * Select pathway havein n >= N genes
+    5. For each selected pathway:
+        * Construct a perturbation profile including:
+           * Highligh DEGs
+           * network-propagated genes (neighbors)
+
+---
+
+5. **Patient Representation & Clustering**
+    1. Represent each patient as a pathway perturbation vector
+    2. Cluster patients based on pathway-level features
+
+---
+
+
+7. **tool5 — Biological and Therapeutic Annotation**
+
+  - For each patient cluster and pathway:
+
+    1. Gene–phenotype associations:
+        * [dbGaP](https://dbgap.ncbi.nlm.nih.gov/home/)
+        * [PhenoScanner](https://github.com/phenoscanner/phenoscanner)
+        * [PheGenI](https://www.ncbi.nlm.nih.gov/gap/phegeni)
+    2. Gene–disease associations:
+       * [MalaCards](https://www.malacards.org/)
+       * [DisGeNET](https://disgenet.com/)
+    3. Drug associations:
+       * [LINCS](https://clue.io/lincs) (perturbation signatures)
+       * [Allosteric Database](https://mdl.shsmu.edu.cn/ASD/)
+       * [Drug-Gene Interaction Database (DGIdb)](https://dgidb.org/about/overview/introduction)
+       * [DrugBank](https://go.drugbank.com/)
+       * [ChEMBL](https://www.ebi.ac.uk/chembl/)
+    4. Mechanism of action (MOA):
+       * inferred from LINCS perturbation profiles
+
+---
+
+8. tool6 — Visualization & Reporting
+
+  - Dashboard includes:
+
+    1. Pathway-level views:
+        * perturbed genes
+           * network structure
+           * DEG vs propagated genes
+    2. Cluster-level summaries:
+        * shared pathways/genes
+        * candidate drugs and MOA
+    3. LLM-generated summaries using [TAHOE](https://www.tahoebio.ai/) perturbed datasets
+        * [Tahoe Bio LLMs](https://huggingface.co/tahoebio) a gigascale single cell perturbational atlas (May 2025)
+           * biological interpretation
+           * therapeutic hypotheses
+
+---
+
+9. Possible **'new'** questions:
+
+    1. Given a primary site, a subtype, and stage
+        * are all samples similar?
+        * what kind of info returns a clusterization?
+    2. For each clusterization, are they similar to:
+        * EXCEPTIONAL_RESPONDERS?
+        * Organoids?
+
+---
+
+9. Docker config:
+
+    1. Given a primary site, a subtype, and stage
+        * are all samples similar?
+        * what kind of info returns a clusterization?
+    2. For each clusterization, are they similar to:
+        * EXCEPTIONAL_RESPONDERS?
+        * Organoids?
+
+---
+
+
+## ⚙️  Under development
+
+> PhD Flavio Lichtenstein  
+> email: flalix@gmail.com  
+> phone: +55-11-96560-1960  
+> local: Brazil/Sao Paulo  
