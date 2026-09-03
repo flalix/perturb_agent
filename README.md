@@ -41,7 +41,7 @@ https://perturb-agent.onrender.com/
 
 ---
 
-## 💡 GDC flow
+## 💡 GDC + cBioPortal
 
 > project → project_id - gdc.list_gdc_progams()  
 > primary_sites → pid and disease_type - gdc.get_primary_sites(program=program)  
@@ -60,21 +60,28 @@ See: tcga_gdc_and_cBioPortal_mutations_loop.ipynb
 
 ## 💡 Core components
 
-2. **Chatbot**
-   * Query any [GDC/TCGA](https://portal.gdc.cancer.gov/analysis_page?app=Projects) cancer type
-   * Acts as the orchestration layer for pipeline execution
+1. **GDC-TCGA**
+   * First approach; next, incorporate cBioPortal
+   * Query any [GDC/TCGA](https://portal.gdc.cancer.gov/analysis_page?app=Projects) cancer type.
 
 ---
 
-3. **tool1 — Mutation clusterization**
-   1. Given a disease
-   2. Retrieve all mutations
-   3. Create a pivot table: barcodes x symbols
-   4. Clusterization
-      * Pairwise distance using Jaccard distance - pairwise_distances(X, metric="jaccard")
-      * Hirarchical Clustering + dendogram (seaborn)
-      * Cluster with UMAP
-      * Find groups using **knn** with k=8
+2. **cBioPortal**
+   * GDC protects mutational data;
+   * cBioPortal has patient demographics and mutational annotation (anonymized)
+
+---
+
+3. **Mutation clustering** - ERROR! 
+   1. Given a disease;
+   2. Retrieve all mutations;
+   3. Create a pivot table: barcodes x symbols;
+   4. Clustering:
+      * Pairwise distance using Jaccard distance - pairwise_distances(X, metric="jaccard");
+      * Hierarchical clustering + dendrogram (seaborn);
+      * Cluster with UMAP;
+      * Find groups using **knn** with k=8;
+   5. Error: could not cluster well; perhaps insufficient data.
 
 **Jaccard distance**
 
@@ -84,36 +91,69 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---------
 
-   5. Most mutated genes for disease = 'Esophagus'
+   6. Most mutated genes for disease = 'Esophagus'
 
 ![mutation frequency](./figures/most_mutated_genes_esophagus.png)
 
 
-   6. Mutation heatmap for disease = 'Esophagus'
+   7. Mutation heatmap for disease = 'Esophagus'
 
 ![heatmap](./figures/esophagus_mutation_plot.png)
 
-   7. UMAP applying knn with k = 8
+   8. UMAP applying knn with k = 8
 
 ![UMAP](./figures/esophagus_UMAP_k=8.png)
 
 ---
 
-4. **tool2 — Differential Expression (per patient)**
+4. **Bulk Transcriptomics - Differential Expression** - ERROR
    1. Retrieve all patient cases (barcodes)
    2. For each patient:
       * Obtain gene expression (raw counts)
    3. Compute DEGs per patient:
-      * Control: TCGA solid tissue normal samples
-      * Method: [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html)
-      * Thresholds:
-        * |log2FC| ≥ 1
-        * FDR < 0.05
+      * Control: TCGA solid tissue normal samples;
+      * Method: [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html);
+      * DEGs' thresholds:
+        * |log2FC| ≥ 1;
+        * FDR < 0.05.
+   4. Notebooks:
+      * Calculate Differential Expression (DE):
+         * DE: mtp_cBio_63_PAAD_prepare_expression;
+         * Use Combat: mtp_cBio_62_PAAD_Combat_DE_Cluster;
+   5. Error: bulk transcriptomics does not split DEGs by cell type.
+   
+---
+
+5. **HCA-UMAP cluster analyses** - ERROR
+    1. Could be split into meaningful groups;
+    2. Claude (AI) observed that the first cluster (lncRNA) is not biologically possible;
+    3. There is an error in the read counting (strand x unstrand reads);
+    4. Notebook: mtp_cBio_64_PAAD_claude_critic_lncRNA_not_bio
 
 ---
 
+6. **Patient Demographics** 
+    1. Notebook: mtp_cBio_60_PSI_all_programs_CasesSamplesMut_Demographics
+    2. Get demographic data from cBioPortal: 
+      - cbio.check_clinical_attributes()
+      - cbio.loop_program_psi_get_cases_samples_mut()
 
-5. **tool3 — Pathway Perturbation Modeling**
+---
+
+7. **Bayes Prism bulk-transcriptomics deconvolution** 
+    1. BayesPrism perform bulk-transcriptomics deconvolution
+    2. Reference: Peng 2019
+    3. Notebook: mtp_cBio_65_PAAD_run_bayesprism
+
+BayesPrism: Chu, T. et al. & Danko, C.G.  
+https://www.nature.com/articles/s43018-022-00356-3  
+https://github.com/Danko-Lab/BayesPrism  
+
+Peng J, Sun BF, Chen CY, Zhou JY, Chen YS, Chen H, Liu L, Huang D, Jiang J, Cui GS, Yang Y, Wang W, Guo D, Dai M, Guo J, Zhang T, Liao Q, Liu Y, Zhao YL, Han DL, Zhao Y, Yang YG, Wu W. Single-cell RNA-seq highlights intra-tumoral heterogeneity and malignant progression in pancreatic ductal adenocarcinoma. Cell Res. 2019 Sep;29(9):725-738. doi: 10.1038/s41422-019-0195-y. Epub 2019 Jul 4. Erratum in: Cell Res. 2019 Sep;29(9):777. doi: 10.1038/s41422-019-0212-1. PMID: 31273297; PMCID: PMC6796938.
+
+---
+
+5. **Pathway Perturbation Modeling** 
     1. Retrieve Reactome pathways and gene sets
     2. Map DEGs onto [Reactome](https://reactome.org/) pathways
     3. For each pathway:
@@ -131,8 +171,7 @@ $J(A,B) = \frac{|A \cap B|}{|A \cup B|}$
 
 ---
 
-
-6. **tool4 - Patient Representation & Clustering**
+5. **Patient Representation & Clustering**
     1. Represent each patient as a pathway perturbation vector
     2. Cluster patients based on pathway-level features
 
