@@ -1789,8 +1789,14 @@ class MalignantCluster:
 
         },
         "fibroblast": {
-            "myCAF":  ["ACTA2", "TAGLN", "POSTN", "COL1A1", "COL1A2", "THBS2", "CTHRC1", "INHBA"],
-            "iCAF":   ["IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA", "C3", "CXCL14"],
+            # Harmonize:HOPX, MMP11, MYL9, TPM1, TPM2
+            # - are not in the 143 and not in the fibroblast top-10
+            # ACTA2, TAGLN, MYL9, TPM1, TPM2 are all contractile/cytoskeletal, and they don't separate myCAF from pericytes or vascular smooth muscle.
+            # MMP11 - specific to desmoplastic stroma.
+            "myCAF":  ["MMP11", "ACTA2", "TAGLN", "POSTN", "COL1A1", "COL1A2", "THBS2", "CTHRC1", "INHBA"],
+            # Harmonize: DPT
+            # Elyada Fig 2C: DPT, CXCL12, CFD, LMNA, HAS1, HAS2, PDGFRA, IL6, C3, C7 (quiescent)
+            "iCAF":   ["DPT", "IL6", "CXCL12", "PDGFRA", "HAS1", "HAS2", "CFD", "LMNA", "C3", "CXCL14"],
             # Elyada's human apCAF signature rests on MHC class II, and your list already has three of those:
             # "SAA3" is a maouse gene
             "apCAF":  ["CD74", "HLA-DRA", "HLA-DRB1", "HLA-DPA1", "HLA-DQA1", "SLPI"],
@@ -2003,6 +2009,7 @@ class MalignantCluster:
             batch: Optional[pd.Series] = None,
             batch_scale: bool = False,
             cond_warn: float = 100.0,
+            verbose: bool = False,
         ) -> pd.DataFrame:
         """
         compartment_matrix receives cell_name and build
@@ -2144,7 +2151,8 @@ class MalignantCluster:
 
             if batch is not None:
 
-                print("Fixing cohort batch effects...")
+                if verbose:
+                    print("Fixing cohort batch effects...")
 
                 b = batch.reindex(logx.index)
                 if b.isna().any():
