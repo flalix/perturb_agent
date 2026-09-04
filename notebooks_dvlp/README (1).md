@@ -22,7 +22,7 @@ Current case study: **pancreatic adenocarcinoma (PAAD)**.
   - [3.4 Decision: stop transforming, start deconvolving](#34-decision-stop-transforming-start-deconvolving)
 - [4. Cell-type deconvolution with BayesPrism](#4-cell-type-deconvolution-with-bayesprism)
 - [5. Program-level analysis: challenges and statistical power](#5-program-level-analysis-challenges-and-statistical-power)
-- [6. Compartment-specific factorial DE](#6-compartment-specific-factorial-de-methods-check)
+- [6. Results: three genes across programs](#6-results-three-genes-across-programs)
 - [7. Results: survival (Kaplan–Meier)](#7-results-survival-kaplanmeier)
 - [8. Downstream modules](#8-downstream-modules)
 - [9. Roadmap](#9-roadmap)
@@ -265,107 +265,18 @@ where the analysis becomes fragile.
 All results below are therefore reported for **CAF** and **Basal** only.
 
 ---
-## 6. Compartment-specific factorial DE: methods check
 
-### 6.1 Design
+## 6. Candidate genes for validation
 
-Two axis scores, discretized 0/1, fitted independently within each compartment:
+Top 10 genes ranked by **CAF-contrast** p-value (n = 108 samples; ~11,400 genes tested).
+**Three pass FDR < 0.05.** The remainder are prioritization candidates, not findings.
 
-```
-A = basal_minus_classical   (derived from the malignant compartment)
-B = myCAF_minus_iCAF        (derived from the fibroblast compartment)
-
-expr ~ 1 + A + B + A:B
-```
-
-```python
-R_mal = mc.factorial_state_de(X_mal2, disc)   # malignant compartment
-R_fib = mc.factorial_state_de(X_fib2, disc)   # fibroblast compartment
-
-contrasts_of(R_fib)
-# ['A_basal_minus_classical', 'B_myCAF_minus_iCAF', 'interaction']
-```
-
-n = 108 samples. Gene universe differs by compartment after filtering:
-**8,187 genes** in `X_mal2`, **11,464 genes** in `X_fib2`.
-
-> ⚠️ **Coefficient interpretation.** Under 0/1 coding these are *simple effects*, not
-> marginal ones: `beta_A` is the A effect at B = 0 (iCAF-high samples), `beta_B` is the
-> B effect at A = 0 (classical samples). Sum-to-zero coding (−0.5/+0.5) is required
-> before "averaged over the other axis" language is correct. `beta_AB` is invariant
-> to the coding choice.
-
-> ⚠️ **Unequal denominators.** The two compartments are FDR-corrected over different
-> gene sets (8,187 vs. 11,464). Null results are therefore not directly comparable in
-> strength across compartments; the intersection should be used for any cross-compartment
-> claim.
-
-### 6.2 Result: the diagonal is circular
-
-| | tested on `X_mal2` (8,187 genes) | tested on `X_fib2` (11,464 genes) |
-|---|---|---|
-| **A** — malignant-derived | **143 hits** — circular | not significant¹ |
-| **B** — fibroblast-derived | not significant¹ | **3 hits** — circular |
-
-<sub>¹ Observed only conditional on the other contrast's selection; the unconditional
-genome-wide test has not yet been run (see §6.5).</sub>
-
-Each contrast reaches significance only on the matrix it was derived from. This is
-guaranteed by construction and carries no biological information — it confirms that
-`factorial_state_de` recovers the program it was handed, and nothing beyond that.
-
-Effect sizes support the reading. The malignant diagonal reaches p = 4.0e−08 with
-|coef| up to 3.79; the fibroblast diagonal tops out at p = 2.5e−06, |coef| ≈ 0.57.
-The fibroblast axis is weaker because it is the weaker program, not because it is
-less circular.
-
-**Neither list below is a validation candidate set.**
-
-### 6.3 Diagonal cell — malignant contrast A on `X_mal2` (143 hits)
-
-Top 10 by p-value:
-
-| # | Gene | Ensembl ID | A coef / FDR | raw *p* |
-|---|---|---|---|---|
-| 1 | PLA2G10 | ENSG00000069764 | −1.642 / 3.3e−04 | 4.0e−08 |
-| 2 | LYZ | ENSG00000090382 | −1.833 / 8.8e−04 | 2.1e−07 |
-| 3 | MCU | ENSG00000156026 | −0.646 / 1.9e−03 | 8.5e−07 |
-| 4 | ANG | ENSG00000214274 | −0.987 / 1.9e−03 | 1.0e−06 |
-| 5 | CREB3L1 | ENSG00000157613 | −1.039 / 1.9e−03 | 1.4e−06 |
-| 6 | FMO5 | ENSG00000131781 | −1.179 / 1.9e−03 | 1.3e−06 |
-| 7 | BCAS1 | ENSG00000064787 | −1.669 / 2.0e−03 | 1.7e−06 |
-| 8 | REG4 | ENSG00000134193 | −3.788 / 8.0e−03 | 8.5e−06 |
-| 9 | GPX2 | ENSG00000176153 | −1.446 / 8.0e−03 | 9.7e−06 |
-| 10 | CAPN5 | ENSG00000149260 | −1.018 / 8.0e−03 | 9.7e−06 |
-
-The full 143-gene list reproduces the Moffitt basal/classical signature at both poles:
-
-- **Classical**: GATA6, AGR2, AGR3, TFF1, TFF2, TFF3, CLDN18, LGALS4, REG4, TSPAN8,
-  HNF4G, CTSE, PGC, MYO1A, GPA33, A4GNT, CDHR5, SLC44A4
-- **Basal**: KRT5, KRT6A, KRT81, FAM83A, GSDMC, SERPINB4
-
-Recovering the classical program from a contrast defined as basal-minus-classical on
-the same matrix is circular by construction.
-
-**Flags for later.**
-- **LYZ** (−1.833) is a myeloid gene. Given the low NNLS cross-validation reliability of
-  the macrophage compartment (ρ = 0.197), compartment leakage is more likely than
-  malignant-intrinsic expression.
-- **SHH** and **IHH** both appear in the list. Hedgehog ligands are epithelium-derived
-  and signal outward to stroma — one of the few well-documented tumour → stroma axes in
-  PDAC. Circular here, but the first place to look if the off-diagonal test in §6.5
-  returns anything.
-
-### 6.4 Diagonal cell — fibroblast contrast B on `X_fib2` (3 hits)
-
-Top 10 by B p-value:
-
-| # | Gene | Ensembl ID | A coef / FDR | B coef / FDR | B raw *p* | Sig. |
+| # | Gene | Ensembl ID | Basal coef / FDR | CAF coef / FDR | CAF raw *p* | Sig. |
 |---|---|---|---|---|---|:--:|
-| 1 | ADAMTS12 | ENSG00000151388 | +0.112 / 0.845 | +0.573 / 0.029 | 2.5e−06 | ✓ |
-| 2 | NTM | ENSG00000182667 | −0.056 / 0.936 | +0.576 / 0.040 | 7.0e−06 | ✓ |
-| 3 | TTYH2 | ENSG00000141540 | +0.063 / 0.927 | −0.547 / 0.049 | 1.3e−05 | ✓ |
-| — | *FDR 0.05 cutoff* | | | | | |
+| 1 | **ADAMTS12** | ENSG00000151388 | +0.112 / 0.845 | **+0.573** / 0.029 | 2.5e−06 | ✓ |
+| 2 | **NTM** | ENSG00000182667 | −0.056 / 0.936 | **+0.576** / 0.040 | 7.0e−06 | ✓ |
+| 3 | **TTYH2** | ENSG00000141540 | +0.063 / 0.927 | **−0.547** / 0.049 | 1.3e−05 | ✓ |
+| — | — — — *FDR 0.05 cutoff* — — — | | | | | |
 | 4 | SERPINE2 | ENSG00000135919 | +0.061 / 0.967 | −1.077 / 0.051 | 1.8e−05 | |
 | 5 | HTR2A | ENSG00000102468 | −0.226 / 0.806 | −0.836 / 0.101 | 5.3e−05 | |
 | 6 | PLPP4 | ENSG00000203805 | +0.061 / 0.943 | +0.668 / 0.101 | 5.3e−05 | |
@@ -374,39 +285,29 @@ Top 10 by B p-value:
 | 9 | COL11A1 | ENSG00000060718 | +0.091 / 0.962 | +1.264 / 0.107 | 8.4e−05 | |
 | 10 | SOX11 | ENSG00000176887 | +0.069 / 0.960 | +0.919 / 0.112 | 9.7e−05 | |
 
-ITGA11, COL11A1 and SERPINE2 are canonical myCAF markers — again recovered by
-construction.
+<sub>coef = log2 fold-change; FDR = Benjamini–Hochberg across all tested genes. Rank order
+within the shortlist is **not stable** at this sample size — treat membership, not position,
+as the signal. The FDR 0.05 line falls between ranks 3 and 4, separating SERPINE2
+(FDR 0.051) from TTYH2 (FDR 0.049) on a difference of 0.002; that boundary should not be
+read as a biological distinction. Genes below the cutoff are hypotheses for external
+validation.</sub>
 
-The FDR 0.05 line falls between ranks 3 and 4 on a difference of 0.002 (TTYH2 0.049 vs.
-SERPINE2 0.051), despite SERPINE2 carrying nearly twice the effect size. That boundary
-is a threshold artifact, not a biological distinction. Rank order within the shortlist
-is not stable at n = 108.
+**Caveats to resolve before acting on this list**
 
-**STAT4** is a T-cell transcription factor appearing in a fibroblast contrast; with the
-T-cell compartment at ρ = 0.136, leakage is the more parsimonious explanation.
+1. **The Basal contrast is uniformly null.** No gene in the top 10 exceeds |coef| = 0.23 or
+   reaches FDR < 0.80 in Basal. A complete absence of even suggestive signal in one contrast,
+   paired with ten hits in the other, is the asymmetry pattern flagged in the project's
+   circularity checks — it must be confirmed that the CAF contrast is not derived from
+   fibroblast expression and then tested on the fibroblast matrix.
+2. **Canonical CAF markers appear (ITGA11, COL11A1, SERPINE2).** This is biologically
+   coherent for a fibroblast program — and is also precisely what a circular contrast would
+   produce. Their presence does **not** discriminate between the two explanations.
+3. **STAT4 is a T-cell transcription factor** appearing in a fibroblast contrast. Given the
+   low cross-validation reliability of the T-cell compartment, compartment leakage is a
+   plausible alternative to fibroblast-intrinsic expression.
 
-### 6.5 Required next step: the off-diagonal
+---
 
-The informative comparison is each contrast tested on the compartment it was **not**
-derived from, unconditionally:
-
-```python
-R_mal[R_mal.fdr_B_myCAF_minus_iCAF < 0.05]       # stroma axis → malignant expression
-R_fib[R_fib.fdr_A_basal_minus_classical < 0.05]  # tumour axis → fibroblast expression
-```
-
-Restrict both to the 8,187 ∩ 11,464 gene intersection so the two FDR corrections share
-a denominator.
-
-Given the replicated malignant.prolif ↔ iCAF composition coupling (meta r = −0.476,
-I² = 0), `B → X_mal2` is the more likely direction of any real effect. If both cells are
-empty genome-wide, the gene-level cross-compartment null is established, and the θ-level
-coupling stands as a purely compositional relationship with no within-compartment
-expression correlate — a coherent and reportable negative result.
-
-The `interaction` contrast is returned by `contrasts_of` but is not reported: at n = 108
-across four factorial cells it is underpowered genome-wide, and on the diagonal it
-inherits the circularity of its parent contrast.
 ## 7. Results: survival (Kaplan–Meier)
 
 Patients were stratified by program-level expression of each candidate gene (high vs. low)

@@ -2651,13 +2651,19 @@ class MalignantCluster:
 
         Fits, per gene:  expr ~ 1 + A + B + A:B   (A, B coded 0/1)
 
-        This decomposes what four one-vs-rest tests confound:
-          beta_A    tumour-axis effect, averaged over stroma
-          beta_B    stroma-axis effect, averaged over tumour
-          beta_AB   INTERACTION -- the gene behaves differently depending on the
-                    combination. These are the tumour-stroma crosstalk genes:
-                    not "up in basal" or "up in myCAF" but specific to their
-                    co-occurrence.
+        - Axis scores (continuous, mean-centred):
+        - A_c = basal_minus_classical   (malignant compartment)
+        - B_c = myCAF_minus_iCAF        (fibroblast compartment)
+
+        **expr ~ 1 + A_c + B_c + A_c:B_c + cohort**
+
+        - Parameters:
+        - beta_A   tumour-axis slope, evaluated at mean stroma score
+        - beta_B   stroma-axis slope, evaluated at mean tumour score
+        - beta_AB  interaction: change in the A slope per unit B
+                    (candidate crosstalk — but compositional/θ effects
+                    produce interactions too, so this is not evidence
+                    of signalling on its own)
 
         One-vs-rest on four cells cannot separate these: a gene driven purely by
         the tumour axis appears "significant" in two of the four contrasts and
