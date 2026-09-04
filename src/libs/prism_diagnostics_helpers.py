@@ -201,7 +201,7 @@ def batch_axis_check(M, batch, gene_lengths=None, top=30):
             float(scores.groupby(batch.loc[idx]).mean().var()
                   / scores.var()), 3)
 
-    if gene_lengths is not None:
+    if gene_lengths:
         L = np.log(gene_lengths.reindex(load.index).dropna())
         if len(L) > 10:
             out["abs_loading_vs_log_len_rho"] = round(
@@ -212,11 +212,11 @@ def batch_axis_check(M, batch, gene_lengths=None, top=30):
     return out
 
 
-def build_data_gene_lengths(root_colab:Path):
+def build_data_gene_lengths(root_colab:Path) -> tuple[dict, defaultdict]:
 
     GFF = root_colab / "refseq/Homo_sapiens.GRCh38.116.chr.gff3"
 
-    tx2gene, exons, span = {}, defaultdict(list), {}
+    tx2gene, exons = {}, defaultdict(list)
 
     with open(GFF) as fh:
         for line in fh:
@@ -227,12 +227,7 @@ def build_data_gene_lengths(root_colab:Path):
                 continue
             feat, start, end, attr = f[2], int(f[3]), int(f[4]), f[8]
 
-            if feat == "gene":
-                gid = re.search(r"gene_id=([^;]+)", attr)
-                if gid:
-                    span[gid.group(1)] = end - start + 1
-
-            elif feat in ("mRNA", "transcript", "lnc_RNA", "processed_transcript",
+            if feat in ("mRNA", "transcript", "lnc_RNA", "processed_transcript",
                         "unconfirmed_transcript", "ncRNA", "miRNA", "snRNA",
                         "snoRNA", "rRNA", "scRNA", "tRNA", "pseudogenic_transcript"):
                 tid = re.search(r"ID=transcript:([^;]+)", attr)
@@ -245,12 +240,12 @@ def build_data_gene_lengths(root_colab:Path):
                 if tid:
                     exons[tid.group(1)].append((start, end))
 
-    return tx2gene, exons, span
+    return tx2gene, exons
 
 
 def calc_gene_lengths(root_colab:Path):
 
-    tx2gene, exons, span = build_data_gene_lengths(root_colab)
+    tx2gene, exons = build_data_gene_lengths(root_colab)
 
     # exonic length per transcript, then take the longest transcript per gene
     def union_len(iv):

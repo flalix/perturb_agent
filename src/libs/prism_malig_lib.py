@@ -165,7 +165,7 @@ class MalignantCluster:
                                "HOXB-AS3", "HOXB-AS4", "LEMD1-AS1", "MIR7-3HG")
         self._TAHOE_REPO = "tahoebio/Tahoe-100M"
 
-        self.program_gene_list = []
+        self._program_gene_list = []
 
         self.Z_full, self.genes_full = prism.full_Z(res, df_bulk, ref)
         self.Z_mal = prism.state_expression(self.Z_full, self.genes_full,
@@ -2237,8 +2237,10 @@ class MalignantCluster:
         self,
         compartment_map: Dict[str, str],
         min_share: float = 0.30,
+        min_counts: int = 10,
         min_theta_median: float = 0.03,
         min_markers: int = 4,
+        batch: Optional[pd.DataFrame] = None,
     ) -> pd.DataFrame:
         """Go/no-go per compartment BEFORE scoring programs.
 
@@ -2260,7 +2262,7 @@ class MalignantCluster:
                 continue
             th = self.df_theta[ct]
             try:
-                M = self.compartment_matrix(ct, min_share=min_share, min_counts=MIN_COUNTS, batch=batch, )
+                M = self.compartment_matrix(ct, min_share=min_share, min_counts=min_counts, batch=batch, )
                 n_genes = M.shape[1]
             except Exception as e:
                 rows.append({"compartment": key, "cell_type": ct,
@@ -2577,26 +2579,26 @@ class MalignantCluster:
         return df_corr
 
 
-    def program_genes(self, compartments: Optional[Sequence[str]] = None) -> List[str]:
-        """Every marker gene used to define program scores.
+    def program_genes(self) -> List[str]:
+        """Every marker gene used to define program scores, across all compartments.
 
-        Exclude these before running DE on program-derived labels: the groups
-        were defined by these genes, so they top the table by construction and
-        tell you nothing. What is informative is which OTHER genes track the
-        labels.
+        Exclude these before running DE on program-derived labels: the groups were
+        defined by these genes, so they top the table by construction. What is
+        informative is which OTHER genes track the labels.
+
+        Note this removes panel genes only. Genes co-expressed with a panel still
+        recover the axis it defines, so excluding markers attenuates circularity in
+        same-compartment DE without eliminating it.
         """
+        if self._program_gene_list is None:
+            self._program_gene_list = sorted(
+                {g for progs in self.PROGRAMS.values()
+                    for gs in progs.values()
+                    for g in gs
+                }
+            )
+        return list(self._program_gene_list)
 
-        if self.program_gene_list:
-            return self.program_gene_list
-    
-        keys = compartments or list(self.PROGRAMS)
-        out = set()
-        for k in keys:
-            for gs in self.PROGRAMS.get(k, {}).values():
-                out.update(gs)
-
-        self.program_gene_list = list(out)
-        return list(self.program_gene_list )
 
     def state_signatures(
         self,
@@ -2652,7 +2654,6 @@ class MalignantCluster:
         axis_a: Optional[str] = None,
         axis_b: Optional[str] = None,
         exclude_program_genes: bool = True,
-        high_label: str = "high",
         verbose: bool = False,
     ) -> pd.DataFrame:
         """Two-way factorial DE for a 2x2 state design.
@@ -2681,10 +2682,11 @@ class MalignantCluster:
         BH FDR computed within each term.
         """
         cols = list(disc.columns)
-        axis_a = axis_a or cols[0]
-        axis_b = axis_b or cols[1]
         if len(cols) < 2:
             raise ValueError(f"need >=2 discretised axes, got {cols}")
+
+        axis_a = axis_a or cols[0]
+        axis_b = axis_b or cols[1]
 
         d = disc[[axis_a, axis_b]].dropna()
         # common samples
@@ -2698,8 +2700,8 @@ class MalignantCluster:
             if verbose:
                 print(f"excluded {n0 - Xs.shape[1]} program marker genes;  {Xs.shape[1]} remain")
 
-        A = (d[axis_a] == high_label).astype(float).values
-        B = (d[axis_b] == high_label).astype(float).values
+        A = (d[axis_a] == "high").astype(float).values
+        B = (d[axis_b] == "high").astype(float).values
         D = np.column_stack([np.ones(len(A)), A, B, A * B])
         n, p = D.shape
         if n <= p:
@@ -2715,6 +2717,8 @@ class MalignantCluster:
 
         names = ["intercept", f"A_{axis_a}", f"B_{axis_b}", "interaction"]
         out = {"gene": Xs.columns}
+
+        last_fdr_col = ''
         for i, nm in enumerate(names):
             if nm == "intercept":
                 continue
@@ -2726,10 +2730,13 @@ class MalignantCluster:
             out[f"p_{nm}"] = pv.values
             out[f"fdr_{nm}"] = self._bh(pv).values
 
+            last_fdr_col = "fdr_{nm}"
+
         dfr = pd.DataFrame(out).set_index("gene")
         dfr["n_samples"] = n
         dfr["cell_counts"] = str(d.groupby(list(d.columns)).size().to_dict())
-        dfr = dfr.sort_values("fdr_interaction")
+        if last_fdr_col != '':
+            dfr = dfr.sort_values(last_fdr_col)
         return dfr
 
     # ===========================================================================

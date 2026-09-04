@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import datetime as _dt
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Any
 
 import numpy as np
 import pandas as pd

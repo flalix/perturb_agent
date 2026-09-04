@@ -24,9 +24,9 @@ from typing import Any, Iterable, List, Optional, Tuple
 
 import scanpy as sc
 from anndata import AnnData
-from inmoose.limma import lmFit, eBayes, topTable, makeContrasts, contrasts_fit
+from inmoose.limma import lmFit, eBayes, topTable
 
-from scipy.stats import hypergeom, ttest_ind, zscore
+from scipy.stats import hypergeom, ttest_ind
 from sklearn.cluster import KMeans
 from sklearn.manifold import MDS
 from sklearn.metrics import pairwise_distances
@@ -38,7 +38,6 @@ from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 import umap
 import hdbscan
 
-from scipy.stats import ttest_ind
 from statsmodels.stats.multitest import multipletests
 
 import matplotlib.patches as mpatches
@@ -2469,15 +2468,15 @@ class cBioPortal(object):
                     timeout=timeout,
                 )
             
-            if df_cbio is None or df_self.empty:
+            if df_cbio is None or df_cbio.empty:
                 print(f"No cBioPortal samples found for study_id={study_id}.")
                 return pd.DataFrame(), pd.DataFrame()
 
-            if "sequenced" in df_self.columns:
+            if "sequenced" in df_cbio.columns:
                 sequenced = df_cbio["sequenced"].astype(bool)
                 df_cbio = df_cbio[sequenced].copy()
 
-            if "sampleId" not in df_self.columns:
+            if "sampleId" not in df_cbio.columns:
                 print(f"cBioPortal sample table for {study_id} has no sampleId column.")
                 return pd.DataFrame(), pd.DataFrame()
 

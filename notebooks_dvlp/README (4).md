@@ -24,13 +24,12 @@ Current case study: **pancreatic adenocarcinoma (PAAD)**.
 - [4. Cell-type deconvolution with BayesPrism](#4-cell-type-deconvolution-with-bayesprism)
 - [5. Program-level analysis: challenges and statistical power](#5-program-level-analysis-challenges-and-statistical-power)
 - [6. Compartment-specific factorial DE](#6-compartment-specific-factorial-de-methods-check)
-- [7. Results: survival (Kaplan–Meier and Cox)](#7-results-survival-kaplanmeier-and-cox)
-- [8. DEGs analysis](#8-degs-analysis) 🚧
-- [9. Downstream modules](#9-downstream-modules)
-- [10. Roadmap](#10-roadmap)
-- [11. Reproducibility](#11-reproducibility)
-- [12. References](#12-references)
-- [13. Contact](#13-contact)
+- [7. Results: survival (Kaplan–Meier)](#7-results-survival-kaplanmeier)
+- [8. Downstream modules](#8-downstream-modules)
+- [9. Roadmap](#9-roadmap)
+- [10. Reproducibility](#10-reproducibility)
+- [11. References](#11-references)
+- [12. Contact](#12-contact)
 
 ---
 
@@ -527,141 +526,32 @@ expression correlate — a coherent and reportable negative result.
 The `interaction` contrast is returned by `contrasts_of` but is not reported: at n = 108
 across four factorial cells it is underpowered genome-wide, and on the diagonal it
 inherits the circularity of its parent contrast.
-## 7. Results: survival (Kaplan–Meier and Cox)
+## 7. Results: survival (Kaplan–Meier)
 
-This section analyses the **program axes**, not the candidate genes of §6. A basal-high
-tumour axis is associated with worse overall survival in the pooled cohort, but the effect
-attenuates substantially under per-cohort adjustment and should be treated as preliminary.
+Patients were stratified by program-level expression of each candidate gene (high vs. low)
+and by CAF / Basal program fraction.
 
-### 7.1 Design
+- **Method**: Kaplan–Meier estimator, log-rank test; Cox proportional hazards for adjusted HR
+- **Endpoint**: overall survival (TCGA-PAAD clinical follow-up)
+- **Covariates**: stage (AJCC), age, sex
 
-Both axes are median-dichotomized for display:
+<!-- TODO: fill in n, HR, CI and p per stratification -->
 
-- **A** = `basal_minus_classical` (malignant compartment), high vs. low
-- **B** = `myCAF_minus_iCAF` (fibroblast compartment), high vs. low
+| Stratification | n (high / low) | HR (95% CI) | log-rank *p* |
+|---|---|---|---|
+| `GENE_1`, CAF program | — | — | — |
+| `GENE_2`, Basal program | — | — | — |
+| `GENE_3`, Basal program | — | — | — |
+| CAF fraction (high vs low) | — | — | — |
 
-Endpoint is overall survival; `study` (TCGA / CPTAC3) enters as a stratum in the pooled fit.
-
-### 7.2 Kaplan–Meier, four states
-
-![Kaplan-Meier by program state](./figures/paad_km_4group.png)
-
-4-group log-rank **p = 0.052** (3 df), n = 103, 58 deaths.
-
-| State | n | deaths |
-|---|---:|---:|
-| basal-lo / iCAF-hi | 29 | 11 |
-| basal-lo / myCAF-hi | 23 | 14 |
-| basal-hi / iCAF-hi | 24 | 16 |
-| basal-hi / myCAF-hi | 27 | 17 |
-
-Separation is driven by the tumour axis: both basal-high arms track together and below both
-basal-low arms. The stroma axis separates visibly **only within basal-low**, which is the
-qualitative pattern behind the negative interaction term in §7.3 — but at n ≈ 25 per cell it
-is not estimable.
-
-> ⚠️ **The tail is not interpretable.** The at-risk table falls to ≤ 3 per arm beyond
-> 30 months; the drop to zero survival at ~44 months is a single death with a single
-> patient at risk. The x-axis should be truncated at 24–30 months for any published
-> version.
-
-> ⚠️ **Curves cross** (basal-hi solid vs. dashed, repeatedly). Proportional hazards is
-> the assumption most likely violated here; `CoxPHFitter.check_assumptions()` has not yet
-> been run, and under non-PH the hazard ratios below are time-averages rather than
-> constant effects.
-
-### 7.3 Cox proportional hazards
-
-**Pooled, stratified by study** (n = 103, 58 events, concordance 0.673):
-
-| Term | HR | 95% CI | *p* |
-|---|---:|---|---:|
-| **A** (basal-hi) | **3.23** | 1.43 – 7.29 | **0.005** |
-| **B** (myCAF-hi) | **2.51** | 1.04 – 6.07 | **0.040** |
-| age | 1.04 | 1.01 – 1.07 | 0.009 |
-| male | 1.70 | 0.99 – 2.94 | 0.055 |
-| A × B | 0.45 | 0.15 – 1.35 | 0.153 |
-
-**TCGA only, adjusted for stage** (n = 67, 38 events, concordance 0.666):
-
-| Term | HR | 95% CI | *p* |
-|---|---:|---|---:|
-| A (basal-hi) | 2.24 | 0.73 – 6.89 | 0.160 |
-| B (myCAF-hi) | 1.67 | 0.61 – 4.59 | 0.322 |
-| age | 1.06 | 1.02 – 1.10 | 0.002 |
-| male | 1.73 | 0.85 – 3.55 | 0.133 |
-| A × B | 0.76 | 0.19 – 3.05 | 0.696 |
-| stage_num | 1.22 | 0.74 – 2.02 | 0.443 |
-
-**TCGA reduced** (A + B + stage + age; n = 67, concordance 0.643):
-
-| Term | HR | 95% CI | *p* |
-|---|---:|---|---:|
-| A (basal-hi) | 1.65 | 0.84 – 3.22 | 0.144 |
-| B (myCAF-hi) | 1.28 | 0.62 – 2.61 | 0.507 |
-| stage_num | 1.26 | 0.76 – 2.08 | 0.369 |
-| age | 1.06 | 1.02 – 1.09 | 0.001 |
-
-### 7.4 Interpretation and caveats
-
-**1. The effect does not survive per-cohort adjustment.** A falls from HR 3.23 to 1.65 and
-B from 2.51 to 1.28 between the pooled and TCGA-only fits. Wider CIs at n = 67 are expected
-from power loss — but the *point estimates moving* is not, and indicates the pooled effect
-is substantially carried by CPTAC3. `strata=["study"]` controls the baseline hazard while
-still assuming a single shared coefficient across cohorts.
-
-> **Required before this is reported.** Fit `A × study` and `B × study` interactions, or
-> fit each cohort separately and meta-analyze, as was done for the θ-level coupling. If the
-> cohorts disagree on the coefficient, the pooled HR is not estimating a common quantity.
-
-**2. KM and Cox disagree, and both are correct.** Log-rank p = 0.052 spends 3 df on an
-unordered four-way comparison; the Cox model tests a focused main effect on 1 df. The
-figure title is the honest summary of the stratification as plotted and should not be
-captioned as significant.
-
-**3. The interaction is a scale artifact, not antagonism.** A × B is negative in every fit
-(HR 0.45, 0.76) and never significant. On the log-hazard scale, when A already carries
-HR ≈ 3, there is less room for B to add — sub-additivity follows from non-collapsibility
-and is not evidence that myCAF content protects basal tumours.
-
-**4. Stage is not doing the work it appears to.** `stage_num` at p = 0.44 is implausible
-for PDAC, where stage is the dominant clinical predictor. This almost certainly reflects
-the TCGA-PAAD stage distribution being close to constant (predominantly IIB) rather than
-stage being uninformative — so "adjusted for stage" is weaker reassurance than it reads.
-
-```python
-d.stage_num.value_counts()   # TODO: report the distribution
-```
-
-**5. Dichotomization.** Both axes are median-split. This discards information, and for two
-*correlated* axes it is the specific configuration that manufactures spurious interactions
-(Maxwell & Delaney 1993). The continuous scores should be the primary model; the
-dichotomy belongs to the KM figure only.
-
-### 7.5 Claim supported by these data
-
-> In the pooled cohort, basal-high tumours show worse overall survival
-> (HR 3.23, 95% CI 1.43–7.29, p = 0.005, stratified by study). The effect attenuates to
-> HR 1.65 (95% CI 0.84–3.22, p = 0.14) in TCGA alone adjusted for stage and age, so
-> cohort heterogeneity cannot be excluded and the estimate should be treated as
-> preliminary pending per-cohort meta-analysis.
-
-Not supported: that the §6 candidate genes predict survival — that analysis has not been run.
+![Kaplan-Meier curves](./figures/paad_kaplan_meier.png)
+*Overall survival by program-level gene expression.*
 
 ---
 
-## 8. DEGs analysis
+## 8. Downstream modules
 
-> 🚧 To be implemented.
-
-Cell-type-specific differential expression on the BayesPrism compartment matrices, with the
-off-diagonal cross-compartment test of §6.5 as the entry point.
-
----
-
-## 9. Downstream modules
-
-### 9.1 Pathway perturbation modeling
+### 8.1 Pathway perturbation modeling
 
 1. Retrieve [Reactome](https://reactome.org/) pathways and gene sets.
 2. Map DEGs onto pathways.
@@ -674,14 +564,14 @@ off-diagonal cross-compartment test of §6.5 as the entry point.
 5. Build a perturbation profile per selected pathway, highlighting DEGs vs.
    network-propagated genes.
 
-### 9.2 Patient representation and clustering
+### 8.2 Patient representation and clustering
 
 1. Represent each patient as a pathway perturbation vector.
 2. Cluster patients on pathway-level features.
 
 > Note: this now runs on **program-level** DEGs, not bulk DEGs (see §3.2).
 
-### 9.3 Biological and therapeutic annotation
+### 8.3 Biological and therapeutic annotation
 
 For each patient cluster and pathway:
 
@@ -695,7 +585,7 @@ For each patient cluster and pathway:
    [DrugBank](https://go.drugbank.com/) · [ChEMBL](https://www.ebi.ac.uk/chembl/)
 4. **Mechanism of action**: inferred from LINCS perturbation profiles
 
-### 9.4 Visualization and reporting
+### 8.4 Visualization and reporting
 
 1. **Pathway-level views**: perturbed genes, network structure, DEG vs. propagated genes.
 2. **Cluster-level summaries**: shared pathways/genes, candidate drugs and MOA.
@@ -705,16 +595,16 @@ For each patient cluster and pathway:
 
 ---
 
-## 10. Roadmap
+## 9. Roadmap
 
-### 10.1 Next — cell-type-specific differential expression
+### 9.1 Next — cell-type-specific differential expression
 
 Compute DEGs directly on the BayesPrism cell-type-specific expression tensor rather than on
 bulk counts, so that each DEG is attributable to a defined cell type/program. This addresses
 the core limitation identified in §3.2, where bulk DE could not separate tumor from stromal
 signal.
 
-### 10.2 Final — validation against pure PDAC single-cell data
+### 9.2 Final — validation against pure PDAC single-cell data
 
 Compare deconvolution-derived programs, DEGs and candidate targets against **pure pancreatic
 cancer single-cell experiments**. The single-cell data acts as ground truth: a program or
@@ -722,7 +612,7 @@ DEG recovered from bulk should reproduce in real single-cell PDAC measurements. 
 validates the deconvolution approach; disagreement bounds what bulk deconvolution can
 legitimately claim.
 
-### 10.3 Open questions
+### 9.3 Open questions
 
 1. Given a primary site, subtype and stage — are all samples similar? What structure does
    clustering actually recover?
@@ -731,7 +621,7 @@ legitimately claim.
 
 ---
 
-## 11. Reproducibility
+## 10. Reproducibility
 
 <!-- TODO: complete with actual build/run commands -->
 
@@ -752,7 +642,7 @@ Nextflow runtime.
 
 ---
 
-## 12. References
+## 11. References
 
 **BayesPrism** — Chu T., Wang Z., Pe'er D., Danko C.G. *Cell type and gene expression
 deconvolution with BayesPrism enables Bayesian integrative analysis across bulk and
@@ -767,7 +657,7 @@ PMID: 31273297; PMCID: PMC6796938.
 
 ---
 
-## 13. Contact
+## 12. Contact
 
 **Flavio Lichtenstein, PhD**
 📧 flalix@gmail.com
