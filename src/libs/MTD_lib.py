@@ -66,7 +66,7 @@ nc_biotype_list = ctx.nc_biotype_list
 
 class MTD(object):
 	def __init__(self, disease:str, gene_protein:str, s_omics:str, project:str, s_project:str, 
-			     root0:Path, root0_data:Path, prog_id:str, psi_id:str,
+			     root0:Path, root0_data:Path, prog_id:str, psi_id:str, dstudy:str,
 				 case_list:List, dic_case_list:dict, has_age:bool=True, has_gender:bool=True, exp_normalization:bool=False, 
 				 std_filename:str='', std_filename_list:list=[],
 				 geneset_num:int=0, ptw_min_num_of_degs_cut:int=3,
@@ -85,7 +85,7 @@ class MTD(object):
 
 		self.prog_id = prog_id
 		self.psi_id = psi_id
-
+		self.dstudy = dstudy
 		self.root0_data = Path(root0_data)
 		self.root_colab   = create_dir(root0_data, 'colab')
 		self.root_project = create_dir(root0_data, prog_id)
@@ -8835,7 +8835,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 		cbio = cBioPortal(self.root0, root0_data=self.root0_data, memory_restriction=False)
 		self.cbio = cbio
 
-		df_psi = cbio.set_program_and_primary_site(prog_id=self.prog_id, psi_id=self.psi_id, verbose=verbose)
+		df_psi = cbio.set_program_and_primary_site(prog_id=self.prog_id, psi_id=self.psi_id, dstudy=self.dstudy, verbose=verbose)
 
 		print(">>> psi_id or disease:", self.psi_id)
 
@@ -8852,6 +8852,7 @@ Return a tsv file with respective header, separate char as '\t', and nothing mor
 
 		df_lfc_all, msg = cbio.calc_lfc_table(
 			psi_id=self.psi_id,
+			dstudy=self.dstudy,
 			run_conda=True,
 			method="deseq2",
 			verbose=verbose,

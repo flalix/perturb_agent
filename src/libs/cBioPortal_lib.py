@@ -93,6 +93,7 @@ class cBioPortal(object):
         self.root_mprog = create_dir(self.root0_data, "multi_progs")
         self.root_prism = Path()
         self.root_mprog_disease = Path()
+        self.root_dstudy = Path()
         self.root_mprog_lfc = Path()
 
         self.fname_prim_site_cbio = "cbioportal_study_mapping.tsv"
@@ -351,14 +352,14 @@ class cBioPortal(object):
         return df_psi
 
     def set_program_and_primary_site(
-        self, prog_id: str, psi_id: Any = None, primary_site: Any = None, verbose: bool = False) -> pd.DataFrame:
+        self, prog_id: str, psi_id: str, dstudy: str, verbose: bool = False) -> pd.DataFrame:
 
         self.set_program(prog_id=prog_id)
 
-        return self.set_primary_site(psi_id=psi_id, primary_site=primary_site, verbose=verbose)
+        return self.set_primary_site(psi_id=psi_id, dstudy=dstudy, verbose=verbose)
 
     def set_primary_site(
-        self, psi_id: Any = None, primary_site: Any = None, verbose: bool = False
+        self, psi_id: str, dstudy: str, primary_site: str = '', verbose: bool = False
     ) -> pd.DataFrame:
         '''
         primary site, here, is a disease
@@ -371,7 +372,7 @@ class cBioPortal(object):
         if self.df_psi.empty:
             _= self.open_primary_site(verbose=verbose)
 
-        self.psi_id = ""
+        self.psi_id , self.dstudy = "", ""
         self.primary_site, self.disease_type, self.disease_name, self.disease_id = "", "", "", ""
 
         self.fname_cases, self.filename_cases = '', Path()
@@ -397,6 +398,7 @@ class cBioPortal(object):
 
         self.prog_id = row.prog_id
         self.psi_id = row.psi_id
+        self.dstudy = dstudy
         self.primary_site = row.primary_site
         self.prog_psi_id = row.prog_id + ' - ' + row.psi_id
         self.disease_id = row.disease_id
@@ -405,10 +407,11 @@ class cBioPortal(object):
         self.cbioportal_study_id = row.cbioportal_study_id
 
         self.root_mprog_disease = create_dir(self.root_mprog, self.disease_cd)
-        self.root_mprog_lfc = create_dir(self.root_mprog_disease, "lfc")
-        self.root_prism     = create_dir(self.root_mprog_disease, "prism")
-        self.root_cluster   = create_dir(self.root_mprog_disease, "cluster")
-        self.root_tahoe     = create_dir(self.root_mprog_disease, "tahoe")
+        self.root_dstudy    = create_dir(self.root_mprog_disease, self.dstudy)
+        self.root_mprog_lfc = create_dir(self.root_dstudy, "lfc")
+        self.root_prism     = create_dir(self.root_dstudy, "prism")
+        self.root_cluster   = create_dir(self.root_dstudy, "cluster")
+        self.root_tahoe     = create_dir(self.root_dstudy, "tahoe")
 
         #------------- create dirs ------------------
         self.root_disease = create_dir(self.root_project, self.psi_id)
@@ -427,11 +430,17 @@ class cBioPortal(object):
             print("\n-----------------------------")
             print(">> cbioportal_study_id:", self.cbioportal_study_id)
             print(">> gdc_project_id:", self.gdc_project_id)
-            print("\n-----------------------------")
+            print("\n---------- Bayes Prism -------------")
+            print(">> root m.project:", self.root_mprog_disease)
+            print(">> root d.study:", self.root_dstudy)
+            print(">> root m.p.prism:", self.root_prism)
+            print(">> root m.p.lfc:", self.root_mprog_lfc)
+            print(">> root m.p.tahoe:", self.root_tahoe)
+            print("\n------- TCGA, CPTAC3, ... ------------")
             print(">> root disease:", self.root_disease)
             print(">> root samples:", self.root_samples)
             print(">> root lfc:", self.root_lfc)
-            print(">> root mutations:", self.root_mutations)
+            print(">> root mutations:", self.root_mutations)            
             print("-----------------------------\n")
 
         self.set_filenames()
@@ -3893,6 +3902,7 @@ class cBioPortal(object):
     def calc_lfc_table(
         self,
         psi_id: str,
+        dstudy: str,
         run_conda: bool = False,
         method: str = "deseq2",
         imax_tumor: int = 200, 
@@ -3900,7 +3910,7 @@ class cBioPortal(object):
         verbose: bool = False,
     ) -> tuple[pd.DataFrame, str]:
 
-        _ = self.set_primary_site(psi_id=psi_id)
+        _ = self.set_primary_site(psi_id=psi_id, dstudy=dstudy)
 
         cdegs = CALC_DEGS(root_src=self.root_src, run_conda=run_conda)
         self.cdegs = cdegs

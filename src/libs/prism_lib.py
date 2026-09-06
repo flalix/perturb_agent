@@ -127,8 +127,12 @@ class PRISM(object):
         self.MOFFITT_NORMAL_STROMA = ["ACTA2", "MYH11", "DES", "VIM", "IGF1", "RSPO3", "SPOCK1"]
 
 
-    def set_program_and_primary_site(self, prog_id:str, psi_id:str, verbose:bool=False) -> pd.DataFrame:
-        df_psi = self.cbio.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
+    def set_program_and_primary_site(self, prog_id:str, psi_id:str, dstudy:str, verbose:bool=False) -> pd.DataFrame:
+        self.prog_id = prog_id
+        self.psi_id = psi_id
+        self.dstudy = dstudy
+
+        df_psi = self.cbio.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, dstudy=dstudy, verbose=verbose)
         self.df_psi = df_psi
 
         self.root_colab = self.cbio.root_colab
