@@ -57,6 +57,13 @@ import warnings
 
 import anndata as ad
 
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+from scipy.signal import find_peaks
+
 import scipy.sparse as sp
 from scipy.optimize import nnls
 
@@ -71,7 +78,8 @@ except Exception:  # pragma: no cover
     _HAS_TORCH = False
 
 
-__version__ = "1.2.0"          # bump on every edit; check with prism_lib.__version__
+__version__ = "1.2.5"          # bump on every edit
+
 # 1.1.0  gene_key="geneid" support: ensembl id normalisation (version suffix and
 #        _PAR_Y), _DROP_REGEX applied to symbols regardless of gene_key,
 #        per-gene_key cache filenames, persisted gene_map, plus
@@ -104,6 +112,10 @@ class PRISM(object):
         self.root_colab = Path()
         self.root_gtex  = Path()
         self.root_prism = Path()
+
+        self.prog_id = None
+        self.psi_id = None
+        self.dstudy = None
 
         self.fname_bulk = "bulk_matrix.tsv"
         self.fname_meta = "bulk_metadata.tsv"
@@ -1093,7 +1105,8 @@ class PRISM(object):
     '''    
     def check_reference(self, adata,
                         state_key: str = "cell_state", 
-                        type_key: str = "cell_type") -> dict:
+                        type_key: str = "cell_type",
+                        malignant: str = 'DUCTAL') -> dict:
         """
         Verify the reference satisfies BayesPrism's assumptions. The single most
         common failure is a normalised/log-transformed .X: the model is multinomial
@@ -1119,7 +1132,7 @@ class PRISM(object):
         if type_key in adata.obs:
             report["cell_types"] = adata.obs[type_key].value_counts().to_dict()
             report["has_malignant"] = any(
-                "malign" in str(t).lower() for t in adata.obs[type_key].unique()
+                malignant in str(t).lower() for t in adata.obs[type_key].unique()
             )
         if state_key in adata.obs:
             vc = adata.obs[state_key].value_counts()
@@ -1297,14 +1310,17 @@ class PRISM(object):
             print(df_ct.head(3))
 
         if type_col is None:
-            cands = [c for c in df_ct.columns if "type" in c.lower() or "cluster" in c.lower()]
+            # cands = [c for c in df_ct.columns if "type" in c.lower() or "cluster" in c.lower()]
+            cands = [c for c in df_ct.columns if c.lower().startswith('cluster')]
             if not cands:
                 raise ValueError(f"Could not guess the label column from {list(df_ct.columns)}")
             type_col = cands[0]
             if verbose:
                 print(f"using type_col='{type_col}'")
 
-        shared = adata.obs_names.intersection(df_ct.index)
+        ser_ct = df_ct[type_col]
+
+        shared = adata.obs_names.intersection(ser_ct.index)
         if verbose:
             print(f"barcode overlap: {len(shared):,} / {adata.n_obs:,}")
         if len(shared) < 0.5 * adata.n_obs:
@@ -1315,7 +1331,7 @@ class PRISM(object):
             )
 
         adata = adata[shared].copy()
-        adata.obs = adata.obs.join(df_ct.loc[shared])
+        adata.obs = adata.obs.join(ser_ct.loc[shared])
         adata.obs["cell_type"] = adata.obs[type_col].astype(str)
         adata.obs["cell_state"] = adata.obs[state_col or type_col].astype(str)
 
@@ -1328,6 +1344,60 @@ class PRISM(object):
         return adata
 
 
+
+    def count_modes(self, x, grid=512, min_prominence=0.05):
+        """Number of KDE peaks with normalized prominence >= min_prominence."""
+        x = x[~np.isnan(x)]
+        kde = gaussian_kde(x)
+        xs = np.linspace(x.min(), x.max(), grid)
+        dens = kde(xs)
+        dens /= dens.max()
+        peaks, _ = find_peaks(dens, prominence=min_prominence)
+        return len(peaks), xs, dens, peaks
+
+    def plot_random_genes(self, lfc: pd.DataFrame, genes: list, out="part1_density.png"):
+
+        n = len(genes)
+        fig, axes = plt.subplots(1, n, figsize=(4 * n, 3.5))
+        calls = {}
+        for ax, g in zip(axes, genes):
+            x = lfc[g].to_numpy()
+            n_modes, xs, dens, peaks = self.count_modes(x)
+            calls[g] = "unimodal" if n_modes == 1 else f"multimodal ({n_modes} modes)"
+            ax.hist(x, bins=30, density=True, alpha=0.5)
+            ax.plot(xs, dens * ax.get_ylim()[1], lw=2)      # KDE rescaled to hist height
+            ax.plot(xs[peaks], dens[peaks] * ax.get_ylim()[1], "rv")
+            ax.set_title(f"{g}\n{calls[g]}", fontsize=9)
+            ax.set_xlabel("lfc(CPM)")
+        fig.tight_layout()
+        fig.savefig(out, dpi=120)
+        return calls
+
+    def load_lfc(self, path=None, n_samples=80, n_genes=300, seed=0):
+        """Load samples x genes lfc(CPM) table from CSV, or build a synthetic demo."""
+        if path:
+            return pd.read_csv(path, index_col=0)
+        rng = np.random.default_rng(seed)
+        cols, data = [], []
+        for g in range(n_genes):
+            kind = rng.choice(["uni", "bi", "tri"], p=[0.6, 0.3, 0.1])
+            if kind == "uni":
+                x = rng.normal(0, 0.4, n_samples)
+            elif kind == "bi":
+                shift = rng.choice([-1, 1]) * rng.uniform(2.5, 4)
+                comp = rng.random(n_samples) < 0.35
+                x = np.where(comp, rng.normal(shift, 0.4, n_samples), rng.normal(0, 0.4, n_samples))
+            else:
+                comp = rng.choice([-1, 0, 1], n_samples, p=[0.25, 0.5, 0.25])
+                x = rng.normal(comp * rng.uniform(3, 4), 0.4, n_samples)
+            cols.append(f"GENE_{g:04d}_{kind}")
+            data.append(x)
+        return pd.DataFrame(np.array(data).T, columns=cols,
+                            index=[f"S{i:03d}" for i in range(n_samples)])
+
+
+
+    
 @dataclass
 class DeconvResult:
     theta: pd.DataFrame                     # samples x cell states (final)

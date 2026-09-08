@@ -3972,7 +3972,7 @@ class cBioPortal(object):
     ) -> Tuple[pd.DataFrame, pd.DataFrame, str, str]:
         
        
-        df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id)
+        df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, dstudy=self.dstudy)
 
         if df_psi2.empty:
             print(f"Error: failed to set primary site for {prog_id} {psi_id}")
@@ -4399,7 +4399,7 @@ class cBioPortal(object):
 
         for i, row in dfa.iterrows():
 
-            _ = self.set_program_and_primary_site(prog_id=row.prog_id, psi_id=row.psi_id)
+            _ = self.set_program_and_primary_site(prog_id=row.prog_id, psi_id=row.psi_id, dstudy=self.dstudy)
 
             fname_demo = self.fname_demo0 % row.cbioportal_study_id
             filename_demo = self.root_disease / self.fname_demo
@@ -5669,7 +5669,7 @@ class cBioPortal(object):
 
             psi_id = row.psi_id
             # only to set params
-            _ = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
+            _ = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, dstudy=self.dstudy, verbose=verbose)
             break
 
         filename_tumor = self.root_mprog_lfc / self.fname_tumor  
@@ -5707,7 +5707,7 @@ class cBioPortal(object):
             disease_id = row.disease_id
             primary_site = row.primary_site
 
-            df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, verbose=verbose)
+            df_psi2 = self.set_program_and_primary_site(prog_id=prog_id, psi_id=psi_id, dstudy=self.dstudy, verbose=verbose)
 
             print(f"{ipsi+1}) prog_id {prog_id}, psi_id {psi_id}, primary_site {primary_site}, disease_id {disease_id} - {self.root_lfc}", end=" ")
 

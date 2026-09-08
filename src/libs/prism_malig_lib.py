@@ -2233,6 +2233,20 @@ class MalignantCluster:
         return logx
 
 
+    def assert_malignant_sane(self, res, mal="DUCTAL", min_median=0.05, max_underflow=0.20):
+        '''
+        Add a guardrail so this can't recur silently: after every run_bayesprism, assert the malignant θ is tumor-shaped before anything reads it.
+        trips loudly next time a stale ref sneaks through
+        '''
+        d = res.theta[mal]
+        med, uf = d.median(), (d < 1e-6).mean()
+        assert med >= min_median and uf <= max_underflow, (
+            f"{mal} theta looks collapsed: median={med:.3f}, underflow={uf:.2f} "
+            "— check harmonize force=True / reference rebuild before proceeding.")
+        return dict(median=round(med,3), frac_ge_0_3=round((d>=0.3).mean(),2),
+                    underflow=round(uf,2))
+
+
     def compartment_readiness(
         self,
         compartment_map: Dict[str, str],
