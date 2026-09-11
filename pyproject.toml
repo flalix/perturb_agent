@@ -16,43 +16,36 @@ dependencies = [
     "tqdm>=4.66",
     "python-dotenv>=1.0",
     "fastcluster",
-    "kaleido", 
-    "psutil", 
-    "torch", 
-
-    "cellxgene_census", 
+    "kaleido",
+    "psutil",
+    "torch",
+    "cellxgene_census",
     "huggingface-hub",
     "datasets",
     "wandb",
     "duckdb",
-    "rpy2", 
-
+    "rpy2",
     "lifelines",
-
     # Clustering / VCF
     "umap-learn>=0.5,<0.6",
     "numba>=0.59,<0.60",
     "hdbscan>=0.8,<0.9",
     "pysam>=0.23,<0.24",
-
     # Streamlit UI
     "streamlit==1.25.0",
     "streamlit-aggrid==0.3.4.post3",
     "protobuf==3.20.*",
     "altair<6",
     "click>=8.1,<8.2",
-
     # Dash / Cytoscape web graph
     "dash>=2.16,<3",
     "dash-cytoscape>=1.0,<2",
-    "dash-bootstrap-components", 
-
+    "dash-bootstrap-components",
     # Graph / pathway parsing
     "networkx>=3.2",
     "rdflib>=7.0",
     "pyvis>=0.3.2",
     "py4cytoscape>=1.10",
-
     # Bioinformatics helpers
     "biopython>=1.83",
     "biomart",
@@ -62,10 +55,10 @@ dependencies = [
     "pybiopax",
     "combat",
     "scanpy",
+    "infercnvpy",
     "anndata",
     "pyranges",
     "inmoose",
-
     # Plotting
     "matplotlib>=3.8,<3.10",
     "plotly>=5.20",
@@ -74,13 +67,12 @@ dependencies = [
     "pycirclize",
     "plotly",
     "markdown-pdf",
-
     # PDF / papers
     "pypdf>=4.0",
-
     # Jupyter/dev
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
+    "infercnvpy>=0.6.1",
 ]
 
 
