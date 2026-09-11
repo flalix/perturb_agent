@@ -7,8 +7,6 @@ Current case study: **pancreatic adenocarcinoma (PAAD)**.
 
 **Status**: 🚧 Under development
 
-**Live demo**: [perturb-agent.onrender.com](https://perturb-agent.onrender.com/)
-
 ---
 
 ## 📑 Table of contents
